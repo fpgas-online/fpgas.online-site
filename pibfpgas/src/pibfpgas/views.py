@@ -1,16 +1,11 @@
 # pibup - pib upload form
 
-from base64 import b64encode
-
-from django.http import HttpResponseRedirect
-from django.shortcuts import render
-from django.shortcuts import get_object_or_404
 
 from django.conf import settings
+from django.shortcuts import get_object_or_404, render
+from pibup.forms import UploadFileForm
 
 from .models import Pi
-
-from pibup.forms import UploadFileForm
 
 
 def home(request):

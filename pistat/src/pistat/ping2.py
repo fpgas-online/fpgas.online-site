@@ -1,4 +1,4 @@
-from subprocess import Popen, PIPE, TimeoutExpired
+from subprocess import PIPE, Popen
 
 
 def ping(ip):

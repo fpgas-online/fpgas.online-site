@@ -1,14 +1,15 @@
 
 import argparse
+import os
+import sys
+from pprint import pprint
 
 import paramiko
-
-from pprint import pprint
+from asgiref.sync import async_to_sync
 
 # so we can send the browser a message when ...
 # tangle up this code with the django-connect web socket code :(
 from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
 
 
 def notify_dcws(port,msg):
@@ -40,8 +41,8 @@ def run_on_pi(port,cmd):
     ret['stderr']=list(stderr)
 
     for k in ret:
-      for l in ret[k]:
-        msg=f"{k}: {l}".strip()
+      for line in ret[k]:
+        msg=f"{k}: {line}".strip()
         # send stdio to the web page
         # (I wish this happened somewhere else.
         # having it here makes this module hard to test.)

@@ -2,6 +2,7 @@
 
 from django.db import models
 
+
 class Pi(models.Model):
     port = models.IntegerField()
     mac = models.CharField(max_length=17, blank=True)

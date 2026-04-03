@@ -1,18 +1,13 @@
 # pici pistat/views.py
 
 import json
-import os
 import subprocess
-from pprint import pprint
-
-from django.shortcuts import render
-from django.http import HttpResponse
-
-from django.views.decorators.csrf import csrf_exempt
-
-from channels.layers import get_channel_layer
 
 from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+
 
 def humanize(m):
     # given a key, add a bunch of text to make humans happy
@@ -29,7 +24,6 @@ def humanize(m):
             'ssh': 'ssh server started.',
             'ArtyHere': 'Arty board detected.',
             'NoArty': 'Arty board not detected. probably because https://github.com/CarlFK/pici/issues/39',
-            'ArtyHere': 'Arty board detected.',
             'ArtyWire': 'Arty pmod wire test passed.',
             'ArtyNoWire': 'Arty pmod wire test failed.',
             }.get(m)

@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from pibdemos.views import blink, micro_python, linux
+from pibdemos.views import blink, linux, micro_python
 
 urlpatterns = [
     path('blink', blink),
