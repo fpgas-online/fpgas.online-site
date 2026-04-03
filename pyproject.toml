@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpgas-online-site"
+version = "0.1.0"
+description = "Django web application for fpgas.online"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=4.2",
+    "channels[daphne]>=4.0",
+    "fpgas-online-poe",
+]
+
+[tool.setuptools.packages.find]
+where = ["pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src"]
+include = ["pib*", "pistat*"]
+
+[tool.setuptools.package-data]
+"*" = ["templates/**/*", "static/**/*"]
