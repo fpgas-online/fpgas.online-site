@@ -2,7 +2,8 @@
 
 This repo is part of the [fpgas.online](https://fpgas.online) FPGA-as-a-Service platform.
 The platform provides remote access to real FPGA boards (Arty A7, NeTV2, Fomu, TinyTapeout)
-via PoE-powered Raspberry Pis that are network-booted.
+via PoE-powered Raspberry Pis that are network-booted. There are two deployment sites:
+Welland (private test lab in South Australia) and PS1 hackerspace (public service in Chicago).
 
 This codebase was extracted from the original monorepo [`carlfk/pici`](https://github.com/CarlFK/pici)
 in April 2026 using `git filter-repo` to preserve commit history. The monorepo was split into
