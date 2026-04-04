@@ -5,3 +5,4 @@ dist/
 build/
 *.sqlite3
 .venv/
+pib/local_settings.py
