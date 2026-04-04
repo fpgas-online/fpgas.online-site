@@ -12,7 +12,8 @@ requires-python = ">=3.11"
 dependencies = [
     "django>=4.2",
     "channels[daphne]>=4.0",
-    "fpgas-online-poe",
+    "paramiko",
+    "fpgas-online-poe @ git+https://github.com/fpgas-online/fpgas.online-poe.git",
 ]
 
 [tool.setuptools.packages.find]
