@@ -13,12 +13,22 @@ dependencies = [
     "django>=4.2",
     "channels[daphne]>=4.0",
     "paramiko",
+    "requests>=2.31",
+    "PyYAML>=6",
     "fpgas-online-poe @ git+https://github.com/fpgas-online/fpgas.online-poe.git",
 ]
 
+[dependency-groups]
+dev = ["pytest>=8", "pytest-django>=4.8", "ruff>=0.6"]
+
 [tool.setuptools.packages.find]
-where = ["pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src"]
-include = ["pib*", "pistat*"]
+where = ["pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src", "ttsite/src"]
+include = ["pib*", "pistat*", "ttsite*"]
 
 [tool.setuptools.package-data]
 "*" = ["templates/**/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "pib.settings"
+testpaths = ["tests"]
+pythonpath = ["."]
