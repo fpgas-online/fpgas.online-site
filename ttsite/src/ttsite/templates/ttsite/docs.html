@@ -1,0 +1,12 @@
+<h1>Documentation</h1>
+
+{% for section in sections %}
+<section>
+  <h2>{{ section.title }}</h2>
+  <ul>
+    {% for link in section.links %}
+    <li><a href="{{ link.url }}">{{ link.label }}</a>{% if link.note %} &mdash; {{ link.note }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}

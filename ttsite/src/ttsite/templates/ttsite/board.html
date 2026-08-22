@@ -1,0 +1,19 @@
+<h1>{{ board.title }}</h1>
+
+{% if not live %}
+<p>coming soon</p>
+{% else %}
+<p>Stream: {{ board.stream_url }}</p>
+<p>Serial: {{ board.serial_ws_path }}</p>
+{% for g in pistat_groups %}
+<p>Stat: ws/pistat/{{ g }}/</p>
+{% endfor %}
+{% if shuttle_url %}
+<p>Shuttle: <a href="{{ shuttle_url }}">{{ board.shuttle }}</a></p>
+{% endif %}
+{% if COMMANDER_VERSION %}
+<script type="module" src="{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js"></script>
+{% else %}
+<p>Commander bundle not deployed</p>
+{% endif %}
+{% endif %}

@@ -19,7 +19,7 @@ from django.views.generic.base import RedirectView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', view=RedirectView.as_view(url="/fpgas/")),
+    path('', view=RedirectView.as_view(url="/fpgas/", permanent=True)),
     path('fpgas/', include('pibfpgas.urls')),
     path('snmp/', include('snmp_switch.urls')),
     path('pistat/', include('pistat.urls')),
