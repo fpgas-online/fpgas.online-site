@@ -1,4 +1,5 @@
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from ttsite.models import Board
 
@@ -73,6 +74,33 @@ def test_status_json_cached(c, boards, monkeypatch):
     c.get("/board/tt06/status.json")
     c.get("/board/tt06/status.json")
     assert len(calls) == 1
+
+
+def test_status_json_coming_soon_never_calls_daemon(c, boards, monkeypatch):
+    def boom(b, timeout=3.0):  # pragma: no cover - must never run
+        raise AssertionError("daemon.health called for a non-live board")
+
+    monkeypatch.setattr(daemon, "health", boom)
+    r = c.get("/board/kianv-1/status.json")
+    assert r.status_code == 200
+    assert r.json() == {"reachable": False, "error": "coming soon"}
+    assert cache.get("ttsite:health:kianv-1") is None
+
+
+def test_status_json_writes_pending_placeholder_before_calling_daemon(c, boards, monkeypatch):
+    def slow_health(b, timeout=3.0):
+        assert cache.get("ttsite:health:tt06") == {"reachable": False, "error": "pending"}
+        return {"reachable": True}
+
+    monkeypatch.setattr(daemon, "health", slow_health)
+    assert c.get("/board/tt06/status.json").json() == {"reachable": True}
+    assert cache.get("ttsite:health:tt06") == {"reachable": True}
+
+
+def test_coming_soon_page_has_no_status_polling(c, boards):
+    html = c.get("/board/kianv-1/").content.decode()
+    assert "data-status-url" not in html
+    assert 'id="tt-status"' not in html
 
 
 def test_docs_page(c):

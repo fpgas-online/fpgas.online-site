@@ -111,6 +111,7 @@ a { color: var(--tt-primary); }
 .tt-pill--noboard { background: #f8d6d6; color: #8a1c1c; }
 .tt-pill--offline { background: #e2e2e2; color: #555; }
 .tt-pill--unknown { background: #f0f0f0; color: #999; }
+.tt-pill--soon { background: #efeaff; color: #544ead; }
 
 .tt-board-grid {
   display: grid;

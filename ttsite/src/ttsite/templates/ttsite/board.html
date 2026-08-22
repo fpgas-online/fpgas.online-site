@@ -9,13 +9,14 @@
      data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
      data-port="{{ board.port|default_if_none:'' }}"
      data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
-     data-status-url="/board/{{ board.slug }}/status.json"
+     {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
      data-commander-js="{% if live and COMMANDER_VERSION %}{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js{% endif %}">
   <header class="tt-board-head">
     <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
-    <span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
+    {% if live %}<span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
+    {% else %}<span class="tt-pill tt-pill--soon">coming soon</span>{% endif %}
     {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>{% endif %}
     {% if live %}<button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
   </header>
