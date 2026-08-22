@@ -16,6 +16,7 @@ def boards(db):
     Board.objects.create(slug="tt03", port=3, kind="asic", shuttle="tt03", title="Tiny Tapeout 3", enabled=False)
     Board.objects.create(slug="kianv-1", port=None, kind="kianv", shuttle="tt06", title="KianV uLinux SoC")
     Board.objects.create(slug="fpga-1", port=12, kind="fpga", title="TT FPGA emulation board 1")
+    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
 
 
 def test_index_lists_sections(c, boards):
@@ -100,6 +101,12 @@ def test_board_page_data_attributes(c, boards, settings):
     assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
     assert "Power-cycle board" in html
     assert "ttsite/board.js" in html
+
+
+def test_power_button_only_on_switch_one(c, boards):
+    """/snmp/toggle only knows switch 1, so a switch-2 board must not offer the button."""
+    assert 'id="tt-power"' in c.get("/board/tt06/").content.decode()
+    assert 'id="tt-power"' not in c.get("/board/tt07/").content.decode()
 
 
 def test_board_page_video_js_has_sri(c, boards):

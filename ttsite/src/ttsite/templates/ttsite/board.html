@@ -16,8 +16,8 @@
     <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
     <span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
-    {% if live %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>
-    <button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
+    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>{% endif %}
+    {% if live %}<button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
   </header>
   {% if not live %}
     <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>

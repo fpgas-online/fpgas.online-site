@@ -65,11 +65,17 @@ function mount() {
     power.onclick = async () => {
       if (!confirm('Power-cycle this board? Anyone else using it will be interrupted.')) return;
       appendLog('power-cycle requested');
-      await fetch('/snmp/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: Number(d.port) }),
-      });
+      try {
+        // snmp_switch builds "<oid>.<port>", so the port must go over as a string
+        const r = await fetch('/snmp/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: d.port }),
+        });
+        appendLog(r.ok ? 'power-cycle: done' : `power-cycle: HTTP ${r.status}`);
+      } catch (e) {
+        appendLog('power-cycle: failed: ' + e);
+      }
     };
   }
   const vreset = document.getElementById('tt-video-reset');

@@ -36,6 +36,8 @@ def board(request, slug):
         live=b.live,
         shuttle_url=f"https://tinytapeout.com/chips/{b.shuttle}/" if b.shuttle else "",
         pistat_groups=[b.hostname, f"pi{b.port}"] if b.live else [],
+        # /snmp/toggle drives the first switch only, so hide the button elsewhere
+        can_power_cycle=b.live and b.switch == 1,
     )
     return render(request, "ttsite/board.html", ctx)
 
