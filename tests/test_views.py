@@ -27,6 +27,18 @@ def test_index_lists_sections(c, boards):
     assert "/board/tt06/" in html
 
 
+def test_index_coming_soon_cards_link_to_their_board_page(c, boards):
+    html = c.get("/").content.decode()
+    # kianv-1 has a row but no port: it still has a page worth reading
+    assert '<a href="/board/kianv-1/">Read about it' in html
+    # tt03 is an ASIC slot with a row: chip page AND board page
+    assert '<a href="/board/tt03/">Read about it' in html
+    assert "tinytapeout.com/chips/tt03/" in html
+    # an empty ASIC slot has no row, so only the chip page
+    assert "/board/tt01/" not in html
+    assert "tinytapeout.com/chips/tt01/" in html
+
+
 def test_board_page_live(c, boards, settings):
     settings.TTSITE_COMMANDER_VERSION = "0.1.0"
     html = c.get("/board/tt06/").content.decode()
