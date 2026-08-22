@@ -14,8 +14,17 @@ This is the web frontend that lets users interact with remote FPGA boards. It pr
 | `pistat` | Real-time Pi status via WebSocket (board detection, camera, SSH) |
 | `pibdemos` | Demo execution on FPGA boards via SSH |
 | `pibup` | Bitstream and file upload to Pi boards |
+| `ttsite` | TinyTapeout board catalogue, board pages, Commander fork embedding |
 
 The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package provides the `snmp_switch` Django app for PoE switch control (installed as a dependency).
+
+## Hosts
+
+The main application is served on `fpgas.online`. The TinyTapeout catalogue (`ttsite`) is served on a hostname specified by the `TTSITE_HOST` environment variable (e.g., `tinytapeout.fpgas.online`). Host routing is handled by a middleware layer (`ttsite.urls`) that dispatches requests based on the HTTP Host header.
+
+The `ttsite` app uses the `ttsite_loadboards` management command to seed the board database from a Google Sheets source, and the `TTSITE_COMMANDER_VERSION` setting pins the embedded Commander fork version.
+
+Note: The `pistat` app's `ping` view still assumes the legacy `pi<N>` numbering scheme for resolving Pi IP addresses and does not yet support the new hyphenated hostname scheme.
 
 ## Tech Stack
 

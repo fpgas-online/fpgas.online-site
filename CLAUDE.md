@@ -21,6 +21,7 @@ status, demo execution, file uploads, and PoE switch management through a browse
 - `pistat` -- Real-time Pi status via WebSocket (Django Channels/Daphne)
 - `pibdemos` -- Demo execution on FPGA boards via SSH to Pis
 - `pibup` -- Bitstream and file upload to Pi boards
+- `ttsite` -- TinyTapeout board catalogue and page rendering
 
 The `snmp_switch` app (PoE switch control) is in the separate `fpgas-online-poe` package.
 
@@ -45,6 +46,7 @@ are NOT in this repo -- they were moved to `fpgas.online-setup-pi`.
 - **Python**: Use `uv` for all Python commands (`uv run`, `uv pip`). Never use bare `python` or `pip`.
 - **Dates**: Use ISO 8601 (YYYY-MM-DD) or day-first formats. Never American-style month-first dates.
 - **Commits**: Make small, discrete commits. Each logical unit of work gets its own commit.
+- **Testing**: Run tests via `uv run pytest`.
 - **License**: Apache 2.0.
 - **Linting**: All repos have CI lint workflows. Fix lint errors before pushing.
 - **No force push**: Branch protection is enabled on main. Never force push.
