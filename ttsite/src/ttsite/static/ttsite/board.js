@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // board page glue: mount Commander, status pill, pistat log, power-cycle.
 // reads #ttsite-board's dataset: data-slug data-kind data-shuttle data-ws-path
-// data-api-base data-status-url data-port data-pistat-groups data-commander-js data-commander-css
+// data-api-base data-status-url data-port data-pistat-groups data-commander-js
 function mount() {
   const root = document.getElementById('ttsite-board');
   if (!root) return;

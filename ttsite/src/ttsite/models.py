@@ -19,7 +19,7 @@ class Board(models.Model):
     shuttle = models.CharField(max_length=16, blank=True, help_text="e.g. tt06; blank for FPGA boards")
     title = models.CharField(max_length=80)
     blurb = models.CharField(max_length=200, blank=True)
-    description = models.TextField(blank=True, help_text="Markdown")
+    description = models.TextField(blank=True, help_text="Plain text; line breaks are kept")
     pcb = models.CharField(max_length=80, blank=True)
     pmods = models.JSONField(default=list, blank=True)
     links = models.JSONField(default=list, blank=True)
