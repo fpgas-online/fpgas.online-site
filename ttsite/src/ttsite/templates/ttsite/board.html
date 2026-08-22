@@ -49,7 +49,6 @@
     {% if board.kind == "fpga" %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; the demo gallery and bitstream upload arrive in a later phase.</p>{% endif %}
   </section>
   {% if live %}<section class="tt-log"><h2>Status log</h2>
-    <p class="tt-notice tt-log-groups">Subscribed to: {% for g in pistat_groups %}<code>ws/pistat/{{ g }}/</code>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}
 </div>
 {% endblock %}

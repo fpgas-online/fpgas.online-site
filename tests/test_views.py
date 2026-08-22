@@ -45,7 +45,7 @@ def test_board_page_live(c, boards, settings):
     assert "/live/pi-sw1-p6.m3u8" in html
     assert "tt-commander/0.1.0/tt-commander-embed.js" in html
     assert "/ws/board/tt06/serial" in html
-    assert "ws/pistat/pi-sw1-p6/" in html and "ws/pistat/pi6/" in html
+    assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
     assert "tinytapeout.com/chips/tt06/" in html
 
 
