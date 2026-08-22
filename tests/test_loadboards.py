@@ -52,3 +52,39 @@ def test_unknown_kind_raises(tmp_path):
     p.write_text("tt_boards:\n  - {slug: x, port: 1, kind: banana, title: x}\n")
     with pytest.raises(Exception, match="kind"):
         call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_non_dict_entry_raises(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n  - just-a-string\n")
+    with pytest.raises(Exception, match="entry"):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_prune_refuses_empty_file_without_allow_empty(tmp_path):
+    call_command("ttsite_loadboards", str(DATA))
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("tt_boards: []\n")
+    with pytest.raises(Exception, match="--allow-empty"):
+        call_command("ttsite_loadboards", str(empty), "--prune")
+    assert Board.objects.count() == 4
+
+
+@pytest.mark.django_db
+def test_prune_allows_empty_file_with_flag(tmp_path):
+    call_command("ttsite_loadboards", str(DATA))
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("tt_boards: []\n")
+    call_command("ttsite_loadboards", str(empty), "--prune", "--allow-empty")
+    assert Board.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_empty_file_without_prune_is_a_no_op(tmp_path):
+    call_command("ttsite_loadboards", str(DATA))
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("tt_boards: []\n")
+    call_command("ttsite_loadboards", str(empty))
+    assert Board.objects.count() == 4

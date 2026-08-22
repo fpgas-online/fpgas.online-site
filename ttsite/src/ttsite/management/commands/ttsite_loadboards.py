@@ -21,15 +21,23 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("path")
         parser.add_argument("--prune", action="store_true", help="delete boards whose slug is not in the file")
+        parser.add_argument("--allow-empty", action="store_true",
+                            help="permit --prune against an empty tt_boards list (deletes every board)")
 
-    def handle(self, path, prune, **options):
+    def handle(self, path, prune, allow_empty, **options):
         with open(path, encoding="utf-8") as f:
             doc = yaml.safe_load(f)
         if not isinstance(doc, dict) or not isinstance(doc.get("tt_boards"), list):
             raise CommandError(f"{path}: expected a mapping with a 'tt_boards' list")
+        entries = doc["tt_boards"]
+        if prune and not entries and not allow_empty:
+            raise CommandError(f"{path}: refusing to --prune against an empty 'tt_boards' list; "
+                               f"pass --allow-empty if deleting every board is really what you want")
         seen = set()
         with transaction.atomic():
-            for entry in doc["tt_boards"]:
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise CommandError(f"{path}: entry is not a mapping: {entry!r}")
                 slug = entry.get("slug")
                 if not slug:
                     raise CommandError(f"{path}: entry without slug: {entry!r}")
