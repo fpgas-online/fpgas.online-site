@@ -1,48 +1,84 @@
-<h1>Tiny Tapeout boards at fpgas.online</h1>
+{% extends "ttsite/base.html" %}
+{% block head %}{% include "ttsite/_videojs_head.html" %}{% endblock %}
+{% block content %}
+<section class="tt-hero">
+  <h1>Tiny Tapeout boards at fpgas.online</h1>
+  <p>This is a community-run instance of <a href="https://tinytapeout.com/" target="_blank" rel="noopener">Tiny Tapeout</a>
+     hardware, hosted at Welland, South Australia. Anyone can drive these boards &mdash; no login required. Be nice:
+     others may be driving the same board at the same time.</p>
+</section>
 
-<section>
-  <h2>TT ASIC shuttles</h2>
-  <ul>
+<section id="asic">
+  <h2>Tiny Tapeout ASIC boards (TT01&ndash;TT10)</h2>
+  <div class="tt-grid">
     {% for n, b in asic_slots %}
-    <li>
-      {% if b and b.live %}
-        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
-      {% elif b %}
-        {{ b.title }} &mdash; coming soon
-      {% else %}
-        TT{{ n }} &mdash; coming soon
-      {% endif %}
-    </li>
+      <article class="tt-card {% if not b or not b.live %}tt-card--soon{% endif %}">
+        <h3>TT{{ n|stringformat:"02d" }}{% if b %} &middot; {{ b.title }}{% endif %}</h3>
+        {% if b and b.live %}
+          <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
+            <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
+          <p>{{ b.blurb }}</p>
+          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+        {% else %}
+          <p class="tt-soon">coming soon</p>
+          <a href="https://tinytapeout.com/chips/tt{{ n|stringformat:'02d' }}/" target="_blank" rel="noopener">TT{{ n|stringformat:"02d" }} chip page &#8599;</a>
+        {% endif %}
+      </article>
     {% endfor %}
-  </ul>
+  </div>
 </section>
 
-<section>
-  <h2>KianV uLinux SoC</h2>
-  <ul>
+<section id="kianv">
+  <h2>KianV RISC-V boards</h2>
+  <div class="tt-grid">
     {% for b in kianv_boards %}
-    <li>
-      {% if b.live %}
-        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
-      {% else %}
-        {{ b.title }} &mdash; coming soon
-      {% endif %}
-    </li>
+      <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
+        <h3>{{ b.title }}</h3>
+        {% if b.live %}
+          <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
+            <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
+          <p>{{ b.blurb }}</p>
+          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+        {% else %}
+          <p class="tt-soon">coming soon</p>
+        {% endif %}
+      </article>
     {% endfor %}
-  </ul>
+  </div>
 </section>
 
-<section>
+<section id="fpga">
   <h2>FPGA emulation boards</h2>
-  <ul>
+  <div class="tt-grid">
     {% for b in fpga_boards %}
-    <li>
-      {% if b.live %}
-        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
-      {% else %}
-        {{ b.title }} &mdash; coming soon
-      {% endif %}
-    </li>
+      <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
+        <h3>{{ b.title }}</h3>
+        {% if b.live %}
+          <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
+            <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
+          <p>{{ b.blurb }}</p>
+          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+        {% else %}
+          <p class="tt-soon">coming soon</p>
+        {% endif %}
+      </article>
     {% endfor %}
-  </ul>
+  </div>
 </section>
+
+<section id="how">
+  <h2>How this works</h2>
+  <p>Each board sits on a Raspberry Pi with a camera. The Commander you see is the
+     <a href="https://github.com/fpgas-online/tt-commander-app" target="_blank" rel="noopener">fpgas.online fork</a> of
+     Tiny Tapeout's Commander app, talking to the board's RP2040 over a WebSocket bridge. <a href="/docs/">Docs &rarr;</a></p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('video.video-js').forEach(function (v) {
+      if (window.videojs) videojs(v);
+    });
+  });
+</script>
+{% endblock %}

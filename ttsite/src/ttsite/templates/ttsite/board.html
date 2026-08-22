@@ -1,19 +1,55 @@
-<h1>{{ board.title }}</h1>
-
-{% if not live %}
-<p>coming soon</p>
-{% else %}
-<p>Stream: {{ board.stream_url }}</p>
-<p>Serial: {{ board.serial_ws_path }}</p>
-{% for g in pistat_groups %}
-<p>Stat: ws/pistat/{{ g }}/</p>
-{% endfor %}
-{% if shuttle_url %}
-<p>Shuttle: <a href="{{ shuttle_url }}">{{ board.shuttle }}</a></p>
-{% endif %}
-{% if COMMANDER_VERSION %}
-<script type="module" src="{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js"></script>
-{% else %}
-<p>Commander bundle not deployed</p>
-{% endif %}
-{% endif %}
+{% extends "ttsite/base.html" %}{% load static %}
+{% block title %}{{ board.title }} &middot; Tiny Tapeout at fpgas.online{% endblock %}
+{% block head %}
+{% include "ttsite/_videojs_head.html" %}
+{% if live and COMMANDER_VERSION %}<link rel="stylesheet" href="{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.css">{% endif %}
+{% endblock %}
+{% block content %}
+<div id="ttsite-board"
+     data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
+     data-port="{{ board.port|default_if_none:'' }}"
+     data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
+     data-status-url="/board/{{ board.slug }}/status.json"
+     data-pistat-groups="{{ pistat_groups|join:' ' }}"
+     data-commander-js="{% if live and COMMANDER_VERSION %}{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js{% endif %}">
+  <header class="tt-board-head">
+    <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
+    {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
+    <span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
+    {% if live %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>
+    <button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
+  </header>
+  {% if not live %}
+    <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>
+  {% else %}
+  <div class="tt-board-grid">
+    <section class="tt-camera"><video id="tt-video" class="video-js" controls autoplay muted playsinline preload="auto" data-setup="{}">
+      <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
+    <section class="tt-commander">
+      {% if COMMANDER_VERSION %}<div id="tt-commander"></div>
+      {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER_VERSION is empty).</p>{% endif %}
+    </section>
+  </div>
+  {% endif %}
+  <section class="tt-info">
+    <h2>About this board</h2>
+    {% if board.description %}<div class="tt-md">{{ board.description|linebreaks }}</div>{% endif %}
+    <dl>{% if board.pcb %}<dt>PCB</dt><dd>{{ board.pcb }}</dd>{% endif %}
+        {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url }}">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+        {% if live %}<dt>Where</dt><dd>Welland, switch {{ board.switch }} port {{ board.port }} ({{ board.hostname }})</dd>{% endif %}</dl>
+    <ul class="tt-links">
+      {% for l in board.links %}<li><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}
+      <li><a href="https://tinytapeout.com/guides/get-started-demoboard/" target="_blank" rel="noopener">Demo board guide &#8599;</a></li>
+      <li><a href="https://github.com/TinyTapeout/tt-micropython-firmware" target="_blank" rel="noopener">MicroPython SDK docs &#8599;</a></li>
+      <li><a href="https://tinytapeout.com/specs/pinouts/" target="_blank" rel="noopener">Pinouts &#8599;</a></li>
+      <li><a href="/docs/">All docs &rarr;</a></li>
+    </ul>
+    {% if board.kind == "kianv" %}<p class="tt-notice">KianV boards carry a QSPI flash/PSRAM PMOD and boot Linux on the chip; the one-click boot demo arrives in a later phase.</p>{% endif %}
+    {% if board.kind == "fpga" %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; the demo gallery and bitstream upload arrive in a later phase.</p>{% endif %}
+  </section>
+  {% if live %}<section class="tt-log"><h2>Status log</h2>
+    <p class="tt-notice tt-log-groups">Subscribed to: {% for g in pistat_groups %}<code>ws/pistat/{{ g }}/</code>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+    <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>{% endblock %}

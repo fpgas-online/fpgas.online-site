@@ -1,12 +1,19 @@
-<h1>Documentation</h1>
-
+{% extends "ttsite/base.html" %}
+{% block title %}Docs &middot; Tiny Tapeout at fpgas.online{% endblock %}
+{% block content %}
+<section class="tt-hero">
+  <h1>Documentation</h1>
+  <p>A curated set of links for driving the boards on this instance: Tiny Tapeout's own docs, plus notes specific
+     to fpgas.online.</p>
+</section>
 {% for section in sections %}
 <section>
   <h2>{{ section.title }}</h2>
-  <ul>
+  <ul class="tt-links">
     {% for link in section.links %}
-    <li><a href="{{ link.url }}">{{ link.label }}</a>{% if link.note %} &mdash; {{ link.note }}{% endif %}</li>
+    <li><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label }} &#8599;</a>{% if link.note %} &mdash; {{ link.note }}{% endif %}</li>
     {% endfor %}
   </ul>
 </section>
 {% endfor %}
+{% endblock %}

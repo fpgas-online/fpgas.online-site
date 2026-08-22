@@ -78,3 +78,33 @@ def test_docs_page(c):
     html = c.get("/docs/").content.decode()
     assert "tinytapeout.com/guides/get-started-demoboard" in html
     assert "tt-micropython-firmware" in html
+
+
+def test_chrome_nav_and_footer(c, boards):
+    html = c.get("/").content.decode()
+    for item in ["Boards", "ASIC", "KianV", "FPGA", "Docs", "tinytapeout.com"]:
+        assert item in html
+    assert "not operated by Tiny Tapeout Ltd" in html
+    assert "ttsite/ttlogo_400.png" in html
+    assert "#544ead" in (c.get("/static/ttsite/ttsite.css").content.decode() if False else open(
+        "ttsite/src/ttsite/static/ttsite/ttsite.css").read())
+
+
+def test_board_page_data_attributes(c, boards, settings):
+    settings.TTSITE_COMMANDER_VERSION = "0.1.0"
+    html = c.get("/board/tt06/").content.decode()
+    assert 'id="ttsite-board"' in html
+    assert 'data-slug="tt06"' in html and 'data-kind="asic"' in html and 'data-port="6"' in html
+    assert 'data-ws-path="/ws/board/tt06/serial"' in html
+    assert 'data-status-url="/board/tt06/status.json"' in html
+    assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
+    assert "Power-cycle board" in html
+    assert "ttsite/board.js" in html
+
+
+def test_board_page_video_js_has_sri(c, boards):
+    html = c.get("/board/tt06/").content.decode()
+    tags = [line for line in html.splitlines() if "vjs.zencdn.net" in line]
+    assert tags
+    for tag in tags:
+        assert 'integrity="sha384-' in tag
