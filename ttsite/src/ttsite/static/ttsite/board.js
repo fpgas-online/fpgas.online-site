@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // board page glue: mount Commander, status pill, pistat log, power-cycle.
 // reads #ttsite-board's dataset: data-slug data-kind data-shuttle data-ws-path
-// data-api-base data-status-url data-port data-pistat-groups data-commander-js data-commander-css
+// data-api-base data-status-url data-port data-pistat-groups data-commander-js
 function mount() {
   const root = document.getElementById('ttsite-board');
   if (!root) return;
@@ -65,11 +65,17 @@ function mount() {
     power.onclick = async () => {
       if (!confirm('Power-cycle this board? Anyone else using it will be interrupted.')) return;
       appendLog('power-cycle requested');
-      await fetch('/snmp/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: Number(d.port) }),
-      });
+      try {
+        // snmp_switch builds "<oid>.<port>", so the port must go over as a string
+        const r = await fetch('/snmp/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: d.port }),
+        });
+        appendLog(r.ok ? 'power-cycle: done' : `power-cycle: HTTP ${r.status}`);
+      } catch (e) {
+        appendLog('power-cycle: failed: ' + e);
+      }
     };
   }
   const vreset = document.getElementById('tt-video-reset');

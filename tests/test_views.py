@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from ttsite.models import Board
 
@@ -16,6 +19,7 @@ def boards(db):
     Board.objects.create(slug="tt03", port=3, kind="asic", shuttle="tt03", title="Tiny Tapeout 3", enabled=False)
     Board.objects.create(slug="kianv-1", port=None, kind="kianv", shuttle="tt06", title="KianV uLinux SoC")
     Board.objects.create(slug="fpga-1", port=12, kind="fpga", title="TT FPGA emulation board 1")
+    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
 
 
 def test_index_lists_sections(c, boards):
@@ -25,13 +29,25 @@ def test_index_lists_sections(c, boards):
     assert "/board/tt06/" in html
 
 
+def test_index_coming_soon_cards_link_to_their_board_page(c, boards):
+    html = c.get("/").content.decode()
+    # kianv-1 has a row but no port: it still has a page worth reading
+    assert '<a href="/board/kianv-1/">Read about it' in html
+    # tt03 is an ASIC slot with a row: chip page AND board page
+    assert '<a href="/board/tt03/">Read about it' in html
+    assert "tinytapeout.com/chips/tt03/" in html
+    # an empty ASIC slot has no row, so only the chip page
+    assert "/board/tt01/" not in html
+    assert "tinytapeout.com/chips/tt01/" in html
+
+
 def test_board_page_live(c, boards, settings):
     settings.TTSITE_COMMANDER_VERSION = "0.1.0"
     html = c.get("/board/tt06/").content.decode()
     assert "/live/pi-sw1-p6.m3u8" in html
     assert "tt-commander/0.1.0/tt-commander-embed.js" in html
     assert "/ws/board/tt06/serial" in html
-    assert "ws/pistat/pi-sw1-p6/" in html and "ws/pistat/pi6/" in html
+    assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
     assert "tinytapeout.com/chips/tt06/" in html
 
 
@@ -74,6 +90,33 @@ def test_status_json_cached(c, boards, monkeypatch):
     assert len(calls) == 1
 
 
+def test_status_json_coming_soon_never_calls_daemon(c, boards, monkeypatch):
+    def boom(b, timeout=3.0):  # pragma: no cover - must never run
+        raise AssertionError("daemon.health called for a non-live board")
+
+    monkeypatch.setattr(daemon, "health", boom)
+    r = c.get("/board/kianv-1/status.json")
+    assert r.status_code == 200
+    assert r.json() == {"reachable": False, "error": "coming soon"}
+    assert cache.get("ttsite:health:kianv-1") is None
+
+
+def test_status_json_writes_pending_placeholder_before_calling_daemon(c, boards, monkeypatch):
+    def slow_health(b, timeout=3.0):
+        assert cache.get("ttsite:health:tt06") == {"reachable": False, "error": "pending"}
+        return {"reachable": True}
+
+    monkeypatch.setattr(daemon, "health", slow_health)
+    assert c.get("/board/tt06/status.json").json() == {"reachable": True}
+    assert cache.get("ttsite:health:tt06") == {"reachable": True}
+
+
+def test_coming_soon_page_has_no_status_polling(c, boards):
+    html = c.get("/board/kianv-1/").content.decode()
+    assert "data-status-url" not in html
+    assert 'id="tt-status"' not in html
+
+
 def test_docs_page(c):
     html = c.get("/docs/").content.decode()
     assert "tinytapeout.com/guides/get-started-demoboard" in html
@@ -86,8 +129,8 @@ def test_chrome_nav_and_footer(c, boards):
         assert item in html
     assert "not operated by Tiny Tapeout Ltd" in html
     assert "ttsite/ttlogo_400.png" in html
-    assert "#544ead" in (c.get("/static/ttsite/ttsite.css").content.decode() if False else open(
-        "ttsite/src/ttsite/static/ttsite/ttsite.css").read())
+    css = Path(__file__).resolve().parents[1] / "ttsite" / "src" / "ttsite" / "static" / "ttsite" / "ttsite.css"
+    assert "#544ead" in css.read_text()
 
 
 def test_board_page_data_attributes(c, boards, settings):
@@ -100,6 +143,24 @@ def test_board_page_data_attributes(c, boards, settings):
     assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
     assert "Power-cycle board" in html
     assert "ttsite/board.js" in html
+
+
+def test_power_button_only_on_switch_one(c, boards):
+    """/snmp/toggle only knows switch 1, so a switch-2 board must not offer the button."""
+    assert 'id="tt-power"' in c.get("/board/tt06/").content.decode()
+    assert 'id="tt-power"' not in c.get("/board/tt07/").content.decode()
+
+
+def test_board_links_reject_dangerous_schemes(c, boards):
+    Board.objects.filter(slug="tt06").update(
+        links=[{"label": "x", "url": "javascript:alert(1)"},
+               {"label": "ok", "url": "https://example.invalid/a"}],
+        pmods=[{"name": "p", "url": "javascript:alert(2)"}],
+    )
+    html = c.get("/board/tt06/").content.decode()
+    assert "javascript:alert" not in html
+    assert html.count('href="#"') == 2
+    assert 'href="https://example.invalid/a"' in html
 
 
 def test_board_page_video_js_has_sri(c, boards):

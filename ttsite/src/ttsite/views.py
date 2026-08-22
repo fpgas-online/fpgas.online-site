@@ -8,6 +8,9 @@ from .docs_links import SECTIONS
 from .models import Board
 
 STATUS_CACHE_SECONDS = 5
+STATUS_PENDING_SECONDS = 3
+COMING_SOON = {"reachable": False, "error": "coming soon"}
+PENDING = {"reachable": False, "error": "pending"}
 
 
 def _common(request):
@@ -36,15 +39,22 @@ def board(request, slug):
         live=b.live,
         shuttle_url=f"https://tinytapeout.com/chips/{b.shuttle}/" if b.shuttle else "",
         pistat_groups=[b.hostname, f"pi{b.port}"] if b.live else [],
+        # /snmp/toggle drives the first switch only, so hide the button elsewhere
+        can_power_cycle=b.live and b.switch == 1,
     )
     return render(request, "ttsite/board.html", ctx)
 
 
 def board_status(request, slug):
     b = get_object_or_404(Board, slug=slug)
+    if not b.live:
+        return JsonResponse(dict(COMING_SOON))
     key = f"ttsite:health:{b.slug}"
     data = cache.get(key)
     if data is None:
+        # short-lived negative placeholder: concurrent pollers get an answer
+        # instead of each opening their own request to the daemon
+        cache.set(key, dict(PENDING), STATUS_PENDING_SECONDS)
         data = daemon.health(b)
         cache.set(key, data, STATUS_CACHE_SECONDS)
     return JsonResponse(data)

@@ -20,9 +20,19 @@ The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package
 
 ## Hosts
 
-The main application is served on `fpgas.online`. The TinyTapeout catalogue (`ttsite`) is served on a hostname specified by the `TTSITE_HOST` environment variable (e.g., `tinytapeout.fpgas.online`). Host routing is handled by a middleware layer (`ttsite.urls`) that dispatches requests based on the HTTP Host header.
+The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.
 
-The `ttsite` app uses the `ttsite_loadboards` management command to seed the board database from a Google Sheets source, and the `TTSITE_COMMANDER_VERSION` setting pins the embedded Commander fork version.
+Boards are seeded from `/etc/fpgas-online/tt-boards.yaml`, which is rendered on the host by the [fpgas.online-infra](https://github.com/fpgas-online/fpgas.online-infra) Ansible `site` role:
+
+```bash
+uv run python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --prune
+# on the deploy host:
+/srv/www/pib/venv/bin/python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --prune
+```
+
+`--prune` deletes rows whose slug is absent from the file; it refuses to run against an empty `tt_boards` list unless `--allow-empty` is also given.
+
+The `TTSITE_COMMANDER_VERSION` setting (also in `pib/settings.py`, overridable in `local_settings.py`) pins the embedded [Commander fork](https://github.com/fpgas-online/tt-commander-app) bundle version under `STATIC_URL`; when it is empty the board pages show a "bundle not deployed" notice instead of the Commander embed.
 
 Note: The `pistat` app's `ping` view still assumes the legacy `pi<N>` numbering scheme for resolving Pi IP addresses and does not yet support the new hyphenated hostname scheme.
 
@@ -58,6 +68,8 @@ This package is deployed by the [fpgas.online-infra](https://github.com/fpgas-on
 4. Sets up SSL via Let's Encrypt
 
 The app runs at `/srv/www/pib/` on the server (tweed).
+
+The wheel ships the `pib` project package (`settings.py`, `urls.py`, `asgi.py`, `asgi.base.py`) alongside the five Django apps; infra copies `settings.py`/`urls.py`/`asgi.py` into `/srv/www/pib/pib/` next to the Ansible-written `local_settings.py`. `pib/local_settings.py` is gitignored and is never packaged -- it only ever exists on the deploy host. `tests/` is excluded from the wheel.
 
 ## Directory Structure
 
