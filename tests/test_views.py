@@ -137,6 +137,18 @@ def test_power_button_only_on_switch_one(c, boards):
     assert 'id="tt-power"' not in c.get("/board/tt07/").content.decode()
 
 
+def test_board_links_reject_dangerous_schemes(c, boards):
+    Board.objects.filter(slug="tt06").update(
+        links=[{"label": "x", "url": "javascript:alert(1)"},
+               {"label": "ok", "url": "https://example.invalid/a"}],
+        pmods=[{"name": "p", "url": "javascript:alert(2)"}],
+    )
+    html = c.get("/board/tt06/").content.decode()
+    assert "javascript:alert" not in html
+    assert html.count('href="#"') == 2
+    assert 'href="https://example.invalid/a"' in html
+
+
 def test_board_page_video_js_has_sri(c, boards):
     html = c.get("/board/tt06/").content.decode()
     tags = [line for line in html.splitlines() if "vjs.zencdn.net" in line]

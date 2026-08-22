@@ -1,4 +1,4 @@
-{% extends "ttsite/base.html" %}{% load static %}
+{% extends "ttsite/base.html" %}{% load static ttsite_extras %}
 {% block title %}{{ board.title }} &middot; Tiny Tapeout at fpgas.online{% endblock %}
 {% block head %}
 {% include "ttsite/_videojs_head.html" %}
@@ -36,10 +36,10 @@
     <h2>About this board</h2>
     {% if board.description %}<div class="tt-md">{{ board.description|linebreaks }}</div>{% endif %}
     <dl>{% if board.pcb %}<dt>PCB</dt><dd>{{ board.pcb }}</dd>{% endif %}
-        {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url }}">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+        {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url|safe_url }}" target="_blank" rel="noopener">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
         {% if live %}<dt>Where</dt><dd>Welland, switch {{ board.switch }} port {{ board.port }} ({{ board.hostname }})</dd>{% endif %}</dl>
     <ul class="tt-links">
-      {% for l in board.links %}<li><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}
+      {% for l in board.links %}<li><a href="{{ l.url|safe_url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}
       <li><a href="https://tinytapeout.com/guides/get-started-demoboard/" target="_blank" rel="noopener">Demo board guide &#8599;</a></li>
       <li><a href="https://github.com/TinyTapeout/tt-micropython-firmware" target="_blank" rel="noopener">MicroPython SDK docs &#8599;</a></li>
       <li><a href="https://tinytapeout.com/specs/pinouts/" target="_blank" rel="noopener">Pinouts &#8599;</a></li>
