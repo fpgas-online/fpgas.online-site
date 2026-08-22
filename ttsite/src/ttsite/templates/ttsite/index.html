@@ -1,0 +1,48 @@
+<h1>Tiny Tapeout boards at fpgas.online</h1>
+
+<section>
+  <h2>TT ASIC shuttles</h2>
+  <ul>
+    {% for n, b in asic_slots %}
+    <li>
+      {% if b and b.live %}
+        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
+      {% elif b %}
+        {{ b.title }} &mdash; coming soon
+      {% else %}
+        TT{{ n }} &mdash; coming soon
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section>
+  <h2>KianV uLinux SoC</h2>
+  <ul>
+    {% for b in kianv_boards %}
+    <li>
+      {% if b.live %}
+        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
+      {% else %}
+        {{ b.title }} &mdash; coming soon
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section>
+  <h2>FPGA emulation boards</h2>
+  <ul>
+    {% for b in fpga_boards %}
+    <li>
+      {% if b.live %}
+        <a href="/board/{{ b.slug }}/">{{ b.title }}</a>
+      {% else %}
+        {{ b.title }} &mdash; coming soon
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
