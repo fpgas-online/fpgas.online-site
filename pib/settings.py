@@ -42,9 +42,11 @@ INSTALLED_APPS = [
     'pibup',
     'snmp_switch',
     'pistat',
+    'ttsite',
 ]
 
 MIDDLEWARE = [
+    'ttsite.middleware.TTSiteHostMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -144,4 +146,12 @@ CHANNEL_LAYERS = {
     },
 }
 
-from pib.local_settings import *  # noqa: E402, F403
+# tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
+TTSITE_HOST = "tinytapeout.fpgas.online"
+TTSITE_COMMANDER_VERSION = ""  # e.g. "0.1.0"; empty => bundle not deployed
+
+try:
+    from pib.local_settings import *  # noqa: E402, F403
+except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings
+    if exc.name != "pib.local_settings":
+        raise
