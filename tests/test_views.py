@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from django.core.cache import cache
 from django.test import Client
@@ -127,8 +129,8 @@ def test_chrome_nav_and_footer(c, boards):
         assert item in html
     assert "not operated by Tiny Tapeout Ltd" in html
     assert "ttsite/ttlogo_400.png" in html
-    assert "#544ead" in (c.get("/static/ttsite/ttsite.css").content.decode() if False else open(
-        "ttsite/src/ttsite/static/ttsite/ttsite.css").read())
+    css = Path(__file__).resolve().parents[1] / "ttsite" / "src" / "ttsite" / "static" / "ttsite" / "ttsite.css"
+    assert "#544ead" in css.read_text()
 
 
 def test_board_page_data_attributes(c, boards, settings):

@@ -1,6 +1,9 @@
 from pathlib import Path
 
-STATIC = Path("ttsite/src/ttsite/static/ttsite")
+STATIC = Path(__file__).resolve().parents[1] / "ttsite" / "src" / "ttsite" / "static" / "ttsite"
+
+# every dataset key board.js is expected to read off #ttsite-board
+DATASET_KEYS = ["statusUrl", "pistatGroups", "commanderJs", "wsPath", "apiBase", "slug", "kind", "shuttle", "port"]
 
 
 def test_assets_present():
@@ -11,8 +14,15 @@ def test_assets_present():
 
 def test_board_js_reads_data_attributes_and_mounts():
     js = (STATIC / "board.js").read_text()
-    for attr in ["data-slug", "data-kind", "data-ws-path", "data-status-url", "data-pistat-groups", "data-commander-js"]:
-        assert attr.replace("data-", "").replace("-", "") in js.replace("-", "").replace("_", "")  # dataset access
+    missing = [key for key in DATASET_KEYS if f"d.{key}" not in js]
+    assert missing == [], f"board.js never reads {missing}"
     assert "mountCommander" in js
     assert "/snmp/toggle" in js
     assert "ws/pistat/" in js
+
+
+def test_board_js_sends_the_port_as_a_string():
+    """snmp_switch builds "<oid>.<port>", so a number would break the toggle."""
+    js = (STATIC / "board.js").read_text()
+    assert "port: d.port" in js
+    assert "Number(d.port)" not in js
