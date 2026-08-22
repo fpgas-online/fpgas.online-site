@@ -19,5 +19,7 @@ def health(board, timeout=3.0):
         data = resp.json()
     except ValueError as exc:
         return {"reachable": False, "error": f"invalid JSON from {url}: {exc}"}
+    if not isinstance(data, dict):
+        return {"reachable": False, "error": "unexpected JSON shape"}
     data["reachable"] = True
     return data

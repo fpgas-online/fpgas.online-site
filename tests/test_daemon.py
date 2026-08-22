@@ -54,6 +54,14 @@ def test_health_connection_error(monkeypatch):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("body", [["a", "list"], "a string", 42, None])
+def test_health_non_dict_json(monkeypatch, body):
+    b = Board.objects.create(slug="tt06", port=6, kind="asic", title="t")
+    monkeypatch.setattr(daemon.requests, "get", lambda url, timeout: FakeResp(200, body))
+    assert daemon.health(b) == {"reachable": False, "error": "unexpected JSON shape"}
+
+
+@pytest.mark.django_db
 def test_health_unwired_board():
     b = Board.objects.create(slug="k", port=None, kind="kianv", title="t")
     assert daemon.health(b)["reachable"] is False
