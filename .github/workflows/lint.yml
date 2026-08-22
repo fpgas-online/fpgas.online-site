@@ -14,10 +14,16 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 resolves to Django 5.2 LTS, 3.12 to Django 6.1 -- both must pass
+        python-version: ["3.11", "3.12"]
+    name: test (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: uv sync --group dev
       - run: uv run pytest -v
