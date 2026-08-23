@@ -29,10 +29,10 @@
   </div>
 </section>
 
-<section id="kianv">
-  <h2>KianV RISC-V boards</h2>
+<section id="fpga">
+  <h2>FPGA emulation boards</h2>
   <div class="tt-grid">
-    {% for b in kianv_boards %}
+    {% for b in fpga_boards %}
       <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
         <h3>{{ b.title }}</h3>
         {% if b.live %}
@@ -49,10 +49,10 @@
   </div>
 </section>
 
-<section id="fpga">
-  <h2>FPGA emulation boards</h2>
+<section id="kianv">
+  <h2>KianV RISC-V boards</h2>
   <div class="tt-grid">
-    {% for b in fpga_boards %}
+    {% for b in kianv_boards %}
       <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
         <h3>{{ b.title }}</h3>
         {% if b.live %}

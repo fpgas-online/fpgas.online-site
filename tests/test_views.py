@@ -169,3 +169,10 @@ def test_board_page_video_js_has_sri(c, boards):
     assert tags
     for tag in tags:
         assert 'integrity="sha384-' in tag
+
+
+def test_index_orders_fpga_section_before_kianv(c, boards):
+    html = c.get("/").content.decode()
+    assert html.index('id="fpga"') < html.index('id="kianv"')
+    nav = html[: html.index("<main")]
+    assert nav.index('href="/#fpga"') < nav.index('href="/#kianv"')
