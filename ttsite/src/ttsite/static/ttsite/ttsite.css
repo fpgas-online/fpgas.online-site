@@ -119,6 +119,10 @@ a { color: var(--tt-primary); }
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
+/* grid items default to min-width:auto, so the camera column would grow to
+   the stream's intrinsic width (1920px) once video.js sizes the player from
+   the metadata and push the Commander off-screen; let the columns shrink */
+.tt-board-grid > * { min-width: 0; }
 
 @media (max-width: 900px) {
   .tt-board-grid { grid-template-columns: 1fr; }
@@ -126,7 +130,7 @@ a { color: var(--tt-primary); }
 
 /* video.js wraps the <video> in a .video-js div that carries the id; size that
    wrapper (vjs-fluid keeps 16:9), never the inner <video>, or it overflows. */
-.tt-camera .video-js { width: 100%; background: #000; border-radius: 6px; }
+.tt-camera .video-js { width: 100%; max-width: 100%; background: #000; border-radius: 6px; }
 /* the Commander embed paints its own panels (dark text); keep the mount light */
 #tt-commander { width: 100%; min-height: 320px; }
 .tt-commander { background: #f4f4f8; border-radius: 6px; }
