@@ -24,7 +24,7 @@
     <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>
   {% else %}
   <div class="tt-board-grid">
-    <section class="tt-camera"><video id="tt-video" class="video-js" controls autoplay muted playsinline preload="auto" data-setup="{}">
+    <section class="tt-camera"><video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup="{}">
       <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
     <section class="tt-commander">
       {% if COMMANDER_VERSION %}<div id="tt-commander"></div>
