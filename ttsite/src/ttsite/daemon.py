@@ -1,5 +1,7 @@
 """Tiny HTTP client for the Pi-side fpgas-tt daemon (port 8765). Never raises into views."""
 
+from urllib.parse import quote
+
 import requests
 
 DAEMON_PORT = 8765
@@ -54,9 +56,13 @@ def designs(board):
 
 
 def enable(board, name, body: bytes):
+    """POST /designs/<name>/enable, forwarding body verbatim.
+
+    An empty body is sent as ``{}`` -- the daemon requires JSON.
+    """
     return _pass_through(
         lambda: requests.post(
-            f"{_base(board)}/designs/{name}/enable",
+            f"{_base(board)}/designs/{quote(name, safe='')}/enable",
             data=body or b"{}",
             headers={"Content-Type": "application/json"},
             timeout=DAEMON_API_TIMEOUT,

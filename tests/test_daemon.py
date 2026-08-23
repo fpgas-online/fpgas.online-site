@@ -126,3 +126,33 @@ def test_daemon_unreachable_and_bad_json(monkeypatch):
     monkeypatch.setattr(daemon.requests, "get", lambda *a, **k: FakeResp(200, bad_json=True))
     status, body = daemon.designs(b)
     assert status == 502 and body["error"] == "bad response from daemon"
+
+
+@pytest.mark.django_db
+def test_enable_quotes_name_in_url(monkeypatch):
+    b = Board.objects.create(slug="fpga-1", switch=2, port=33, kind="fpga", title="f")
+    calls = {}
+
+    def fake_post(url, data=None, headers=None, files=None, timeout=None):
+        calls["url"] = url
+        return FakeResp(200, {})
+
+    monkeypatch.setattr(daemon.requests, "post", fake_post)
+    daemon.enable(b, "a b", b'{"clock_hz": 10}')
+    assert calls["url"].endswith("/designs/a%20b/enable")
+
+
+@pytest.mark.django_db
+def test_enable_sends_empty_body_as_json_object(monkeypatch):
+    b = Board.objects.create(slug="fpga-1", switch=2, port=33, kind="fpga", title="f")
+    calls = {}
+
+    def fake_post(url, data=None, headers=None, files=None, timeout=None):
+        calls["data"] = data
+        return FakeResp(200, {})
+
+    monkeypatch.setattr(daemon.requests, "post", fake_post)
+    daemon.enable(b, "tt_um_x", b"")
+    assert calls["data"] == b"{}"
+    daemon.enable(b, "tt_um_x", b'{"clock_hz": 10}')
+    assert calls["data"] == b'{"clock_hz": 10}'
