@@ -95,6 +95,7 @@ def test_enable_posts_body_and_returns_daemon_error_status(monkeypatch):
     assert daemon.enable(b, "tt_um_x", b'{"clock_hz": 10}') == (409, {"error": "another task is running", "detail": ""})
     assert calls["url"] == "http://10.21.2.33:8765/designs/tt_um_x/enable"
     assert calls["data"] == b'{"clock_hz": 10}' and calls["headers"] == {"Content-Type": "application/json"}
+    assert calls["timeout"] == (3.05, 30.0)
 
 
 @pytest.mark.django_db

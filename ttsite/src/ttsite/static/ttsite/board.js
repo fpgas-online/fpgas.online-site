@@ -121,9 +121,6 @@ function mount() {
     const errMsg = (b, r) => (b ? fmtErr(b) : 'HTTP ' + r.status + ' ' + r.statusText);
     // only render Docs/Source links whose URL we trust enough to point a click at
     const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null);
-    const setRunButtonsDisabled = (disabled) => {
-      Array.from(list.querySelectorAll('button')).forEach((btn) => { btn.disabled = disabled; });
-    };
     async function loadDesigns() {
       try {
         const r = await fetch(api + '/designs', { cache: 'no-store' });
@@ -195,7 +192,10 @@ function mount() {
       const fd = new FormData(form);
       fd.delete('csrfmiddlewaretoken');
       showMsg('Uploading…', false);
-      setRunButtonsDisabled(true);
+      // snapshot the buttons: after enable() re-renders, these are detached nodes and
+      // re-enabling them is a no-op, so the fresh 'Running' button stays disabled
+      const uploadButtons = Array.from(list.querySelectorAll('button'));
+      uploadButtons.forEach((btn) => { btn.disabled = true; });
       try {
         const r = await fetch(api + '/bitstream', { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
         const b = await readJson(r);
@@ -208,7 +208,7 @@ function mount() {
       } catch (e) {
         showMsg('Upload failed: ' + e, true);
       } finally {
-        setRunButtonsDisabled(false);
+        uploadButtons.forEach((btn) => { btn.disabled = false; });
       }
     };
     loadDesigns();
