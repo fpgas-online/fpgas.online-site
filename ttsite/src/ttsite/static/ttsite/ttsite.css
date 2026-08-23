@@ -145,6 +145,24 @@ a { color: var(--tt-primary); }
 
 .tt-log textarea { width: 100%; font-family: monospace; font-size: 0.8rem; }
 
+.tt-gallery { margin: 1.5rem 0; }
+.tt-design-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.8rem;
+}
+.tt-design { border: 1px solid #e3e3ea; border-radius: 6px; padding: 0.8rem; }
+.tt-design--enabled { border-color: var(--tt-primary); box-shadow: 0 0 0 2px var(--tt-secondary); }
+.tt-design h4 { margin: 0 0 0.3rem; font-size: 1rem; }
+.tt-badge { font-size: 0.7rem; margin-left: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 3px; background: #eee; }
+.tt-badge--demo { background: var(--tt-secondary); }
+.tt-design-link { margin-left: 0.6rem; font-size: 0.85rem; }
+.tt-msg { padding: 0.5rem 0.8rem; border-radius: 6px; background: #eef; }
+.tt-msg--error { background: #fde8e8; }
+#tt-upload label { display: block; margin: 0.4rem 0; }
+
 .tt-footer {
   background: #f4f4f6;
   color: #555;

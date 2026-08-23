@@ -26,3 +26,15 @@ def test_board_js_sends_the_port_as_a_string():
     js = (STATIC / "board.js").read_text()
     assert "port: d.port" in js
     assert "Number(d.port)" not in js
+
+
+def test_board_js_has_gallery_and_upload_behaviour():
+    js = (STATIC / "board.js").read_text()
+    assert "refreshDesigns" in js
+    assert "/designs" in js
+    assert "X-CSRFToken" in js
+
+
+def test_ttsite_css_styles_the_gallery():
+    css = (STATIC / "ttsite.css").read_text()
+    assert ".tt-gallery" in css

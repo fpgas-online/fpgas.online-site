@@ -31,6 +31,23 @@
       {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER_VERSION is empty).</p>{% endif %}
     </section>
   </div>
+  {% if board.kind == "fpga" %}
+  <section class="tt-gallery" id="tt-gallery" data-api-base="{{ board.api_base }}">
+    <h2>Designs on this board</h2>
+    <p id="tt-gallery-msg" class="tt-msg" hidden></p>
+    <ul id="tt-gallery-list" class="tt-design-list"><li class="tt-design tt-design--loading">Loading designs from the Pi&hellip;</li></ul>
+    <h3>Upload your own bitstream</h3>
+    <form id="tt-upload" enctype="multipart/form-data" method="post" action="{{ board.api_base }}/bitstream">
+      {% csrf_token %}
+      <label>Name <input name="name" required pattern="[a-z0-9_]{1,40}" placeholder="tt_um_my_design" maxlength="40"></label>
+      <label>Bitstream (.bin, iCE40UP5K) <input name="file" type="file" accept=".bin,application/octet-stream" required></label>
+      <button class="tt-btn" type="submit">Upload &amp; load</button>
+    </form>
+    <p class="tt-help">Build one from a Tiny Tapeout project with the FabricFox flow (yosys &rarr; nextpnr-ice40 --up5k --package sg48 &rarr; icepack, top <code>tt_fpga_top</code>) &mdash; see the
+      <a href="https://github.com/fpgas-online/tinytapeout-fpga-demos" target="_blank" rel="noopener">demo repo</a> for working examples and the
+      <a href="https://github.com/TinyTapeout/tt-fpga-compiler" target="_blank" rel="noopener">tt-fpga-compiler</a> harness. Uploads are capped at 256 KiB and 16 files (oldest uploads are evicted); everyone sees the same board.</p>
+  </section>
+  {% endif %}
   {% endif %}
   <section class="tt-info">
     <h2>About this board</h2>
@@ -46,7 +63,6 @@
       <li><a href="/docs/">All docs &rarr;</a></li>
     </ul>
     {% if board.kind == "kianv" %}<p class="tt-notice">KianV boards carry a QSPI flash/PSRAM PMOD and boot Linux on the chip; the one-click boot demo arrives in a later phase.</p>{% endif %}
-    {% if board.kind == "fpga" %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; the demo gallery and bitstream upload arrive in a later phase.</p>{% endif %}
   </section>
   {% if live %}<section class="tt-log"><h2>Status log</h2>
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}

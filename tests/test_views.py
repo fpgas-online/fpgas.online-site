@@ -205,6 +205,19 @@ def test_api_enable_forwards_body_and_status(c, boards, monkeypatch):
     assert c.get("/api/board/fpga-1/designs/tt_um_a/enable").status_code == 405
 
 
+def test_fpga_board_page_has_gallery_and_upload_form(c, boards):
+    html = c.get("/board/fpga-1/").content.decode()
+    assert 'id="tt-gallery"' in html and 'id="tt-upload"' in html
+    assert 'data-api-base="/api/board/fpga-1"' in html
+    assert 'name="csrfmiddlewaretoken"' in html
+    assert "tinytapeout-fpga-demos" in html
+
+
+def test_asic_board_page_has_no_gallery(c, boards):
+    html = c.get("/board/tt06/").content.decode()
+    assert 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
+
+
 def test_api_bitstream_forwards_upload_and_rejects_oversize(c, boards, monkeypatch):
     from django.core.files.uploadedfile import SimpleUploadedFile
 
