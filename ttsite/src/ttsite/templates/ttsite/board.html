@@ -63,6 +63,7 @@
       <li><a href="/docs/">All docs &rarr;</a></li>
     </ul>
     {% if board.kind == "kianv" %}<p class="tt-notice">KianV boards carry a QSPI flash/PSRAM PMOD and boot Linux on the chip; the one-click boot demo arrives in a later phase.</p>{% endif %}
+    {% if board.kind == "fpga" and not live %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; this one is not wired up yet.</p>{% endif %}
   </section>
   {% if live %}<section class="tt-log"><h2>Status log</h2>
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}

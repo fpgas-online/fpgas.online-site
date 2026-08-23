@@ -109,37 +109,51 @@ function mount() {
   // FPGA boards: demo gallery + upload (independent of the Commander bundle)
   const gallery = document.getElementById('tt-gallery');
   if (gallery) {
+    const MAX_BITSTREAM_BYTES = 262144; // keep in sync with daemon.MAX_BITSTREAM_BYTES server-side
     const api = gallery.dataset.apiBase;
     const list = document.getElementById('tt-gallery-list');
     const msg = document.getElementById('tt-gallery-msg');
     const csrf = () => (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
     const showMsg = (text, isError) => { msg.hidden = !text; msg.textContent = text || ''; msg.className = 'tt-msg' + (isError ? ' tt-msg--error' : ''); };
     const fmtErr = (b) => (b && b.error ? b.error + (b.detail ? ' — ' + b.detail : '') : 'unexpected error');
+    // nginx/Django error pages (413, 502, 504, 403, 405, ...) aren't JSON: fall back to the status line
+    const readJson = async (r) => { try { return await r.json(); } catch { return null; } };
+    const errMsg = (b, r) => (b ? fmtErr(b) : 'HTTP ' + r.status + ' ' + r.statusText);
+    // only render Docs/Source links whose URL we trust enough to point a click at
+    const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null);
+    const setRunButtonsDisabled = (disabled) => {
+      Array.from(list.querySelectorAll('button')).forEach((btn) => { btn.disabled = disabled; });
+    };
     async function loadDesigns() {
       try {
         const r = await fetch(api + '/designs', { cache: 'no-store' });
-        const b = await r.json();
-        if (!r.ok) { list.innerHTML = ''; showMsg(fmtErr(b), true); return; }
+        const b = await readJson(r);
+        if (!r.ok) { list.innerHTML = ''; showMsg(errMsg(b, r), true); return; }
         render(b);
-      } catch (e) { showMsg('Could not reach the Pi: ' + e, true); }
+      } catch (e) { list.innerHTML = ''; showMsg('Could not reach the Pi: ' + e, true); }
     }
     function render(b) {
       list.innerHTML = '';
-      if (!b.designs.length) { list.innerHTML = '<li class="tt-design">No designs on this board yet.</li>'; return; }
-      b.designs.forEach((design) => {
+      const items = b.designs || [];
+      if (!items.length) { list.innerHTML = '<li class="tt-design">No designs on this board yet.</li>'; return; }
+      items.forEach((design) => {
         const li = document.createElement('li');
-        li.className = 'tt-design' + (b.enabled === design.name ? ' tt-design--enabled' : '');
+        const isRunning = b.enabled === design.name;
+        li.className = 'tt-design' + (isRunning ? ' tt-design--enabled' : '');
         const h = document.createElement('h4'); h.textContent = design.title || design.name;
-        const badge = document.createElement('span'); badge.className = 'tt-badge tt-badge--' + design.source; badge.textContent = design.source;
+        const source = design.source === 'demo' || design.source === 'upload' ? design.source : 'other';
+        const badge = document.createElement('span'); badge.className = 'tt-badge tt-badge--' + source; badge.textContent = design.source;
         h.appendChild(badge);
         const p = document.createElement('p'); p.textContent = (design.author ? 'by ' + design.author + ' — ' : '') + (design.description || '');
         const run = document.createElement('button'); run.className = 'tt-btn'; run.type = 'button';
-        run.textContent = b.enabled === design.name ? 'Running' : 'Run';
+        run.textContent = isRunning ? 'Running' : 'Run';
+        run.disabled = isRunning;
         run.onclick = () => enable(design.name, design.clock_hz);
         li.append(h, p, run);
         [['Docs', design.docs_url], ['Source', design.repo_url]].forEach(([label, url]) => {
-          if (!url) return;
-          const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label + ' ↗'; a.className = 'tt-design-link';
+          const safe = safeUrl(url);
+          if (!safe) return;
+          const a = document.createElement('a'); a.href = safe; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label + ' ↗'; a.className = 'tt-design-link';
           li.appendChild(a);
         });
         list.appendChild(li);
@@ -147,36 +161,55 @@ function mount() {
     }
     async function enable(name, clockHz) {
       showMsg('Loading ' + name + '…', false);
+      const buttons = Array.from(list.querySelectorAll('button'));
+      buttons.forEach((btn) => { btn.disabled = true; });
       try {
         const r = await fetch(api + '/designs/' + encodeURIComponent(name) + '/enable', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
           body: JSON.stringify(clockHz ? { clock_hz: clockHz } : {}),
         });
-        const b = await r.json();
-        if (!r.ok) { showMsg(fmtErr(b), true); return; }
+        const b = await readJson(r);
+        if (!r.ok) { showMsg(errMsg(b, r), true); return; }
         showMsg(name + ' is running', false);
         appendLog('design ' + name + ' loaded');
         await loadDesigns();
         await (window.ttCommander && window.ttCommander.refreshDesigns ? window.ttCommander.refreshDesigns() : Promise.resolve());
-      } catch (e) { showMsg('Could not reach the Pi: ' + e, true); }
+      } catch (e) {
+        showMsg('Could not reach the Pi: ' + e, true);
+      } finally {
+        // if loadDesigns() re-rendered, these are stale/detached nodes and this is a no-op;
+        // the fresh render already disabled the (new) currently-running design's button
+        buttons.forEach((btn) => { btn.disabled = false; });
+      }
     }
     const form = document.getElementById('tt-upload');
     form.onsubmit = async (ev) => {
       ev.preventDefault();
+      const fileInput = form.elements.file;
+      const file = fileInput && fileInput.files && fileInput.files[0];
+      if (file && file.size > MAX_BITSTREAM_BYTES) {
+        showMsg('Bitstream too large: ' + file.size + ' bytes (limit ' + MAX_BITSTREAM_BYTES + ')', true);
+        return;
+      }
       const fd = new FormData(form);
       fd.delete('csrfmiddlewaretoken');
       showMsg('Uploading…', false);
+      setRunButtonsDisabled(true);
       try {
         const r = await fetch(api + '/bitstream', { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
-        const b = await r.json();
-        if (!r.ok) { showMsg(fmtErr(b), true); return; }
-        showMsg('Uploaded ' + b.name + ' (' + b.size + ' bytes)' + (b.evicted.length ? '; evicted ' + b.evicted.join(', ') : ''), false);
+        const b = await readJson(r);
+        if (!r.ok) { showMsg(errMsg(b, r), true); return; }
+        const evicted = b.evicted || [];
+        showMsg('Uploaded ' + b.name + ' (' + b.size + ' bytes)' + (evicted.length ? '; evicted ' + evicted.join(', ') : ''), false);
         appendLog('uploaded ' + b.name);
         form.reset();
-        await loadDesigns();
-        await enable(b.name, null);
-      } catch (e) { showMsg('Upload failed: ' + e, true); }
+        await enable(b.name, null); // enable() reloads the gallery itself; no need to loadDesigns() first
+      } catch (e) {
+        showMsg('Upload failed: ' + e, true);
+      } finally {
+        setRunButtonsDisabled(false);
+      }
     };
     loadDesigns();
   }

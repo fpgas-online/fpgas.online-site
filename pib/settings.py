@@ -148,7 +148,7 @@ CHANNEL_LAYERS = {
 
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"
-TTSITE_COMMANDER_VERSION = ""  # e.g. "0.1.0"; empty => bundle not deployed
+TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
 
 try:
     from pib.local_settings import *  # noqa: E402, F403

@@ -191,6 +191,87 @@ def test_api_designs_rejects_non_fpga_and_unknown(c, boards):
     assert c.get("/api/board/kianv-1/designs").status_code == 404  # not live
 
 
+def test_api_designs_passes_through_daemon_failure_status(c, boards, monkeypatch):
+    monkeypatch.setattr(daemon, "designs", lambda b: (502, {"error": "Pi unreachable", "detail": "refused"}))
+    r = c.get("/api/board/fpga-1/designs")
+    assert r.status_code == 502
+    assert r.json() == {"error": "Pi unreachable", "detail": "refused"}
+
+
+def test_api_designs_is_cached_for_a_few_seconds(c, boards, monkeypatch):
+    calls = []
+
+    def fake_designs(b):
+        calls.append(1)
+        return 200, {"enabled": None, "designs": []}
+
+    monkeypatch.setattr(daemon, "designs", fake_designs)
+    c.get("/api/board/fpga-1/designs")
+    c.get("/api/board/fpga-1/designs")
+    assert len(calls) == 1
+
+
+def test_api_designs_failure_is_not_cached(c, boards, monkeypatch):
+    calls = []
+
+    def fake_designs(b):
+        calls.append(1)
+        return 502, {"error": "Pi unreachable", "detail": "refused"}
+
+    monkeypatch.setattr(daemon, "designs", fake_designs)
+    c.get("/api/board/fpga-1/designs")
+    c.get("/api/board/fpga-1/designs")
+    assert len(calls) == 2
+
+
+def test_api_enable_and_bitstream_reject_non_fpga_and_unknown(c, boards):
+    assert c.post("/api/board/tt06/designs/x/enable").status_code == 404
+    assert c.post("/api/board/tt06/designs/x/enable").json()["error"] == "not an fpga board"
+    assert c.post("/api/board/nope/designs/x/enable").status_code == 404
+    assert c.post("/api/board/kianv-1/designs/x/enable").status_code == 404  # not live
+    assert c.post("/api/board/tt06/bitstream").status_code == 404
+    assert c.post("/api/board/tt06/bitstream").json()["error"] == "not an fpga board"
+    assert c.post("/api/board/nope/bitstream").status_code == 404
+    assert c.post("/api/board/kianv-1/bitstream").status_code == 404  # not live
+
+
+def test_api_bitstream_rejects_non_post(c, boards):
+    assert c.get("/api/board/fpga-1/bitstream").status_code == 405
+
+
+def test_api_enable_invalidates_designs_cache(c, boards, monkeypatch):
+    calls = []
+
+    def fake_designs(b):
+        calls.append(1)
+        return 200, {"enabled": None, "designs": []}
+
+    monkeypatch.setattr(daemon, "designs", fake_designs)
+    monkeypatch.setattr(daemon, "enable", lambda b, name, body: (200, {"ok": True}))
+    c.get("/api/board/fpga-1/designs")
+    c.post("/api/board/fpga-1/designs/tt_um_a/enable")
+    c.get("/api/board/fpga-1/designs")
+    assert len(calls) == 2
+
+
+def test_api_bitstream_invalidates_designs_cache(c, boards, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    calls = []
+
+    def fake_designs(b):
+        calls.append(1)
+        return 200, {"enabled": None, "designs": []}
+
+    monkeypatch.setattr(daemon, "designs", fake_designs)
+    monkeypatch.setattr(daemon, "upload", lambda b, name, fileobj, filename: (201, {"name": name, "size": 1, "evicted": []}))
+    c.get("/api/board/fpga-1/designs")
+    f = SimpleUploadedFile("d.bin", b"\x00")
+    c.post("/api/board/fpga-1/bitstream", {"name": "my_design", "file": f})
+    c.get("/api/board/fpga-1/designs")
+    assert len(calls) == 2
+
+
 def test_api_enable_forwards_body_and_status(c, boards, monkeypatch):
     seen = {}
 
@@ -215,6 +296,13 @@ def test_fpga_board_page_has_gallery_and_upload_form(c, boards):
 
 def test_asic_board_page_has_no_gallery(c, boards):
     html = c.get("/board/tt06/").content.decode()
+    assert 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
+
+
+def test_fpga_board_page_not_live_shows_notice_not_gallery(c, boards):
+    Board.objects.create(slug="fpga-2", port=None, kind="fpga", title="TT FPGA emulation board 2")
+    html = c.get("/board/fpga-2/").content.decode()
+    assert "not wired up yet" in html
     assert 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
 
 

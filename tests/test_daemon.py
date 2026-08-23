@@ -79,7 +79,7 @@ def test_designs_passes_through_status_and_body(monkeypatch):
 
     monkeypatch.setattr(daemon.requests, "get", fake_get)
     assert daemon.designs(b) == (200, {"enabled": None, "designs": []})
-    assert calls == {"url": "http://10.21.2.33:8765/designs", "timeout": 30.0}
+    assert calls == {"url": "http://10.21.2.33:8765/designs", "timeout": (3.05, 30.0)}
 
 
 @pytest.mark.django_db
@@ -111,7 +111,7 @@ def test_upload_sends_multipart(monkeypatch):
     status, body = daemon.upload(b, "my", io.BytesIO(b"\x7e\xaa\x99\x7e"), "my.bin")
     assert (status, body["name"]) == (201, "my")
     assert calls["url"] == "http://10.21.2.33:8765/bitstream" and calls["data"] == {"name": "my"}
-    assert calls["files"]["file"][0] == "my.bin" and calls["timeout"] == 60.0
+    assert calls["files"]["file"][0] == "my.bin" and calls["timeout"] == (3.05, 45.0)
 
 
 @pytest.mark.django_db

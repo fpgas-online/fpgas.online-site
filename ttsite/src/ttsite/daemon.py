@@ -28,7 +28,8 @@ def health(board, timeout=3.0):
 
 
 DAEMON_API_TIMEOUT = 30.0
-DAEMON_UPLOAD_TIMEOUT = 60.0
+DAEMON_UPLOAD_TIMEOUT = 45.0  # nginx's default proxy_read_timeout is 60 s
+DAEMON_CONNECT_TIMEOUT = 3.05  # fast-fail on a dead connect; four times the TCP SYN retransmit interval
 MAX_BITSTREAM_BYTES = 256 * 1024
 
 
@@ -52,7 +53,9 @@ def _pass_through(call):
 
 
 def designs(board):
-    return _pass_through(lambda: requests.get(f"{_base(board)}/designs", timeout=DAEMON_API_TIMEOUT))
+    return _pass_through(
+        lambda: requests.get(f"{_base(board)}/designs", timeout=(DAEMON_CONNECT_TIMEOUT, DAEMON_API_TIMEOUT))
+    )
 
 
 def enable(board, name, body: bytes):
@@ -65,7 +68,7 @@ def enable(board, name, body: bytes):
             f"{_base(board)}/designs/{quote(name, safe='')}/enable",
             data=body or b"{}",
             headers={"Content-Type": "application/json"},
-            timeout=DAEMON_API_TIMEOUT,
+            timeout=(DAEMON_CONNECT_TIMEOUT, DAEMON_API_TIMEOUT),
         )
     )
 
@@ -76,6 +79,6 @@ def upload(board, name, fileobj, filename):
             f"{_base(board)}/bitstream",
             data={"name": name},
             files={"file": (filename, fileobj, "application/octet-stream")},
-            timeout=DAEMON_UPLOAD_TIMEOUT,
+            timeout=(DAEMON_CONNECT_TIMEOUT, DAEMON_UPLOAD_TIMEOUT),
         )
     )

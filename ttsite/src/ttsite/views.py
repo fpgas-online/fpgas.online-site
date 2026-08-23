@@ -12,6 +12,7 @@ STATUS_CACHE_SECONDS = 5
 STATUS_PENDING_SECONDS = 3
 COMING_SOON = {"reachable": False, "error": "coming soon"}
 PENDING = {"reachable": False, "error": "pending"}
+DESIGNS_CACHE_SECONDS = 5
 
 
 def _common(request):
@@ -79,12 +80,24 @@ def _fpga_board_or_error(slug):
     return b, None
 
 
+def _designs_cache_key(slug):
+    return f"ttsite:designs:{slug}"
+
+
 @require_GET
 def api_designs(request, slug):
     b, err = _fpga_board_or_error(slug)
     if err:
         return err
-    status, body = daemon.designs(b)
+    key = _designs_cache_key(slug)
+    cached = cache.get(key)
+    if cached is not None:
+        status, body = cached
+    else:
+        status, body = daemon.designs(b)
+        # a daemon/transport failure (5xx) is transient -- don't freeze it in the cache
+        if status < 500:
+            cache.set(key, (status, body), DESIGNS_CACHE_SECONDS)
     return JsonResponse(body, status=status)
 
 
@@ -94,6 +107,8 @@ def api_enable(request, slug, name):
     if err:
         return err
     status, body = daemon.enable(b, name, request.body)
+    if status < 400:
+        cache.delete(_designs_cache_key(slug))
     return JsonResponse(body, status=status)
 
 
@@ -111,4 +126,6 @@ def api_bitstream(request, slug):
             {"error": f"bitstream too large (limit {daemon.MAX_BITSTREAM_BYTES} bytes)", "detail": ""}, status=400
         )
     status, body = daemon.upload(b, name, f, f.name)
+    if status < 400:
+        cache.delete(_designs_cache_key(slug))
     return JsonResponse(body, status=status)
