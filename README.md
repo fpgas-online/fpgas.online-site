@@ -34,6 +34,24 @@ uv run python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --pru
 
 The `TTSITE_COMMANDER_VERSION` setting (also in `pib/settings.py`, overridable in `local_settings.py`) pins the embedded [Commander fork](https://github.com/fpgas-online/tt-commander-app) bundle version under `STATIC_URL`; when it is empty the board pages show a "bundle not deployed" notice instead of the Commander embed.
 
+FPGA emulation boards (`kind: fpga`) additionally get a design gallery and an
+"Upload your own bitstream" form on their board page, backed by three thin
+proxies to the Pi daemon (`fpgas-online-tt`, port 8765) that pass the
+daemon's status code and JSON body through unchanged:
+
+| URL | Daemon call |
+|---|---|
+| `GET /api/board/<slug>/designs` | `GET /designs` -- designs on the board merged with the demo metadata |
+| `POST /api/board/<slug>/designs/<name>/enable` | `POST /designs/<name>/enable` (JSON body `{"clock_hz"}` optional; an empty body is sent as `{}`) |
+| `POST /api/board/<slug>/bitstream` | `POST /bitstream` (multipart `name` + `file`; rejected here when > 256 KiB) |
+
+POSTs are CSRF-protected; the page sends the `csrftoken` cookie as
+`X-CSRFToken`. Boards that are not live or not `fpga` answer 404 JSON; an
+unreachable Pi answers 502 `{"error": "Pi unreachable", "detail": ...}`.
+After a successful Run/upload the page calls the Commander embed's
+`refreshDesigns()` (embed bundle >= 0.2.0; older bundles are tolerated), so
+`TTSITE_COMMANDER_VERSION` should be `0.2.0` or newer for FPGA boards.
+
 Note: The `pistat` app's `ping` view still assumes the legacy `pi<N>` numbering scheme for resolving Pi IP addresses and does not yet support the new hyphenated hostname scheme.
 
 ## Tech Stack
