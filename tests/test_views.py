@@ -176,3 +176,51 @@ def test_index_orders_fpga_section_before_kianv(c, boards):
     assert html.index('id="fpga"') < html.index('id="kianv"')
     nav = html[: html.index("<main")]
     assert nav.index('href="/#fpga"') < nav.index('href="/#kianv"')
+
+
+def test_api_designs_proxies(c, boards, monkeypatch):
+    monkeypatch.setattr(daemon, "designs", lambda b: (200, {"enabled": "x", "designs": []}))
+    r = c.get("/api/board/fpga-1/designs")
+    assert r.status_code == 200 and r.json() == {"enabled": "x", "designs": []}
+
+
+def test_api_designs_rejects_non_fpga_and_unknown(c, boards):
+    assert c.get("/api/board/tt06/designs").status_code == 404
+    assert c.get("/api/board/tt06/designs").json()["error"] == "not an fpga board"
+    assert c.get("/api/board/nope/designs").status_code == 404
+    assert c.get("/api/board/kianv-1/designs").status_code == 404  # not live
+
+
+def test_api_enable_forwards_body_and_status(c, boards, monkeypatch):
+    seen = {}
+
+    def fake_enable(b, name, body):
+        seen["name"], seen["body"] = name, body
+        return 502, {"error": "REPL task failed", "detail": "x"}
+
+    monkeypatch.setattr(daemon, "enable", fake_enable)
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data='{"clock_hz": 5}', content_type="application/json")
+    assert r.status_code == 502 and r.json()["error"] == "REPL task failed"
+    assert seen == {"name": "tt_um_a", "body": b'{"clock_hz": 5}'}
+    assert c.get("/api/board/fpga-1/designs/tt_um_a/enable").status_code == 405
+
+
+def test_api_bitstream_forwards_upload_and_rejects_oversize(c, boards, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    seen = {}
+
+    def fake_upload(b, name, fileobj, filename):
+        seen.update(name=name, filename=filename, data=fileobj.read())
+        return 201, {"name": name, "size": len(seen["data"]), "evicted": []}
+
+    monkeypatch.setattr(daemon, "upload", fake_upload)
+    f = SimpleUploadedFile("d.bin", b"\x7e\xaa\x99\x7e" + b"\x00" * 10, content_type="application/octet-stream")
+    r = c.post("/api/board/fpga-1/bitstream", {"name": "my_design", "file": f})
+    assert r.status_code == 201 and r.json()["name"] == "my_design"
+    assert seen["filename"] == "d.bin" and seen["data"].startswith(b"\x7e\xaa\x99\x7e")
+    big = SimpleUploadedFile("big.bin", b"\x00" * (256 * 1024 + 1))
+    r = c.post("/api/board/fpga-1/bitstream", {"name": "big", "file": big})
+    assert r.status_code == 400 and "large" in r.json()["error"]
+    r = c.post("/api/board/fpga-1/bitstream", {"name": "nofile"})
+    assert r.status_code == 400
