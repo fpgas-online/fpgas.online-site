@@ -63,8 +63,3 @@ class Board(models.Model):
     def live(self):
         return self.port is not None and self.enabled
 
-    @classmethod
-    def asic_slots(cls):
-        """Ten fixed slots TT01..TT10, keyed by slug ``tt01``..``tt10``."""
-        by_slug = {b.slug: b for b in cls.objects.filter(kind="asic")}
-        return [(n, by_slug.get(f"tt{n:02d}")) for n in range(1, 11)]

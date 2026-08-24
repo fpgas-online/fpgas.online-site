@@ -19,14 +19,18 @@ body {
 a { color: var(--tt-primary); }
 
 .tt-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 1rem;
-  padding: 0.75rem 1.5rem;
+  gap: 0.5rem 1rem;
+  padding: 0.55rem 1.5rem;
   background: var(--tt-primary);
   color: #fff;
+  box-shadow: 0 1px 6px rgba(28, 27, 46, 0.35);
 }
 
 .tt-brand {
@@ -41,9 +45,37 @@ a { color: var(--tt-primary); }
 .tt-brand img { height: 36px; width: auto; }
 .tt-brand em { font-style: normal; opacity: 0.8; font-weight: 300; }
 
-.tt-nav { display: flex; flex-wrap: wrap; gap: 1.1rem; }
-.tt-nav a { color: #fff; text-decoration: none; opacity: 0.9; }
-.tt-nav a:hover { opacity: 1; text-decoration: underline; }
+.tt-nav { display: flex; align-items: center; gap: 0.2rem; }
+.tt-nav a {
+  color: #fff;
+  text-decoration: none;
+  opacity: 0.85;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.tt-nav a:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
+.tt-nav a.is-active {
+  opacity: 1;
+  border-bottom-color: var(--tt-secondary);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.tt-nav__ext { opacity: 0.7; font-size: 0.9em; }
+
+@media (max-width: 700px) {
+  .tt-header { padding: 0.45rem 0.8rem; }
+  .tt-brand em { display: none; }
+  .tt-brand img { height: 28px; }
+  .tt-nav {
+    flex-basis: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tt-nav::-webkit-scrollbar { display: none; }
+}
 
 .tt-main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 
