@@ -26,7 +26,7 @@ def _common(request):
 def index(request):
     ctx = _common(request)
     ctx.update(
-        asic_slots=Board.asic_slots(),
+        asic_boards=Board.objects.filter(kind="asic"),
         kianv_boards=Board.objects.filter(kind="kianv"),
         fpga_boards=Board.objects.filter(kind="fpga"),
     )
