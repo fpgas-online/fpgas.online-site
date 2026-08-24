@@ -12,13 +12,13 @@
 <body>
 <header class="tt-header">
   <a class="tt-brand" href="/"><img src="{% static 'ttsite/ttlogo_400.png' %}" alt="Tiny Tapeout logo"><span>Tiny Tapeout <em>at fpgas.online</em></span></a>
-  <nav class="tt-nav">
-    <a href="/">Boards</a>
-    <a href="/#asic">ASIC</a>
-    <a href="/#fpga">FPGA</a>
-    <a href="/#kianv">KianV</a>
-    <a href="/docs/">Docs</a>
-    <a href="https://tinytapeout.com/" target="_blank" rel="noopener">tinytapeout.com &#8599;</a>
+  <nav class="tt-nav" aria-label="Main">
+    <a href="/" {% if request.path == '/' %}class="is-active" aria-current="page"{% endif %}>Boards</a>
+    <a href="/#asic" data-section="asic">ASIC</a>
+    <a href="/#fpga" data-section="fpga">FPGA</a>
+    <a href="/#kianv" data-section="kianv">KianV</a>
+    <a href="/docs/" {% if request.path == '/docs/' %}class="is-active" aria-current="page"{% endif %}>Docs</a>
+    <a class="tt-nav__ext" href="https://tinytapeout.com/" target="_blank" rel="noopener">tinytapeout.com &#8599;</a>
   </nav>
 </header>
 <main class="tt-main">{% block content %}{% endblock %}</main>
@@ -28,5 +28,29 @@
      <a href="https://fpgas.online/">fpgas.online</a></p>
 </footer>
 {% block scripts %}{% endblock %}
+<script>
+  // Scroll-spy: on pages that have the sections, light up the matching nav link.
+  (function () {
+    var links = document.querySelectorAll('.tt-nav a[data-section]');
+    var sections = [];
+    links.forEach(function (a) {
+      var s = document.getElementById(a.dataset.section);
+      if (s) sections.push([s, a]);
+    });
+    if (!sections.length || !('IntersectionObserver' in window)) return;
+    var byId = {};
+    sections.forEach(function (p) { byId[p[0].id] = p[1]; });
+    var current = null;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        if (current) current.classList.remove('is-active');
+        current = byId[e.target.id];
+        current.classList.add('is-active');
+      });
+    }, { rootMargin: '-30% 0px -60% 0px' });
+    sections.forEach(function (p) { io.observe(p[0]); });
+  })();
+</script>
 </body>
 </html>
