@@ -36,13 +36,11 @@ def test_disabled_board_is_not_live():
 
 
 @pytest.mark.django_db
-def test_asic_slots_are_ten_in_order():
+def test_boards_order_by_sort_order_then_slug():
+    Board.objects.create(slug="ttgf", kind="asic", title="GF")
     Board.objects.create(slug="tt06", port=6, kind="asic", shuttle="tt06", title="TT06")
-    Board.objects.create(slug="fpga-1", port=12, kind="fpga", title="F")
-    slots = Board.asic_slots()
-    assert [n for n, _ in slots] == list(range(1, 11))
-    assert slots[5][1].slug == "tt06"
-    assert all(b is None for n, b in slots if n != 6)
+    Board.objects.create(slug="tt03p5", kind="asic", shuttle="tt03p5", title="TT3.5")
+    assert [b.slug for b in Board.objects.filter(kind="asic")] == ["tt03p5", "tt06", "ttgf"]
 
 
 @pytest.mark.django_db

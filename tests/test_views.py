@@ -25,7 +25,8 @@ def boards(db):
 def test_index_lists_sections(c, boards):
     html = c.get("/").content.decode()
     assert "Tiny Tapeout 6" in html and "KianV uLinux SoC" in html and "TT FPGA emulation board 1" in html
-    assert html.count("coming soon") >= 8          # 10 ASIC slots, tt06 live, tt03 disabled => 9 non-live incl. tt03
+    # only catalogue rows render: tt03 (disabled), kianv-1 (no port), fpga-1... tt06+tt07 live
+    assert html.count("coming soon") == 2
     assert "/board/tt06/" in html
 
 
@@ -33,12 +34,28 @@ def test_index_coming_soon_cards_link_to_their_board_page(c, boards):
     html = c.get("/").content.decode()
     # kianv-1 has a row but no port: it still has a page worth reading
     assert '<a href="/board/kianv-1/">Read about it' in html
-    # tt03 is an ASIC slot with a row: chip page AND board page
+    # tt03 is a catalogue row: chip page AND board page
     assert '<a href="/board/tt03/">Read about it' in html
     assert "tinytapeout.com/chips/tt03/" in html
-    # an empty ASIC slot has no row, so only the chip page
-    assert "/board/tt01/" not in html
-    assert "tinytapeout.com/chips/tt01/" in html
+    # no catalogue row -> no card at all (no more fixed TT01..TT10 slots)
+    assert "tt01" not in html
+
+
+def test_index_asic_card_without_shuttle_has_no_chip_link(c, boards, db):
+    Board.objects.create(slug="ttgf", kind="asic", shuttle="", title="Tiny Tapeout GF")
+    html = c.get("/").content.decode()
+    assert "Tiny Tapeout GF" in html
+    assert '<a href="/board/ttgf/">Read about it' in html
+    assert "tinytapeout.com/chips//" not in html
+
+
+def test_nav_active_state_and_scrollspy_hooks(c, boards):
+    html = c.get("/").content.decode()
+    assert 'class="is-active" aria-current="page">Boards</a>' in html
+    assert 'data-section="asic"' in html and 'data-section="fpga"' in html and 'data-section="kianv"' in html
+    docs = c.get("/docs/").content.decode()
+    assert 'class="is-active" aria-current="page">Docs</a>' in docs
+    assert 'aria-current="page">Boards</a>' not in docs
 
 
 def test_board_page_live(c, boards, settings):
