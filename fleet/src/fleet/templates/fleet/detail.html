@@ -1,0 +1,39 @@
+{% extends "fleet/base.html" %}
+{% block title %}{{ machine }} — fleet — fpgas.online{% endblock %}
+{% block content %}
+<h1>{{ machine.hostname|default:machine.serial }} @ {{ machine.site }}</h1>
+
+<h2>Presence</h2>
+<table>
+  <tr><th>Status</th>
+      <td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">
+        {% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
+  <tr><th>Serial</th><td>{{ machine.serial }}</td></tr>
+  <tr><th>First seen</th><td>{{ machine.first_seen|date:"c" }}</td></tr>
+  <tr><th>Last seen</th><td>{{ machine.last_seen|date:"c" }}</td></tr>
+  <tr><th>Boot id</th><td>{{ machine.last_boot_id }}</td></tr>
+  <tr><th>Uptime</th><td>{{ machine.last_uptime_s }} s</td></tr>
+</table>
+
+<h2>Hardware history</h2>
+{% for snap in snapshots %}
+<details {% if forloop.first %}open{% endif %}>
+  <summary>{{ snap.first_seen|date:"c" }} — {{ snap.fingerprint|slice:":12" }}…
+    (last confirmed {{ snap.last_confirmed|date:"c" }}
+     {% if snap.id == machine.latest_snapshot_id %}, current{% endif %})</summary>
+  <pre>{{ snap.document|pprint }}</pre>
+</details>
+{% empty %}
+<p>No hardware snapshots.</p>
+{% endfor %}
+
+<h2>Boot events{% if machine.last_boot_id %} (boot {{ machine.last_boot_id }}){% endif %}</h2>
+<table>
+  <tr><th>Time</th><th>Stage</th><th>Detail</th></tr>
+  {% for ev in events %}
+  <tr><td>{{ ev.ts|date:"c" }}</td><td>{{ ev.stage }}</td><td>{{ ev.detail }}</td></tr>
+  {% empty %}
+  <tr><td colspan="3">No boot events recorded.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
