@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'snmp_switch',
     'pistat',
     'ttsite',
+    'fleet',
 ]
 
 MIDDLEWARE = [

@@ -22,8 +22,8 @@ dependencies = [
 dev = ["pytest>=8", "pytest-django>=4.8", "ruff>=0.6"]
 
 [tool.setuptools.packages.find]
-where = [".", "pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src", "ttsite/src"]
-include = ["pib", "pib.*", "pibfpgas*", "pistat*", "pibdemos*", "pibup*", "ttsite*"]
+where = [".", "pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src", "ttsite/src", "fleet/src"]
+include = ["pib", "pib.*", "pibfpgas*", "pistat*", "pibdemos*", "pibup*", "ttsite*", "fleet*"]
 exclude = ["tests*"]
 # every real package has an __init__.py; without this, PEP-420 discovery from
 # "." also claims data dirs such as pibdemos/nginx as namespace packages
