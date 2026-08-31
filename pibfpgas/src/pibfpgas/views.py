@@ -1,4 +1,4 @@
-# pibup - pib upload form
+# pibfpgas - the FPGA board pages
 
 
 from django.conf import settings
@@ -26,17 +26,12 @@ def one(request, pino, template='fpga.html'):
 
     pi = get_object_or_404(Pi, port=pino)
 
-    o=100+int(pino)
-    ip=f'10.21.0.{o}'
-
     form = UploadFileForm()
 
     return render(request, template,
             {
                 "pi": pi,
                 "pino": pino,
-                "o": o,
-                "ip": ip,
                 "pw": settings.PI_PW,
                 "domain_name": settings.DOMAIN_NAME,
                 "form": form,
@@ -45,4 +40,3 @@ def one(request, pino, template='fpga.html'):
 
 def tt(request):
     return one(request, 21, 'tt.html')
-
