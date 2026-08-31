@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "django>=4.2",
     "channels[daphne]>=4.0",
+    "paho-mqtt>=2",
     "paramiko",
     "requests>=2.31",
     "PyYAML>=6",

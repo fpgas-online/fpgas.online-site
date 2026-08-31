@@ -151,6 +151,10 @@ CHANNEL_LAYERS = {
 TTSITE_HOST = "tinytapeout.fpgas.online"
 TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
 
+# fleet MQTT consumer broker (anonymous LAN listener, no credentials).
+# Overridable in local_settings.py.
+FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
+
 try:
     from pib.local_settings import *  # noqa: E402, F403
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings

@@ -1,6 +1,5 @@
 import pytest
 from django.utils import timezone
-
 from fleet.models import BootEvent, HardwareSnapshot, Machine
 
 

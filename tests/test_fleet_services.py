@@ -1,5 +1,4 @@
 import pytest
-
 from fleet.models import Machine
 from fleet.services import boot_event, fingerprint, register_document, status
 
