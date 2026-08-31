@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Fleet — fpgas.online{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #222; }
+    h1 { font-size: 1.4rem; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 0.3rem 0.6rem; text-align: left; }
+    th { background: #f0f0f0; }
+    .badge { padding: 0.1rem 0.5rem; border-radius: 0.6rem; font-size: 0.85em; }
+    .online { background: #c9f7c9; }
+    .offline { background: #f7c9c9; }
+    details { margin: 0.4rem 0; }
+    pre { background: #f7f7f7; padding: 0.6rem; overflow-x: auto; }
+    a { color: #06c; }
+  </style>
+</head>
+<body>
+<p><a href="/fleet/">fleet</a> · <a href="/fpgas/">boards</a></p>
+{% block content %}{% endblock %}
+</body>
+</html>

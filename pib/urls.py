@@ -24,4 +24,5 @@ urlpatterns = [
     path('snmp/', include('snmp_switch.urls')),
     path('pistat/', include('pistat.urls')),
     path('pibup/', include('pibup.urls')),
+    path('fleet/', include('fleet.urls')),
 ]

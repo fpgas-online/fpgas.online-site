@@ -20,7 +20,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PIB_MODULES = {"pib/__init__.py", "pib/settings.py", "pib/urls.py", "pib/asgi.py", "pib/asgi.base.py"}
-APP_PACKAGES = {"pibfpgas", "pistat", "pibdemos", "pibup", "ttsite"}
+APP_PACKAGES = {"pibfpgas", "pistat", "pibdemos", "pibup", "ttsite", "fleet"}
 
 
 IGNORED = shutil.ignore_patterns(".git", ".venv", ".worktrees", "build", "dist", "__pycache__", "*.egg-info",
