@@ -2,7 +2,8 @@
 
 import paramiko
 from django.http import HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
+from pibfpgas.models import Pi
 
 from .forms import UploadFileForm
 
@@ -29,10 +30,9 @@ def pibup(request):
 
 def handle_uploaded_file(f, pino, run):
 
-    o=100+int(pino)
-    ip=f'10.21.0.{o}'
+    ip = get_object_or_404(Pi, port=pino).ip
 
-    print(f"{o=}, {ip=}, {run=}")
+    print(f"{ip=}, {run=}")
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()

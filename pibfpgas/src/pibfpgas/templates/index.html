@@ -24,7 +24,7 @@ table.button {
 
 <body>
 
-<div style="float: right;"> <a href="https://github.com/CarlFK/pici/blob/main/ansible/roles/site/files/pib/pibfpgas/src/pibfpgas/templates/index.html">Edit this page</a>on GitHub.</div>
+<div style="float: right;"> <a href="https://github.com/fpgas-online/fpgas.online-site/blob/main/pibfpgas/src/pibfpgas/templates/index.html">Edit this page</a> on GitHub.</div>
 
 <table width="100%" style="height: 100px; text-align: center;">
   <tr>
@@ -51,22 +51,22 @@ table.button {
 
 {% for pi in pis %}
 
-<table style="width: 100px; float: left;">
- <tr><td><h1>FPGA pi{{pi.port}}</h1></td></tr>
+<table style="width: 220px; float: left;">
+ <tr><td><h1>{{pi.hostname}}</h1>{% if pi.fpga_board %}{{pi.fpga_board}}{% endif %}</td></tr>
  <tr><td><a href="pi{{pi.port}}.html">Use this FPGA</a></td></tr>
  <tr>
   <td>
     <video
       id="video-player{{pi.port}}"
       class="video-js"
-      wicth=32 height=200
+      width=320 height=200
       autoplay muted
       controls
       preload="auto"
       data-setup="{}"
     >
       <source
-          src="https://{{ domain_name }}/live/pi{{pi.port}}.m3u8"
+          src="https://{{ domain_name }}{{pi.stream_url}}"
           type='application/x-mpegURL'
       />
     </video>
