@@ -1,7 +1,6 @@
 import pytest
 from django.test import Client
 from django.utils import timezone
-
 from fleet.models import BootEvent, Machine
 from fleet.services import register_document
 
