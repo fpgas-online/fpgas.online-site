@@ -63,3 +63,12 @@ class Board(models.Model):
     def live(self):
         return self.port is not None and self.enabled
 
+    # -- parity with ttsite.gateway.GatewayBoard, so templates work in both modes --
+    @property
+    def site_name(self):
+        return ""  # local catalogue rows carry no site; templates fall back
+
+    @property
+    def page_url(self):
+        return f"/board/{self.slug}/"
+

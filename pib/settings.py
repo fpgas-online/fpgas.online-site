@@ -150,6 +150,17 @@ CHANNEL_LAYERS = {
 TTSITE_HOST = "tinytapeout.fpgas.online"
 TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
 
+# Site identity shown in templates when no gateway supplies one (legacy
+# co-located mode). Overridable in local_settings.py.
+TTSITE_SITE_NAME = "Welland"
+TTSITE_SITE_LOCATION = "Welland, South Australia"
+
+# Gateway consumer mode (tweed-split-design docs/07-pr-contract.md, PR 5).
+# Each entry: {"id": "welland", "url": "https://gw.welland.fpgas.online", "token": "..."}.
+# Empty (the default) => current co-located behaviour, boards from the local DB.
+# Overridable in local_settings.py.
+FPGAS_GATEWAYS = []
+
 try:
     from pib.local_settings import *  # noqa: E402, F403
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings

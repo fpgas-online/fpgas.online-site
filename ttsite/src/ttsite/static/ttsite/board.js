@@ -59,19 +59,26 @@ function mount() {
     connect();
   });
 
-  // power-cycle via the existing snmp_switch toggle endpoint
+  // power-cycle: through the site's gateway proxy when the page provides
+  // data-power-url, else via the legacy snmp_switch toggle endpoint
   const power = document.getElementById('tt-power');
-  if (power && d.port) {
+  if (power && (d.powerUrl || d.port)) {
     power.onclick = async () => {
       if (!confirm('Power-cycle this board? Anyone else using it will be interrupted.')) return;
       appendLog('power-cycle requested');
       try {
-        // snmp_switch builds "<oid>.<port>", so the port must go over as a string
-        const r = await fetch('/snmp/toggle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port: d.port }),
-        });
+        const r = d.powerUrl
+          ? await fetch(d.powerUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'cycle' }),
+            })
+          : await fetch('/snmp/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              // snmp_switch builds "<oid>.<port>", so the port must go over as a string
+              body: JSON.stringify({ port: d.port }),
+            });
         appendLog(r.ok ? 'power-cycle: done' : `power-cycle: HTTP ${r.status}`);
       } catch (e) {
         appendLog('power-cycle: failed: ' + e);
@@ -86,15 +93,16 @@ function mount() {
     };
   }
 
-  // Commander embed
+  // Commander embed. data-ws-url is an absolute wss:// URL from the gateway
+  // API (consumer mode) and wins over the same-host data-ws-path.
   const mountEl = document.getElementById('tt-commander');
-  if (mountEl && d.commanderJs && d.wsPath) {
+  if (mountEl && d.commanderJs && (d.wsUrl || d.wsPath)) {
     import(d.commanderJs)
       .then(({ mountCommander }) => {
         window.ttCommander = mountCommander(mountEl, {
           transport: {
             kind: 'websocket',
-            url: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + d.wsPath,
+            url: d.wsUrl || (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + d.wsPath,
           },
           board: { slug: d.slug, kind: d.kind, shuttle: d.shuttle || undefined },
           apiBase: d.apiBase,

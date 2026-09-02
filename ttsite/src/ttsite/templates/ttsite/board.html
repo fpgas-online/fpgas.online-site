@@ -8,8 +8,10 @@
 <div id="ttsite-board"
      data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
      data-port="{{ board.port|default_if_none:'' }}"
-     data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
-     {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
+     data-ws-path="{% if live %}{{ ws_path }}{% endif %}"{% if live and ws_url %} data-ws-url="{{ ws_url }}"{% endif %} data-api-base="{{ api_base }}"
+     {% if live %}data-status-url="{{ status_url }}"{% endif %}
+     {% if power_url %}data-power-url="{{ power_url }}"{% endif %}
+     {% if gw_api_base %}data-gw-api-base="{{ gw_api_base }}"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
      data-commander-js="{% if live and COMMANDER_VERSION %}{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js{% endif %}">
   <header class="tt-board-head">
@@ -17,7 +19,7 @@
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
     {% if live %}<span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
     {% else %}<span class="tt-pill tt-pill--soon">coming soon</span>{% endif %}
-    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>{% endif %}
+    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on switch {{ board.switch }} port {{ board.port }}">Power-cycle board</button>{% endif %}
     {% if live %}<button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
   </header>
   {% if not live %}
@@ -32,12 +34,12 @@
     </section>
   </div>
   {% if board.kind == "fpga" %}
-  <section class="tt-gallery" id="tt-gallery" data-api-base="{{ board.api_base }}">
+  <section class="tt-gallery" id="tt-gallery" data-api-base="{{ api_base }}">
     <h2>Designs on this board</h2>
     <p id="tt-gallery-msg" class="tt-msg" hidden></p>
     <ul id="tt-gallery-list" class="tt-design-list"><li class="tt-design tt-design--loading">Loading designs from the Pi&hellip;</li></ul>
     <h3>Upload your own bitstream</h3>
-    <form id="tt-upload" enctype="multipart/form-data" method="post" action="{{ board.api_base }}/bitstream">
+    <form id="tt-upload" enctype="multipart/form-data" method="post" action="{{ api_base }}/bitstream">
       {% csrf_token %}
       <label>Name <input name="name" required pattern="[a-z0-9_]{1,40}" placeholder="tt_um_my_design" maxlength="40"></label>
       <label>Bitstream (.bin, iCE40UP5K) <input name="file" type="file" accept=".bin,application/octet-stream" required></label>
@@ -54,7 +56,7 @@
     {% if board.description %}<div class="tt-md">{{ board.description|linebreaks }}</div>{% endif %}
     <dl>{% if board.pcb %}<dt>PCB</dt><dd>{{ board.pcb }}</dd>{% endif %}
         {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url|safe_url }}" target="_blank" rel="noopener">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
-        {% if live %}<dt>Where</dt><dd>Welland, switch {{ board.switch }} port {{ board.port }} ({{ board.hostname }})</dd>{% endif %}</dl>
+        {% if live %}<dt>Where</dt><dd>{{ site_name }}, switch {{ board.switch }} port {{ board.port }} ({{ board.hostname }})</dd>{% endif %}</dl>
     <ul class="tt-links">
       {% for l in board.links %}<li><a href="{{ l.url|safe_url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}
       <li><a href="https://tinytapeout.com/guides/get-started-demoboard/" target="_blank" rel="noopener">Demo board guide &#8599;</a></li>
