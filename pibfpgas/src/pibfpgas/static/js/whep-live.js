@@ -92,14 +92,19 @@
     rewindBtn.addEventListener("click", () => { wantLive = false; show(false); });
     liveBtn.addEventListener("click", () => { wantLive = true; show(true); });
 
+    let errors = 0;
     const reader = new MediaMTXWebRTCReader({
       url: new URL(wrap.dataset.whepUrl, window.location.href).toString(),
       onError: () => {
-        // reader retries by itself every few seconds; meanwhile fall back
+        // reader retries by itself every few seconds; meanwhile fall back.
+        // On hosts that never serve WHEP (no mediamtx) stop retrying
+        // eventually instead of polling a 404 forever.
         haveTrack = false;
         show(false);
+        if (++errors >= 10 && !haveTrack) reader.close();
       },
       onTrack: (evt) => {
+        errors = 0;
         try {
           // keep the receive jitter buffer small: this is a static scene
           // and the whole point is minimal glass-to-glass delay
