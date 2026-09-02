@@ -133,6 +133,17 @@ a { color: var(--tt-primary); }
   vertical-align: middle;
 }
 
+/* per-board site badge on the index cards (gateway consumer mode) */
+.tt-site {
+  font-size: 0.65em;
+  font-weight: 400;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: #eee;
+  color: var(--tt-ink);
+  vertical-align: middle;
+}
+
 .tt-pill {
   padding: 0.2rem 0.7rem;
   border-radius: 999px;

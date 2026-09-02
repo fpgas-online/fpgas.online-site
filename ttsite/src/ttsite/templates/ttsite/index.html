@@ -4,7 +4,7 @@
 <section class="tt-hero">
   <h1>Tiny Tapeout boards at fpgas.online</h1>
   <p>This is a community-run instance of <a href="https://tinytapeout.com/" target="_blank" rel="noopener">Tiny Tapeout</a>
-     hardware, hosted at Welland, South Australia. Anyone can drive these boards &mdash; no login required. Be nice:
+     hardware, hosted at {{ SITE_LOCATION }}. Anyone can drive these boards &mdash; no login required. Be nice:
      others may be driving the same board at the same time.</p>
 </section>
 
@@ -13,16 +13,16 @@
   <div class="tt-grid">
     {% for b in asic_boards %}
       <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
-        <h3>{{ b.title }}</h3>
+        <h3>{{ b.title }}{% if b.site_name %} <span class="tt-site">{{ b.site_name }}</span>{% endif %}</h3>
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
             <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          <a class="tt-btn" href="{{ b.page_url }}">Use this board</a>
         {% else %}
           <p class="tt-soon">coming soon</p>
           {% if b.shuttle %}<a href="https://tinytapeout.com/chips/{{ b.shuttle }}/" target="_blank" rel="noopener">{{ b.shuttle }} chip page &#8599;</a>{% endif %}
-          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
+          <a href="{{ b.page_url }}">Read about it &rarr;</a>
         {% endif %}
       </article>
     {% endfor %}
@@ -34,15 +34,15 @@
   <div class="tt-grid">
     {% for b in fpga_boards %}
       <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
-        <h3>{{ b.title }}</h3>
+        <h3>{{ b.title }}{% if b.site_name %} <span class="tt-site">{{ b.site_name }}</span>{% endif %}</h3>
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
             <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          <a class="tt-btn" href="{{ b.page_url }}">Use this board</a>
         {% else %}
           <p class="tt-soon">coming soon</p>
-          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
+          <a href="{{ b.page_url }}">Read about it &rarr;</a>
         {% endif %}
       </article>
     {% endfor %}
@@ -54,15 +54,15 @@
   <div class="tt-grid">
     {% for b in kianv_boards %}
       <article class="tt-card {% if not b.live %}tt-card--soon{% endif %}">
-        <h3>{{ b.title }}</h3>
+        <h3>{{ b.title }}{% if b.site_name %} <span class="tt-site">{{ b.site_name }}</span>{% endif %}</h3>
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true}'>
             <source src="{{ b.stream_url }}" type="application/x-mpegURL"></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          <a class="tt-btn" href="{{ b.page_url }}">Use this board</a>
         {% else %}
           <p class="tt-soon">coming soon</p>
-          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
+          <a href="{{ b.page_url }}">Read about it &rarr;</a>
         {% endif %}
       </article>
     {% endfor %}
