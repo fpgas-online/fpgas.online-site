@@ -52,6 +52,11 @@ class Board(models.Model):
         return f"/live/{self.hostname}.m3u8"
 
     @property
+    def whep_url(self):
+        # WebRTC low-latency live view (mediamtx via nginx /cam/<host>/whep)
+        return f"/cam/{self.hostname}/whep"
+
+    @property
     def serial_ws_path(self):
         return f"/ws/board/{self.slug}/serial"
 
