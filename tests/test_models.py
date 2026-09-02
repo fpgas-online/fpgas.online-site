@@ -8,6 +8,7 @@ def test_properties_derive_from_switch_and_port():
     assert b.hostname == "pi-sw1-p6"
     assert b.ip == "10.21.1.6"
     assert b.stream_url == "/live/pi-sw1-p6.m3u8"
+    assert b.whep_url == "/cam/pi-sw1-p6/whep"
     assert b.serial_ws_path == "/ws/board/tt06/serial"
     assert b.api_base == "/api/board/tt06"
     assert b.live is True

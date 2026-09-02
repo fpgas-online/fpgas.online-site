@@ -24,7 +24,8 @@
     <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>
   {% else %}
   <div class="tt-board-grid">
-    <section class="tt-camera"><video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true}'>
+    <section class="tt-camera"><div class="whep-live" data-whep-url="{{ board.whep_url }}" data-hls-id="tt-video"></div>
+    <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true}'>
       <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
     <section class="tt-commander">
       {% if COMMANDER_VERSION %}<div id="tt-commander"></div>
@@ -69,4 +70,6 @@
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>
+{% if live %}<script src="{% static 'js/mediamtx-reader.js' %}"></script>
+<script src="{% static 'js/whep-live.js' %}"></script>{% endif %}{% endblock %}

@@ -5,6 +5,8 @@
 
   <link href="https://vjs.zencdn.net/8.4.0/video-js.min.css" rel="stylesheet">
   <script src="https://vjs.zencdn.net/8.4.0/video.min.js"></script>
+  <script defer src="/static/js/mediamtx-reader.js"></script>
+  <script defer src="/static/js/whep-live.js"></script>
 
   <script src="/dcws.js"></script>
 
@@ -104,6 +106,7 @@
     </td>
   </tr><tr height="80%">
     <td>
+      <div class="whep-live" data-whep-url="/cam/pi{{pi.port}}/whep" data-hls-id="video-player{{pi.port}}"></div>
       <video
         id="video-player{{pi.port}}"
         class="video-js"
