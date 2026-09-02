@@ -14,6 +14,7 @@ dependencies = [
     "channels[daphne]>=4.0",
     "paramiko",
     "requests>=2.31",
+    "httpx>=0.27",
     "PyYAML>=6",
     "fpgas-online-poe @ git+https://github.com/fpgas-online/fpgas.online-poe.git",
 ]
