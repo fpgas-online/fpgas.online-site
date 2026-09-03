@@ -149,6 +149,9 @@ CHANNEL_LAYERS = {
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"
 TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
+# Legacy Commander (SDK-agnostic, for pre-2.x-firmware boards like tt03p5);
+# served from static tt-commander/legacy-<version>/. Empty => not deployed.
+TTSITE_COMMANDER_LEGACY_VERSION = ""
 
 try:
     from pib.local_settings import *  # noqa: E402, F403
