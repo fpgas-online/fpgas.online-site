@@ -2,7 +2,7 @@
 {% block title %}{{ board.title }} &middot; Tiny Tapeout at fpgas.online{% endblock %}
 {% block head %}
 {% include "ttsite/_videojs_head.html" %}
-{% if live and COMMANDER_VERSION %}<link rel="stylesheet" href="{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.css">{% endif %}
+{% if live and commander_version %}<link rel="stylesheet" href="{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.css">{% endif %}
 {% endblock %}
 {% block content %}
 <div id="ttsite-board"
@@ -11,7 +11,7 @@
      data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
      {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
-     data-commander-js="{% if live and COMMANDER_VERSION %}{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js{% endif %}">
+     data-commander-js="{% if live and commander_version %}{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.js{% endif %}">
   <header class="tt-board-head">
     <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
@@ -27,8 +27,8 @@
     <section class="tt-camera"><video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup="{}">
       <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
     <section class="tt-commander">
-      {% if COMMANDER_VERSION %}<div id="tt-commander"></div>
-      {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER_VERSION is empty).</p>{% endif %}
+      {% if commander_version %}<div id="tt-commander"></div>
+      {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER{% if board.commander == "legacy" %}_LEGACY{% endif %}_VERSION is empty).</p>{% endif %}
     </section>
   </div>
   {% if board.kind == "fpga" %}

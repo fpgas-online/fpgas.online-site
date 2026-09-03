@@ -15,6 +15,8 @@ def test_load_creates_rows():
     assert (tt06.port, tt06.kind, tt06.shuttle, tt06.pcb) == (6, "asic", "tt06", "TT demo board v3 (RP2040)")
     assert tt06.links == [{"label": "TT06 chip page", "url": "https://tinytapeout.com/chips/tt06/"}]
     assert Board.objects.get(slug="tt03").enabled is False
+    assert Board.objects.get(slug="tt03").commander == "legacy"
+    assert tt06.commander == "main"
     assert Board.objects.get(slug="kianv-1").port is None
     assert Board.objects.get(slug="fpga-1").sort_order == 5
 
@@ -51,6 +53,14 @@ def test_unknown_kind_raises(tmp_path):
     p = tmp_path / "bad.yaml"
     p.write_text("tt_boards:\n  - {slug: x, port: 1, kind: banana, title: x}\n")
     with pytest.raises(Exception, match="kind"):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_unknown_commander_raises(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n  - {slug: x, port: 1, kind: asic, title: x, commander: banana}\n")
+    with pytest.raises(Exception, match="commander"):
         call_command("ttsite_loadboards", str(p))
 
 

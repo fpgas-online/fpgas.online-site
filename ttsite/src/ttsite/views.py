@@ -36,9 +36,19 @@ def index(request):
 def board(request, slug):
     b = get_object_or_404(Board, slug=slug)
     ctx = _common(request)
+    # Per-board Commander flavour: each pins its own bundle version and lives
+    # in its own static directory, but ships the same filenames + mount API.
+    if b.commander == "legacy":
+        commander_version = settings.TTSITE_COMMANDER_LEGACY_VERSION
+        commander_dir = f"tt-commander/legacy-{commander_version}"
+    else:
+        commander_version = settings.TTSITE_COMMANDER_VERSION
+        commander_dir = f"tt-commander/{commander_version}"
     ctx.update(
         board=b,
         live=b.live,
+        commander_version=commander_version,
+        commander_dir=commander_dir,
         shuttle_url=f"https://tinytapeout.com/chips/{b.shuttle}/" if b.shuttle else "",
         pistat_groups=[b.hostname, f"pi{b.port}"] if b.live else [],
         # /snmp/toggle drives the first switch only, so hide the button elsewhere

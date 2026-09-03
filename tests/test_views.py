@@ -71,6 +71,33 @@ def test_board_page_live(c, boards, settings):
 def test_board_page_without_bundle_shows_notice(c, boards):
     html = c.get("/board/tt06/").content.decode()
     assert "Commander bundle not deployed" in html
+    assert "TTSITE_COMMANDER_VERSION is empty" in html
+    assert "tt-commander-embed.js" not in html
+
+
+@pytest.fixture
+def legacy_board(db):
+    return Board.objects.create(slug="tt03p5", switch=2, port=3, kind="asic", shuttle="tt03p5",
+                                title="Tiny Tapeout 3.5", commander="legacy")
+
+
+def test_board_page_legacy_commander_uses_legacy_bundle(c, boards, legacy_board, settings):
+    settings.TTSITE_COMMANDER_VERSION = "0.2.0"
+    settings.TTSITE_COMMANDER_LEGACY_VERSION = "0.1.0"
+    html = c.get("/board/tt03p5/").content.decode()
+    assert "tt-commander/legacy-0.1.0/tt-commander-embed.js" in html
+    assert "tt-commander/legacy-0.1.0/tt-commander-embed.css" in html
+    assert "tt-commander/0.2.0/" not in html
+    # the main-commander board is untouched by the legacy pin
+    tt06 = c.get("/board/tt06/").content.decode()
+    assert "tt-commander/0.2.0/tt-commander-embed.js" in tt06
+    assert "legacy-0.1.0" not in tt06
+
+
+def test_board_page_legacy_commander_without_bundle_names_legacy_setting(c, boards, legacy_board, settings):
+    settings.TTSITE_COMMANDER_VERSION = "0.2.0"  # main bundle deployed; legacy not
+    html = c.get("/board/tt03p5/").content.decode()
+    assert "TTSITE_COMMANDER_LEGACY_VERSION is empty" in html
     assert "tt-commander-embed.js" not in html
 
 
