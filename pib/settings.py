@@ -158,6 +158,9 @@ CHANNEL_LAYERS = {
 UNDER_CONSTRUCTION = False
 # The site to send visitors to when this one misbehaves.
 UNDER_CONSTRUCTION_FALLBACK = "ps1.fpgas.online"
+# Path prefixes that are not visitor-facing. Both urlconfs mount the admin
+# at admin/, so one prefix covers welland and tinytapeout.
+UNDER_CONSTRUCTION_EXCLUDE_PREFIXES = ("/admin/",)
 
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"

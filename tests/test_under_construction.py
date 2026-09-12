@@ -7,7 +7,9 @@ Django process, and ps1.fpgas.online is served by the same *code*.
 """
 
 import pytest
+from django.http import HttpResponse, StreamingHttpResponse
 from django.test import Client
+from pibfpgas.middleware import UnderConstructionMiddleware
 
 BANNER_TEXT = "Under construction!"
 
@@ -62,3 +64,73 @@ def test_dismissal_lasts_one_week(c):
     # Set client-side with a max-age, so the browser drops it after a week and
     # the banner comes back on its own -- no dismissal state stored server side.
     assert "max-age=604800" in c.get("/fpgas/").content.decode()
+
+
+@pytest.mark.django_db
+def test_admin_pages_are_left_alone(c):
+    # Staff tooling, not a visitor-facing page.
+    r = c.get("/admin/login/")
+
+    assert r.status_code == 200
+    assert BANNER_TEXT not in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_iframed_pages_are_left_alone(c):
+    # Browsers send Sec-Fetch-Dest: iframe for a frame load and document for a
+    # top-level navigation. Only the top page should carry the banner.
+    r = c.get("/fpgas/", headers={"sec-fetch-dest": "iframe"})
+
+    assert BANNER_TEXT not in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_top_level_navigations_get_the_banner(c):
+    r = c.get("/fpgas/", headers={"sec-fetch-dest": "document"})
+
+    assert BANNER_TEXT in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_json_responses_are_left_alone(c):
+    r = c.get("/pistat/stat/pi9/booted")
+
+    assert r["Content-Type"] == "application/json"
+    assert BANNER_TEXT not in r.content.decode()
+
+
+def test_streaming_responses_are_left_alone(rf, settings):
+    settings.UNDER_CONSTRUCTION = True
+
+    def view(request):
+        return StreamingHttpResponse(iter([b"<html><body>hi</body></html>"]), content_type="text/html")
+
+    r = UnderConstructionMiddleware(view)(rf.get("/"))
+
+    assert b"".join(r.streaming_content).decode() == "<html><body>hi</body></html>"
+
+
+def test_content_length_is_corrected_when_the_response_sets_it(rf, settings):
+    settings.UNDER_CONSTRUCTION = True
+
+    def view(request):
+        r = HttpResponse("<html><body>hi</body></html>", content_type="text/html")
+        r["Content-Length"] = str(len(r.content))
+        return r
+
+    r = UnderConstructionMiddleware(view)(rf.get("/"))
+
+    assert BANNER_TEXT in r.content.decode()
+    assert int(r["Content-Length"]) == len(r.content)
+
+
+@pytest.mark.django_db
+def test_banner_removes_itself_if_it_ends_up_framed(c):
+    # Belt and braces for clients that do not send Sec-Fetch-Dest at all
+    # (Safari before 16.4), which the middleware has to treat as top level.
+    assert "window.top !== window.self" in c.get("/fpgas/").content.decode()
+
+
+@pytest.mark.django_db
+def test_template_comment_does_not_reach_the_page(c):
+    assert "{#" not in c.get("/fpgas/").content.decode()

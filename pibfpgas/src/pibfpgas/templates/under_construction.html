@@ -1,11 +1,11 @@
-{# Injected after <body> by pibfpgas.middleware.UnderConstructionMiddleware.
+{% comment %} Injected after <body> by pibfpgas.middleware.UnderConstructionMiddleware.
 
    Self-contained on purpose: the pages this lands in range from f4pga's
    stylesheet to ttsite.css to fpga.html's bare element selectors, and the
    middleware has no way to add a <link> to each of them.  Everything is
    scoped under #fo-uc, and the `font` shorthand resets the family so the
    host page's rules cannot leak in.
-#}
+{% endcomment %}
 <div id="fo-uc" role="status">
   <span>&#9888; <strong>Under construction!</strong>
     (Broken? Try <a href="https://{{ fallback }}/">{{ fallback }}</a>)</span>
@@ -46,6 +46,10 @@
 (function () {
   var bar = document.getElementById('fo-uc');
   if (!bar) return;
+  // Clients that send Sec-Fetch-Dest never get here in a frame; this covers
+  // the ones that do not send it (Safari before 16.4), which the middleware
+  // has to treat as a top-level navigation.
+  if (window.top !== window.self) { bar.parentNode.removeChild(bar); return; }
   document.getElementById('fo-uc-dismiss').addEventListener('click', function () {
     document.cookie = '{{ cookie }}=1; max-age={{ max_age }}; path=/; SameSite=Lax';
     bar.parentNode.removeChild(bar);

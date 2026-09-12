@@ -41,6 +41,26 @@ class UnderConstructionMiddleware:
         if request.COOKIES.get(DISMISS_COOKIE):
             return response
 
+        # Only top-level pages. Browsers send "document" for a navigation and
+        # "iframe" for a frame load ("empty" for fetch/XHR, so this excludes
+        # HTML fragments pulled in by script too). An absent header means a
+        # client too old to tell us (Safari before 16.4, curl); assume top
+        # level and let the banner's own script drop it if it is framed.
+        dest = request.headers.get("Sec-Fetch-Dest")
+        if dest and dest != "document":
+            return response
+
+        if request.path.startswith(tuple(settings.UNDER_CONSTRUCTION_EXCLUDE_PREFIXES)):
+            return response
+
+        # A streaming response has no .content to rewrite, and buffering one to
+        # add a banner would defeat the point of streaming it.
+        if getattr(response, "streaming", False):
+            return response
+
+        if not response.get("Content-Type", "").startswith("text/html"):
+            return response
+
         html = response.content.decode(response.charset)
         body = _BODY_TAG.search(html)
         if body is None:
@@ -55,4 +75,10 @@ class UnderConstructionMiddleware:
             },
         )
         response.content = (html[: body.end()] + banner + html[body.end() :]).encode(response.charset)
+
+        # Django does not set Content-Length itself (the WSGI server does, after
+        # this runs), but correct it if some other middleware already has.
+        if response.has_header("Content-Length"):
+            response["Content-Length"] = str(len(response.content))
+
         return response
