@@ -156,6 +156,8 @@ CHANNEL_LAYERS = {
 # Off by default so a deployment only shows it when fpgas.online-infra turns
 # it on -- welland does, ps1 does not.
 UNDER_CONSTRUCTION = False
+# The site to send visitors to when this one misbehaves.
+UNDER_CONSTRUCTION_FALLBACK = "ps1.fpgas.online"
 
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"

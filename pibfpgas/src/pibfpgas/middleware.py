@@ -20,6 +20,13 @@ from django.template.loader import render_to_string
 # The opening <body> tag, with or without attributes.
 _BODY_TAG = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
 
+# Dismissal is a client-side cookie with a max-age and no server-side record:
+# the browser drops it after a week and the banner comes back by itself.
+# Both names are handed to the template so the script that WRITES the cookie
+# and the check that READS it can never drift apart.
+DISMISS_COOKIE = "fo_uc_dismissed"
+DISMISS_MAX_AGE = 7 * 24 * 60 * 60
+
 
 class UnderConstructionMiddleware:
     def __init__(self, get_response):
@@ -31,11 +38,21 @@ class UnderConstructionMiddleware:
         if not getattr(settings, "UNDER_CONSTRUCTION", False):
             return response
 
+        if request.COOKIES.get(DISMISS_COOKIE):
+            return response
+
         html = response.content.decode(response.charset)
         body = _BODY_TAG.search(html)
         if body is None:
             return response
 
-        banner = render_to_string("under_construction.html")
+        banner = render_to_string(
+            "under_construction.html",
+            {
+                "fallback": settings.UNDER_CONSTRUCTION_FALLBACK,
+                "cookie": DISMISS_COOKIE,
+                "max_age": DISMISS_MAX_AGE,
+            },
+        )
         response.content = (html[: body.end()] + banner + html[body.end() :]).encode(response.charset)
         return response
