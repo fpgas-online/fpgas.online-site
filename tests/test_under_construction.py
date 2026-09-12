@@ -134,3 +134,37 @@ def test_banner_removes_itself_if_it_ends_up_framed(c):
 @pytest.mark.django_db
 def test_template_comment_does_not_reach_the_page(c):
     assert "{#" not in c.get("/fpgas/").content.decode()
+
+
+# --- invariant guards (these pass against the code as written; they exist to
+# --- stop a later change from quietly breaking a decision made deliberately).
+
+
+@pytest.mark.django_db
+def test_no_banner_when_the_setting_is_off(site_settings):
+    # ps1.fpgas.online runs this same code and must never show the banner.
+    site_settings.UNDER_CONSTRUCTION = False
+
+    r = Client(HTTP_HOST="ps1.fpgas.online").get("/fpgas/")
+
+    assert BANNER_TEXT not in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_banner_also_covers_the_tinytapeout_host(site_settings):
+    # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online served by
+    # this same process, so the banner is gated per deployment, not per host.
+    r = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/")
+
+    assert r.status_code == 200
+    assert BANNER_TEXT in r.content.decode()
+
+
+@pytest.mark.django_db
+def test_bare_fragments_are_left_alone(c):
+    # pibup's templates are bare forms with no <html>/<body>, so there is no
+    # sane place to put a banner. Accepted: they are transient upload pages.
+    r = c.get("/pibup/upload?pino=9")
+
+    assert r.status_code == 200
+    assert BANNER_TEXT not in r.content.decode()
