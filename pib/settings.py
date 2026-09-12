@@ -46,7 +46,13 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # TTSiteHostMiddleware stays first: it swaps request.urlconf and must run
+    # before anything resolves a URL (tests/test_settings_import.py asserts it).
     'ttsite.middleware.TTSiteHostMiddleware',
+    # Early in the list => its response pass runs late, so it rewrites finished
+    # HTML rather than something a later middleware still edits. It has no
+    # request phase, so sitting behind TTSiteHostMiddleware costs nothing.
+    'pibfpgas.middleware.UnderConstructionMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -145,6 +151,11 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+# Under-construction banner (pibfpgas.middleware.UnderConstructionMiddleware).
+# Off by default so a deployment only shows it when fpgas.online-infra turns
+# it on -- welland does, ps1 does not.
+UNDER_CONSTRUCTION = False
 
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"
