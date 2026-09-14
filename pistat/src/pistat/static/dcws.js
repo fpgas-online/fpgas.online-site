@@ -25,6 +25,9 @@ function PiStatus(PiID, PiSwitch) {
                     addTextAndScrollToBottom(what + ' failed (' + response.status + '): ' + json.error);
                 } else if (json.state !== undefined) {
                     addTextAndScrollToBottom(what + ': PoE ' + json.state);
+                } else if (Array.isArray(json[PiID])) {
+                    // /snmp/toggle answers {"<port>": ["off", "on"]}
+                    addTextAndScrollToBottom(what + ': PoE ' + json[PiID].join(' then '));
                 }
                 console.log(json);
             });
