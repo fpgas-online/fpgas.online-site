@@ -68,6 +68,8 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert "hostname=10.21.2.42" in html  # wssh iframe
     assert "-p 24222" in html  # direct ssh instructions
     assert "https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
+    # /snmp/status and /snmp/toggle need the switch index as well as the port
+    assert 'PiStatus("42", 2)' in html
 
 
 @pytest.mark.django_db
@@ -76,6 +78,8 @@ def test_board_page_legacy_rows_keep_old_addresses(c):
     html = c.get("/fpgas/pi9.html").content.decode()
     assert "hostname=10.21.0.109" in html
     assert "-p 10922" in html
+    # legacy flat scheme: one switch, so only the port is sent
+    assert 'PiStatus("9", null)' in html
 
 
 @pytest.mark.django_db
