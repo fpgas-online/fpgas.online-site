@@ -1,7 +1,35 @@
 // dcws.js
 // Django-Channels Web Socket
 
-function PiStatus(PiID) {
+function PiStatus(PiID, PiSwitch) {
+
+    // What /snmp/status and /snmp/toggle need to find the port: on the
+    // per-port-VLAN scheme (welland) the switch index as well as the port;
+    // on the legacy single-switch scheme (ps1) PiSwitch is null and only the
+    // port is sent.
+    function poe_body(){
+        const body = { port: PiID };
+        if (PiSwitch !== null && PiSwitch !== undefined) {
+            body.switch = PiSwitch;
+        }
+        return JSON.stringify(body);
+    };
+
+    // The PoE endpoints answer JSON: {"state": ...} on success, {"error": ...}
+    // with a 4xx/5xx otherwise. Put either in the status box, so a refused
+    // power cycle no longer looks like a successful one.
+    function show_poe_result(what){
+        return function(response){
+            return response.json().then(function(json){
+                if (!response.ok) {
+                    addTextAndScrollToBottom(what + ' failed (' + response.status + '): ' + json.error);
+                } else if (json.state !== undefined) {
+                    addTextAndScrollToBottom(what + ': PoE ' + json.state);
+                }
+                console.log(json);
+            });
+        };
+    };
 
     function addTextAndScrollToBottom(newText){
         const o = document.getElementById("log"+PiID);
@@ -84,12 +112,11 @@ function PiStatus(PiID) {
             fetch('/snmp/status', {
               method: 'POST',
               headers: { "Content-type": "application/json; charset=UTF-8" },
-              body: JSON.stringify({ port: PiID })
+              body: poe_body()
               }
             )
-              .then((response) => response.json())
-              .then((json) => console.log(json))
-              .then((error) => console.log(error));
+              .then(show_poe_result('status'))
+              .catch((error) => addTextAndScrollToBottom('status failed: ' + error));
         };
 
         document.getElementById('reset'+PiID).onclick = function(e) {
@@ -106,10 +133,11 @@ function PiStatus(PiID) {
             fetch('/snmp/toggle', {
               method: 'POST',
               headers: { "Content-type": "application/json; charset=UTF-8" },
-              body: JSON.stringify({ port: PiID })
+              body: poe_body()
               }
             )
-            .then((error) => console.log(error));
+              .then(show_poe_result('reset'))
+              .catch((error) => addTextAndScrollToBottom('reset failed: ' + error));
         };
 
         document.getElementById('status'+PiID).onclick = function(e) {
