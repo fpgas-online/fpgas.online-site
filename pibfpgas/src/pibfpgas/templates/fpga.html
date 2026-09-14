@@ -170,7 +170,7 @@
 </table>
 
 <script src="https://f4pga-examples.readthedocs.io/en/latest/_static/javascripts/f4pga.js"></script>
-<script>PiStatus("{{pi.port}}")</script>
+<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }})</script>
 <script src="/demos.js"></script>
 
 
