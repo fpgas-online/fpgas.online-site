@@ -9,7 +9,6 @@ import types
 
 import pytest
 from django.conf import settings
-from django.http import HttpResponse
 from django.test import Client, override_settings
 from django.urls import path
 from django.utils.log import RequireDebugTrue
