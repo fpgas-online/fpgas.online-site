@@ -101,9 +101,14 @@ def fake_ssh(monkeypatch):
 
 
 @pytest.fixture
-def c(settings):
+def c(settings, tmp_path):
     settings.PI_PW = base64.b64encode(PI_PASSWORD.encode()).decode()
     settings.DOMAIN_NAME = "welland.fpgas.online"
+    # a real bitstream is megabytes, so Django spools it to a temporary file
+    # and f.chunks() hands the view one 64 KiB block at a time. Force that
+    # here too: a transfer can only die partway if there is a partway.
+    settings.FILE_UPLOAD_MAX_MEMORY_SIZE = 0
+    settings.FILE_UPLOAD_TEMP_DIR = str(tmp_path)
     return Client(HTTP_HOST="welland.fpgas.online")
 
 
@@ -204,7 +209,7 @@ def test_a_missing_uploads_directory_says_nothing_landed(c, board, fake_ssh):
     assert r.status_code == 502
     html = r.content.decode()
     assert "pi42 answered" in html
-    assert "Nothing was written" in html
+    assert "nothing was written" in html
     assert "incomplete" not in html
 
 
