@@ -248,3 +248,55 @@ def test_get_renders_the_bare_form(c, board):
     html = r.content.decode()
     assert 'action="/pibup/upload?pino=42"' in html
     assert 'name="file"' in html
+
+
+# -- ?pino= is a link, not a promise ----------------------------------------
+
+def test_the_upload_page_needs_a_pino(c, db):
+    # GET /pibup/upload with no query string: a broken link, not a broken
+    # server. It answered 500 in production.
+    r = c.get("/pibup/upload")
+
+    assert r.status_code == 400
+
+
+def test_the_success_page_needs_a_pino(c, db):
+    r = c.get("/pibup/success")
+
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("pino", ["", "pi42", "42;rm", "-1", "9999999999999999999999"])
+def test_a_pino_that_is_not_a_port_number_is_a_400(c, board, pino):
+    r = c.get(f"/pibup/upload?pino={pino}")
+
+    assert r.status_code == 400
+
+
+def test_the_upload_page_for_a_board_that_is_not_ours_is_a_404(c, board):
+    r = c.get("/pibup/upload?pino=99")
+
+    assert r.status_code == 404
+
+
+def test_the_success_page_for_a_board_that_is_not_ours_is_a_404(c, board):
+    r = c.get("/pibup/success?pino=99")
+
+    assert r.status_code == 404
+
+
+def test_the_success_page_names_the_board(c, board):
+    r = c.get("/pibup/success?pino=42")
+
+    assert r.status_code == 200
+    assert "pino=42" in r.content.decode()
+
+
+def test_a_port_on_two_switches_cannot_be_guessed_at(c, board):
+    # welland numbers ports per switch, so pi-sw1-p42 and pi-sw2-p42 can both
+    # exist. Uploading to whichever came back first would be worse than a 500.
+    Pi.objects.create(port=42, switch=1)
+
+    r = upload(c)
+
+    assert r.status_code == 400
