@@ -5,6 +5,7 @@ import logging
 
 import paramiko
 from django.conf import settings
+from django.core.exceptions import BadRequest
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from pibfpgas.models import Pi
@@ -40,11 +41,35 @@ class TransferFailed(UploadError):
     """The board answered, but the file did not get there in one piece."""
 
 
+def board_from_request(request):
+    """The port number and the board named by ``?pino=``.
+
+    A link with no ``pino``, or one carrying something that is not a switch
+    port number, is a broken link rather than a broken server: 400. A port
+    number with no board behind it is a 404, from get_object_or_404. Either
+    way the visitor never meets Django's 500 page, which is what
+    ``request.GET['pino']`` gave them.
+    """
+
+    pino = request.GET.get("pino")
+    if pino is None or not (pino.isascii() and pino.isdigit()) or not 0 < int(pino) < 10000:
+        log.warning("upload request with no usable pino: %s", request.get_full_path())
+        raise BadRequest("this page needs ?pino=<switch port>, naming the board to upload to")
+
+    try:
+        return pino, get_object_or_404(Pi, port=pino)
+    except Pi.MultipleObjectsReturned:
+        # welland numbers its ports per switch, so a bare port number can name
+        # two boards. Guessing would upload to whichever the database listed
+        # first, which is worse than saying we cannot tell.
+        log.warning("pino %s names a board on more than one switch", pino)
+        raise BadRequest(f"port {pino} is on more than one switch, so this page cannot tell which board you mean")
+
+
 # @csrf_exempt
 def pibup(request):
 
-    pino=request.GET['pino']
-    pi = get_object_or_404(Pi, port=pino)
+    pino, pi = board_from_request(request)
     log.debug("upload page for pi%s (%s)", pino, pi.ip)
 
     error = None
@@ -120,8 +145,8 @@ def handle_uploaded_file(f, pino, ip):
     log.info("pi%s (%s): uploaded %s (%d bytes) to Uploads", pino, ip, file_name, written)
 
 def success(request):
-    pino=request.GET['pino']
-    log.debug("upload succeeded for pi%s", pino)
+    pino, pi = board_from_request(request)
+    log.debug("upload succeeded for pi%s (%s)", pino, pi.ip)
     return render(request, "success.html",
             {
                 "pino": pino,
