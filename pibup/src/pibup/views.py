@@ -30,7 +30,14 @@ RETRY_HINT = (
 
 
 class UploadError(Exception):
-    """Something the visitor can read, in place of a 500 page."""
+    """Something the visitor can read, in place of a 500 page.
+
+    ``status`` is what the board page answers with: the board is upstream of
+    us the way the switch is upstream of the PoE views, which answer 502 when
+    it will not talk and 503 when the service was never configured.
+    """
+
+    status = 502
 
 
 class BoardUnreachable(UploadError):
@@ -39,6 +46,12 @@ class BoardUnreachable(UploadError):
 
 class TransferFailed(UploadError):
     """The board answered, but the file did not get there in one piece."""
+
+
+class SiteMisconfigured(UploadError):
+    """This deployment has no usable board password, so no upload can work."""
+
+    status = 503
 
 
 def board_from_request(request):
@@ -73,6 +86,7 @@ def pibup(request):
     log.debug("upload page for pi%s (%s)", pino, pi.ip)
 
     error = None
+    status = 200
 
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
@@ -80,7 +94,7 @@ def pibup(request):
             try:
                 handle_uploaded_file(request.FILES["file"], pino, pi.ip)
             except UploadError as e:
-                error = str(e)
+                error, status = str(e), e.status
             else:
                 return HttpResponseRedirect(f"success?pino={pino}")
     else:
@@ -92,9 +106,7 @@ def pibup(request):
                 "form": form,
                 "error": error,
                 },
-            # the board is upstream of us, the way the switch is upstream of
-            # the PoE views: when it will not talk, that is a 502, not an OK
-            status=502 if error else 200,
+            status=status,
             )
 
 def handle_uploaded_file(f, pino, ip):
@@ -102,7 +114,16 @@ def handle_uploaded_file(f, pino, ip):
     # The shared pi password, base64 in settings the same way the board page
     # hands it to the wssh terminal. Without it paramiko only tries whatever
     # ssh keys the gunicorn user happens to have.
-    password = base64.b64decode(settings.PI_PW).decode()
+    try:
+        password = base64.b64decode(settings.PI_PW).decode()
+    except (AttributeError, ValueError) as e:
+        # a deployment whose gunicorn never got PI_PW, or got something that
+        # is not base64. No board is going to let us in, so do not try.
+        log.exception("PI_PW is missing or not base64; no upload can work")
+        raise SiteMisconfigured(
+            "This site has no working password for the boards, so the upload was not attempted. "
+            "That is our fault, not yours -- please report it."
+        ) from e
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
