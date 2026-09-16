@@ -300,3 +300,23 @@ def test_a_port_on_two_switches_cannot_be_guessed_at(c, board):
     r = upload(c)
 
     assert r.status_code == 400
+
+
+# -- the site itself is broken ----------------------------------------------
+
+@pytest.mark.parametrize("pi_pw", [None, "not base64!!"])
+def test_a_site_with_no_usable_pi_password_says_so(c, board, fake_ssh, settings, pi_pw):
+    # welland's gunicorn has been deployed without a setting before now. That
+    # is our fault, and it is a 503, not a 500 and not the board's fault.
+    if pi_pw is None:
+        del settings.PI_PW
+    else:
+        settings.PI_PW = pi_pw
+
+    r = upload(c)
+
+    assert r.status_code == 503
+    html = r.content.decode()
+    assert "did not answer" not in html
+    assert "our fault" in html
+    assert fake_ssh.connects == []
