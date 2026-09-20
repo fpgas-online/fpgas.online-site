@@ -11,6 +11,11 @@ from django.db import models
 
 class Board(models.Model):
     KIND_CHOICES = [("asic", "TT ASIC"), ("kianv", "KianV RISC-V"), ("fpga", "FPGA emulation")]
+    # Which Commander embed drives the board: "main" is the fork of upstream
+    # main (needs TT SDK >= 2.0.0RC2 on the demo board); "legacy" is the
+    # SDK-agnostic port of upstream's legacy branch, for chips stuck on 1.x
+    # firmware (tt03p5). Each pins its own bundle version in settings.
+    COMMANDER_CHOICES = [("main", "Commander"), ("legacy", "Legacy Commander (pre-2.x firmware)")]
 
     slug = models.SlugField(unique=True)
     switch = models.PositiveSmallIntegerField(default=1)
@@ -24,6 +29,7 @@ class Board(models.Model):
     pmods = models.JSONField(default=list, blank=True)
     links = models.JSONField(default=list, blank=True)
     enabled = models.BooleanField(default=True)
+    commander = models.CharField(max_length=8, choices=COMMANDER_CHOICES, default="main")
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:

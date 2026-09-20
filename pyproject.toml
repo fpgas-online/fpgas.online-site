@@ -30,7 +30,7 @@ exclude = ["tests*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-"*" = ["templates/**/*", "static/**/*"]
+"*" = ["templates/**/*", "static/**/*", "fixtures/**/*"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "pib.settings"

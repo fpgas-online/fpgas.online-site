@@ -1,0 +1,198 @@
+[
+ {
+  "model": "pibfpgas.pi",
+  "pk": 1,
+  "fields": {
+   "port": 16,
+   "switch": 2,
+   "mac": "e4:5f:01:96:f8:a5",
+   "serial_no": "10000000ce8e3593",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 2,
+  "fields": {
+   "port": 29,
+   "switch": 2,
+   "mac": "88:a2:9e:45:dd:be",
+   "serial_no": "a01e40441f959c20",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 3,
+  "fields": {
+   "port": 33,
+   "switch": 2,
+   "mac": "e4:5f:01:97:0e:77",
+   "serial_no": "1000000085948b10",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 4,
+  "fields": {
+   "port": 34,
+   "switch": 2,
+   "mac": "e4:5f:01:97:27:f2",
+   "serial_no": "1000000040f6bf6d",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 5,
+  "fields": {
+   "port": 35,
+   "switch": 2,
+   "mac": "e4:5f:01:97:0c:e3",
+   "serial_no": "100000007a4f3afc",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 6,
+  "fields": {
+   "port": 36,
+   "switch": 2,
+   "mac": "e4:5f:01:8e:02:27",
+   "serial_no": "1000000062c15d4f",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 7,
+  "fields": {
+   "port": 37,
+   "switch": 2,
+   "mac": "e4:5f:01:97:1f:7e",
+   "serial_no": "10000000613a4524",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 8,
+  "fields": {
+   "port": 38,
+   "switch": 2,
+   "mac": "e4:5f:01:8d:f7:17",
+   "serial_no": "10000000f77b8415",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 9,
+  "fields": {
+   "port": 42,
+   "switch": 2,
+   "mac": "e4:5f:01:97:27:11",
+   "serial_no": "10000000de0c73e5",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 10,
+  "fields": {
+   "port": 43,
+   "switch": 2,
+   "mac": "98:fe:54:13:e0:75",
+   "serial_no": "55effc3376226b41",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 11,
+  "fields": {
+   "port": 44,
+   "switch": 2,
+   "mac": "98:fe:54:13:e0:f5",
+   "serial_no": "117f731f100e80a7",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 12,
+  "fields": {
+   "port": 46,
+   "switch": 2,
+   "mac": "88:a2:9e:45:85:77",
+   "serial_no": "0cd35697db04a4ab",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 13,
+  "fields": {
+   "port": 47,
+   "switch": 2,
+   "mac": "98:fe:54:13:f5:75",
+   "serial_no": "c36b093f773d46b8",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 14,
+  "fields": {
+   "port": 48,
+   "switch": 2,
+   "mac": "88:a2:9e:45:c6:87",
+   "serial_no": "285df3f84af242d0",
+   "location": "fpgas rack (Back Shed)",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
+   "cable_color": "",
+   "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ }
+]

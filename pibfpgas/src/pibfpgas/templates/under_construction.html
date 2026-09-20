@@ -1,0 +1,58 @@
+{% comment %} Injected after <body> by pibfpgas.middleware.UnderConstructionMiddleware.
+
+   Self-contained on purpose: the pages this lands in range from f4pga's
+   stylesheet to ttsite.css to fpga.html's bare element selectors, and the
+   middleware has no way to add a <link> to each of them.  Everything is
+   scoped under #fo-uc, and the `font` shorthand resets the family so the
+   host page's rules cannot leak in.
+{% endcomment %}
+<div id="fo-uc" role="status">
+  <span>&#9888; <strong>Under construction!</strong>
+    (Broken? Try <a href="https://{{ fallback }}/">{{ fallback }}</a>)</span>
+  <button type="button" id="fo-uc-dismiss" aria-label="Dismiss this notice">&#10005;</button>
+</div>
+<style>
+#fo-uc {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em 0.75em;
+  width: 100%;
+  margin: 0;
+  padding: 0.6em 1em;
+  background: #fff3cd;
+  color: #4a3b00;
+  border-bottom: 1px solid #e0c86a;
+  font: 400 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-align: center;
+}
+#fo-uc a { color: inherit; font-weight: 600; }
+#fo-uc-dismiss {
+  flex: none;
+  padding: 0.2em 0.4em;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+#fo-uc-dismiss:hover, #fo-uc-dismiss:focus { opacity: 1; }
+</style>
+<script>
+(function () {
+  var bar = document.getElementById('fo-uc');
+  if (!bar) return;
+  // Clients that send Sec-Fetch-Dest never get here in a frame; this covers
+  // the ones that do not send it (Safari before 16.4), which the middleware
+  // has to treat as a top-level navigation.
+  if (window.top !== window.self) { bar.parentNode.removeChild(bar); return; }
+  document.getElementById('fo-uc-dismiss').addEventListener('click', function () {
+    document.cookie = '{{ cookie }}=1; max-age={{ max_age }}; path=/; SameSite=Lax';
+    bar.parentNode.removeChild(bar);
+  });
+})();
+</script>
