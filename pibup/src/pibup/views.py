@@ -1,8 +1,12 @@
 # pibup - pib upload form
 
+import base64
+
 import paramiko
+from django.conf import settings
 from django.http import HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
+from pibfpgas.models import Pi
 
 from .forms import UploadFileForm
 
@@ -16,8 +20,7 @@ def pibup(request):
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
         if form.is_valid():
-            run = form.cleaned_data['run']
-            handle_uploaded_file(request.FILES["file"], pino, run)
+            handle_uploaded_file(request.FILES["file"], pino)
             return HttpResponseRedirect(f"success?pino={pino}")
     else:
         form = UploadFileForm()
@@ -27,18 +30,21 @@ def pibup(request):
                 "form": form,
                 })
 
-def handle_uploaded_file(f, pino, run):
+def handle_uploaded_file(f, pino):
 
-    o=100+int(pino)
-    ip=f'10.21.0.{o}'
+    ip = get_object_or_404(Pi, port=pino).ip
 
-    print(f"{o=}, {ip=}, {run=}")
+    print(f"{ip=}")
+
+    # The shared pi password, base64 in settings the same way the board page
+    # hands it to the wssh terminal. Without it paramiko only tries whatever
+    # ssh keys the gunicorn user happens to have.
+    password = base64.b64decode(settings.PI_PW).decode()
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    # client.connect("ps1.fpgas.mithis.com", username='pi', port=10222)
-    client.connect(ip, username='pi')
+    client.connect(ip, username='pi', password=password)
     sftp = client.open_sftp()
 
     file_name=f.name
@@ -46,6 +52,8 @@ def handle_uploaded_file(f, pino, run):
     with sftp.open(f"Uploads/{file_name}", "wb+") as destination:
         for chunk in f.chunks():
             destination.write(chunk)
+
+    client.close()
 
 def success(request):
     pino=request.GET['pino']

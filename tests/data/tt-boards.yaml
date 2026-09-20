@@ -1,7 +1,7 @@
 tt_boards:
   - {slug: tt06, port: 6, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6", blurb: "TT06 on a demo board",
      pcb: "TT demo board v3 (RP2040)", links: [{label: "TT06 chip page", url: "https://tinytapeout.com/chips/tt06/"}]}
-  - {slug: tt03, port: 3, kind: asic, shuttle: tt03, title: "Tiny Tapeout 3", enabled: false}
+  - {slug: tt03, port: 3, kind: asic, shuttle: tt03, title: "Tiny Tapeout 3", enabled: false, commander: legacy}
   - {slug: kianv-1, port: null, kind: kianv, shuttle: tt06, title: "KianV uLinux SoC (TT06)",
      pmods: [{name: "QSPI Pmod", url: "https://github.com/mole99/qspi-pmod"}]}
   - {slug: fpga-1, port: 12, kind: fpga, title: "TT FPGA emulation board 1", sort_order: 5}
