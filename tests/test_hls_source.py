@@ -54,6 +54,7 @@ def tinytapeout():
 @pytest.mark.parametrize("path", ["/fpgas/pi21.html", "/fpgas/tt.html", "/fpgas/"])
 def test_welland_players_take_their_source_from_data_setup(welland, settings, path):
     settings.DOMAIN_NAME = "welland.fpgas.online"
+    settings.PI_PW = "cGFzc3dvcmQ="  # the board page renders it into the wssh iframe
     Pi.objects.create(port=21, switch=2, fpga_board="TT FPGA emulation (iCE40UP5K)")
     (setup,) = players(welland, path)
     assert setup["liveui"] is True
