@@ -60,12 +60,8 @@
         autoplay
         muted
         preload="auto"
-        data-setup='{"liveui": true}'
+        data-setup='{"liveui": true, "sources": [{"src": "https://{{ domain_name }}{{pi.stream_url}}", "type": "application/x-mpegURL"}]}'
       >
-        <source
-            src="https://{{ domain_name }}{{pi.stream_url}}"
-            type='application/x-mpegURL'
-        />
       </video>
     </td>
 

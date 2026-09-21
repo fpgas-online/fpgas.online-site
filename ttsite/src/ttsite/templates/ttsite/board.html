@@ -25,8 +25,7 @@
   {% else %}
   <div class="tt-board-grid">
     <section class="tt-camera"><div class="whep-live" data-whep-url="{{ board.whep_url }}" data-hls-id="tt-video"></div>
-    <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true}'>
-      <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
+    <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true, "sources": [{"src": "{{ board.stream_url }}", "type": "application/x-mpegURL"}]}'></video></section>
     <section class="tt-commander">
       {% if commander_version %}<div id="tt-commander"></div>
       {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER{% if board.commander == "legacy" %}_LEGACY{% endif %}_VERSION is empty).</p>{% endif %}
