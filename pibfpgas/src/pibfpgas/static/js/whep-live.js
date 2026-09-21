@@ -118,10 +118,19 @@
     window.addEventListener("beforeunload", () => reader.close());
   }
 
-  window.addEventListener("load", () => {
+  function start() {
     const style = document.createElement("style");
     style.textContent = CSS;
     document.head.appendChild(style);
     document.querySelectorAll(".whep-live[data-whep-url]").forEach(setup);
-  });
+  }
+  // As soon as the DOM is parsed -- NOT window "load": that waits for every
+  // iframe and third-party script (the web terminal, readthedocs' jquery),
+  // and a stuck media element can hold it for ever. setup() looks the
+  // video.js player up lazily, so it need not exist yet.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
 })();
