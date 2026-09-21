@@ -71,6 +71,7 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert "hostname=10.21.2.42" in html  # wssh iframe
     assert "-p 24222" in html  # direct ssh instructions
     assert "https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
+    assert "vlc https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
     assert 'data-whep-url="/cam/pi-sw2-p42/whep"' in html
     # this vhost's docroot IS the collected static dir (like /dcws.js): there
     # is no /static/ alias here, so /static/js/... 404s and WHEP never starts
