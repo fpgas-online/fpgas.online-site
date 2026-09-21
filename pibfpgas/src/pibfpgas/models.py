@@ -53,3 +53,9 @@ class Pi(models.Model):
     @property
     def stream_url(self):
         return f"/live/{self.hostname}.m3u8"
+
+    @property
+    def whep_url(self):
+        # WebRTC low-latency live view (mediamtx via nginx /cam/<host>/whep);
+        # same stream key as HLS: the hostname, not the bare port.
+        return f"/cam/{self.hostname}/whep"

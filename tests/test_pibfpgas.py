@@ -32,6 +32,7 @@ def test_legacy_scheme_derives_flat_addresses():
     assert pi.ip == "10.21.0.109"
     assert pi.ssh_port == 10922
     assert pi.stream_url == "/live/pi9.m3u8"
+    assert pi.whep_url == "/cam/pi9/whep"
 
 
 @pytest.mark.django_db
@@ -41,6 +42,8 @@ def test_vlan_per_port_scheme_derives_from_switch_and_port():
     assert pi.ip == "10.21.2.34"
     assert pi.ssh_port == 23422
     assert pi.stream_url == "/live/pi-sw2-p34.m3u8"
+    # the stream key on the gateway is the hostname, for WHEP as for HLS
+    assert pi.whep_url == "/cam/pi-sw2-p34/whep"
 
 
 @pytest.mark.django_db
@@ -68,6 +71,13 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert "hostname=10.21.2.42" in html  # wssh iframe
     assert "-p 24222" in html  # direct ssh instructions
     assert "https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
+    assert "vlc https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
+    assert 'data-whep-url="/cam/pi-sw2-p42/whep"' in html
+    # this vhost's docroot IS the collected static dir (like /dcws.js): there
+    # is no /static/ alias here, so /static/js/... 404s and WHEP never starts
+    assert 'src="/js/mediamtx-reader.js"' in html
+    assert 'src="/js/whep-live.js"' in html
+    assert "/static/" not in html
     # /snmp/status and /snmp/toggle need the switch index as well as the port
     assert 'PiStatus("42", 2)' in html
 
@@ -78,6 +88,7 @@ def test_board_page_legacy_rows_keep_old_addresses(c):
     html = c.get("/fpgas/pi9.html").content.decode()
     assert "hostname=10.21.0.109" in html
     assert "-p 10922" in html
+    assert 'data-whep-url="/cam/pi9/whep"' in html
     # legacy flat scheme: one switch, so only the port is sent
     assert 'PiStatus("9", null)' in html
 
