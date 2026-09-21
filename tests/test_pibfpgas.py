@@ -72,6 +72,11 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert "-p 24222" in html  # direct ssh instructions
     assert "https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
     assert 'data-whep-url="/cam/pi-sw2-p42/whep"' in html
+    # this vhost's docroot IS the collected static dir (like /dcws.js): there
+    # is no /static/ alias here, so /static/js/... 404s and WHEP never starts
+    assert 'src="/js/mediamtx-reader.js"' in html
+    assert 'src="/js/whep-live.js"' in html
+    assert "/static/" not in html
     # /snmp/status and /snmp/toggle need the switch index as well as the port
     assert 'PiStatus("42", 2)' in html
 
