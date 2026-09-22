@@ -7,6 +7,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from pibfpgas.models import Pi
 
 
 def humanize(m):
@@ -60,9 +61,12 @@ def status(request, pi_name, status):
 @csrf_exempt
 def ping(request, pi_name):
 
-    # pi_name should be "pi{pi_no}"
-    pi_oct = 100 + int(pi_name[2:])
-    pi_ip = f"10.21.0.{pi_oct}"
+    # pi_name should be "pi{pi_no}"; the Pi row knows its real address
+    # (10.21.<switch>.<port> on VLAN-per-port sites); fall back to the
+    # legacy flat scheme when no row exists
+    port = int(pi_name[2:])
+    pi = Pi.objects.filter(port=port).first()
+    pi_ip = pi.ip if pi else f"10.21.0.{100 + port}"
 
     cmd = ["ping",
             "-c", "3",

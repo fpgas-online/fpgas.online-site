@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'snmp_switch',
     'pistat',
     'ttsite',
+    'fleet',
 ]
 
 MIDDLEWARE = [
@@ -289,6 +290,10 @@ def _build_logging(level, request_level):
         },
     }
 
+
+# fleet MQTT consumer broker (anonymous LAN listener, no credentials).
+# Overridable in local_settings.py.
+FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
 
 try:
     from pib.local_settings import *  # noqa: E402, F403
