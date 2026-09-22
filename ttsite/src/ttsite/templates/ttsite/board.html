@@ -2,7 +2,7 @@
 {% block title %}{{ board.title }} &middot; Tiny Tapeout at fpgas.online{% endblock %}
 {% block head %}
 {% include "ttsite/_videojs_head.html" %}
-{% if live and COMMANDER_VERSION %}<link rel="stylesheet" href="{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.css">{% endif %}
+{% if live and commander_version %}<link rel="stylesheet" href="{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.css">{% endif %}
 {% endblock %}
 {% block content %}
 <div id="ttsite-board"
@@ -11,7 +11,7 @@
      data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
      {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
-     data-commander-js="{% if live and COMMANDER_VERSION %}{{ STATIC_URL }}tt-commander/{{ COMMANDER_VERSION }}/tt-commander-embed.js{% endif %}">
+     data-commander-js="{% if live and commander_version %}{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.js{% endif %}">
   <header class="tt-board-head">
     <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
@@ -24,11 +24,11 @@
     <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>
   {% else %}
   <div class="tt-board-grid">
-    <section class="tt-camera"><video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup="{}">
-      <source src="{{ board.stream_url }}" type="application/x-mpegURL"></video></section>
+    <section class="tt-camera"><div class="whep-live" data-whep-url="{{ board.whep_url }}" data-hls-id="tt-video"></div>
+    <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true, "sources": [{"src": "{{ board.stream_url }}", "type": "application/x-mpegURL"}]}'></video></section>
     <section class="tt-commander">
-      {% if COMMANDER_VERSION %}<div id="tt-commander"></div>
-      {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER_VERSION is empty).</p>{% endif %}
+      {% if commander_version %}<div id="tt-commander"></div>
+      {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER{% if board.commander == "legacy" %}_LEGACY{% endif %}_VERSION is empty).</p>{% endif %}
     </section>
   </div>
   {% if board.kind == "fpga" %}
@@ -69,4 +69,6 @@
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>
+{% if live %}<script src="{% static 'js/mediamtx-reader.js' %}"></script>
+<script src="{% static 'js/whep-live.js' %}"></script>{% endif %}{% endblock %}

@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -47,7 +48,13 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # TTSiteHostMiddleware stays first: it swaps request.urlconf and must run
+    # before anything resolves a URL (tests/test_settings_import.py asserts it).
     'ttsite.middleware.TTSiteHostMiddleware',
+    # Early in the list => its response pass runs late, so it rewrites finished
+    # HTML rather than something a later middleware still edits. It has no
+    # request phase, so sitting behind TTSiteHostMiddleware costs nothing.
+    'pibfpgas.middleware.UnderConstructionMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -147,9 +154,142 @@ CHANNEL_LAYERS = {
     },
 }
 
+# Under-construction banner (pibfpgas.middleware.UnderConstructionMiddleware).
+# Off by default so a deployment only shows it when fpgas.online-infra turns
+# it on -- welland does, ps1 does not.
+UNDER_CONSTRUCTION = False
+# The site to send visitors to when this one misbehaves.
+UNDER_CONSTRUCTION_FALLBACK = "ps1.fpgas.online"
+# Path prefixes that are not visitor-facing. Both urlconfs mount the admin
+# at admin/, so one prefix covers welland and tinytapeout.
+UNDER_CONSTRUCTION_EXCLUDE_PREFIXES = ("/admin/",)
+
 # tinytapeout.fpgas.online (ttsite app). Overridable in local_settings.py.
 TTSITE_HOST = "tinytapeout.fpgas.online"
 TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
+# Legacy Commander (SDK-agnostic, for pre-2.x-firmware boards like tt03p5);
+# served from static tt-commander/legacy-<version>/. Empty => not deployed.
+TTSITE_COMMANDER_LEGACY_VERSION = ""
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Why this block exists: without a LOGGING setting, Django falls back to
+# DEFAULT_LOGGING, whose console handler carries a require_debug_true filter.
+# Production runs DEBUG = False (local_settings.py sets it), so that handler
+# drops everything and the only remaining route for a 500 is mail_admins --
+# and ADMINS is empty. The result was 298 HTTP 500s on tweed with not one
+# traceback anywhere. Everything below exists to make that impossible again.
+#
+# WHAT YOU WILL SEE IN THE JOURNAL
+#   journalctl -u <gunicorn unit> -u <daphne unit> --since -1h
+# gunicorn keeps writing its one access line per request to stdout:
+#   - "GET /pibup/upload HTTP/1.0" 500
+# and immediately next to it, on stderr, the diagnosis:
+#   ERROR django.request Internal Server Error: /pibup/upload
+#   Traceback (most recent call last):
+#     File ".../pibup/views.py", line 42, in upload
+#       ...
+#   RuntimeError: something went wrong
+# Tracebacks are multi-line, so journald records one entry per line, all with
+# the same timestamp and unit. `journalctl -o cat` reads most naturally.
+# Anything a view logs itself (logging.getLogger(__name__).exception(...))
+# shows up the same way, tagged with its module: `ERROR pibup.views ...`.
+#
+# NO SECRETS. Nothing here formats a request, a POST body or a query string.
+# django.request's message is built from request.path, which excludes the
+# query -- important because PI_PW rides in the query string of /wssh/ URLs.
+# Tracebacks are rendered by the stdlib, which prints source lines only, never
+# frame locals; SafeExceptionReporterFilter scrubbing covers the debug page and
+# mail_admins, neither of which is in play here, so "don't log it" is the only
+# protection available and is what this configuration relies on.
+#
+# HOW AN OPERATOR CHANGES THE LEVEL (no code change)
+#   1. In pib/local_settings.py, which fpgas.online-infra generates:
+#          LOG_LEVEL = "DEBUG"           # project apps + the django logger
+#          REQUEST_LOG_LEVEL = "WARNING" # also log 404s and 400s
+#      These are plain module-level constants, read AFTER the star-import
+#      below, so setting them in local_settings.py just works.
+#   2. Or in the systemd unit:  Environment=DJANGO_LOG_LEVEL=DEBUG
+#      (local_settings.py wins over the environment if both are set.)
+#   3. Nested values such as LOGGING["loggers"]["pibup"]["level"] CANNOT be
+#      overridden from local_settings.py -- a star-import replaces whole names,
+#      not keys inside a dict. To go beyond the two knobs above, set the entire
+#      LOGGING dict in local_settings.py; doing so replaces this one outright.
+# Either way, restart the gunicorn and daphne units for it to take effect.
+
+# Level for the project's own apps and for Django's own messages.
+LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
+# Level for django.request. ERROR by default: that is 500s with a traceback.
+# WARNING would add one "Not Found: /x" line per 404, which nginx and the
+# gunicorn access log already report.
+REQUEST_LOG_LEVEL = os.environ.get("DJANGO_REQUEST_LOG_LEVEL", "ERROR").upper()
+
+# Sentinel; see step 3 above. A local_settings.py that assigns LOGGING itself
+# lands here and is left alone.
+LOGGING = None
+
+_PROJECT_APP_LOGGERS = ("pibfpgas", "pistat", "pibdemos", "pibup", "ttsite", "snmp_switch")
+
+
+def _build_logging(level, request_level):
+    """Send everything worth reading to stderr, where systemd picks it up."""
+    stderr = {"handlers": ["stderr"], "propagate": False}
+    return {
+        "version": 1,
+        # gunicorn, uvicorn and daphne create their loggers before Django reads
+        # settings. True here would silence the server itself.
+        "disable_existing_loggers": False,
+        "formatters": {
+            # journald already stamps each line with a time and the unit name,
+            # so this adds only what it cannot know. Nothing request-derived.
+            "journal": {"format": "{levelname} {name} {message}", "style": "{"},
+        },
+        "handlers": {
+            "stderr": {
+                "class": "logging.StreamHandler",
+                # stderr, not stdout: gunicorn's --access-logfile - owns stdout,
+                # and a multi-line traceback spliced into the access log is
+                # unreadable. systemd captures both streams either way.
+                "stream": "ext://sys.stderr",
+                "formatter": "journal",
+                # No filters. require_debug_true here is the original bug.
+                # The loggers below do the filtering instead.
+                "level": "DEBUG",
+            },
+        },
+        # Catch-all, so a library that blows up inside a consumer (paramiko,
+        # pysnmp, redis) is still heard from.
+        "root": {"handlers": ["stderr"], "level": "WARNING"},
+        "loggers": {
+            "django": {**stderr, "level": level},
+            # Where 500s arrive, with exc_info attached. No handler of its own:
+            # it propagates to "django" above, so each error prints exactly once.
+            "django.request": {"level": request_level},
+            "django.security": {"level": request_level},
+            # Every SQL statement at DEBUG; never what you want, even when
+            # LOG_LEVEL is DEBUG for the rest.
+            "django.db.backends": {"level": "WARNING"},
+            "django.utils.autoreload": {"level": "WARNING"},
+            # Per-request access lines from runserver and from Channels.
+            # WARNING keeps the errors and drops the duplicate access log.
+            "django.server": {**stderr, "level": "WARNING"},
+            "django.channels.server": {**stderr, "level": "WARNING"},
+            # The ASGI/WebSocket side. daphne handles /ws/ for pistat, and an
+            # exception in a consumer surfaces on one of these two.
+            "daphne": {**stderr, "level": level},
+            "channels": {**stderr, "level": level},
+            # The project's own apps: logging.getLogger(__name__) in any view,
+            # consumer or management command lands here.
+            **{name: {**stderr, "level": level} for name in _PROJECT_APP_LOGGERS},
+            # gunicorn.* and uvicorn.* are deliberately absent. dictConfig drops
+            # the existing handlers of any logger it names, so listing them here
+            # would delete the access log we rely on. Both set propagate = False
+            # on their access loggers already, so nothing of theirs reaches the
+            # root handler above and nothing is printed twice.
+        },
+    }
+
 
 # fleet MQTT consumer broker (anonymous LAN listener, no credentials).
 # Overridable in local_settings.py.
@@ -160,3 +300,8 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings
     if exc.name != "pib.local_settings":
         raise
+
+# After the star-import on purpose: LOG_LEVEL and REQUEST_LOG_LEVEL are read
+# here, so local_settings.py can set either of them and have it take effect.
+if LOGGING is None:
+    LOGGING = _build_logging(LOG_LEVEL, REQUEST_LOG_LEVEL)

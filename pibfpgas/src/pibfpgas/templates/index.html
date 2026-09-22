@@ -63,12 +63,8 @@ table.button {
       autoplay muted
       controls
       preload="auto"
-      data-setup="{}"
+      data-setup='{"liveui": true, "sources": [{"src": "https://{{ domain_name }}{{pi.stream_url}}", "type": "application/x-mpegURL"}]}'
     >
-      <source
-          src="https://{{ domain_name }}{{pi.stream_url}}"
-          type='application/x-mpegURL'
-      />
     </video>
   </td>
  </tr>

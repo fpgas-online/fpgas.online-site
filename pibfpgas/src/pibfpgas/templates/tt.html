@@ -5,6 +5,8 @@
 
   <link href="https://vjs.zencdn.net/8.4.0/video-js.min.css" rel="stylesheet">
   <script src="https://vjs.zencdn.net/8.4.0/video.min.js"></script>
+  <script defer src="/js/mediamtx-reader.js"></script>
+  <script defer src="/js/whep-live.js"></script>
 
   <script src="/dcws.js"></script>
   <link rel="stylesheet" href="/pib.css"/>
@@ -49,6 +51,7 @@
   <tr height="80%">
 
     <td style="width:20%" >
+      <div class="whep-live" data-whep-url="{{pi.whep_url}}" data-hls-id="video-player{{pi.port}}"></div>
       <video
         id="video-player{{pi.port}}"
         class="video-js"
@@ -57,12 +60,8 @@
         autoplay
         muted
         preload="auto"
-        data-setup="{}"
+        data-setup='{"liveui": true, "sources": [{"src": "https://{{ domain_name }}{{pi.stream_url}}", "type": "application/x-mpegURL"}]}'
       >
-        <source
-            src="https://{{ domain_name }}{{pi.stream_url}}"
-            type='application/x-mpegURL'
-        />
       </video>
     </td>
 
@@ -127,7 +126,7 @@
       <input id="check_wire" type="hidden" value="Check Wire" >
 
 <script src="https://f4pga-examples.readthedocs.io/en/latest/_static/javascripts/f4pga.js"></script>
-<script>PiStatus("{{pi.port}}")</script>
+<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }})</script>
 <script src="/demos.js"></script>
 
 

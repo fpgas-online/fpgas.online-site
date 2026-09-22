@@ -11,8 +11,9 @@ from django.db import transaction
 from ttsite.models import Board
 
 FIELDS = ("switch", "port", "kind", "shuttle", "title", "blurb", "description", "pcb", "pmods", "links", "enabled",
-          "sort_order")
+          "commander", "sort_order")
 KINDS = {k for k, _ in Board.KIND_CHOICES}
+COMMANDERS = {k for k, _ in Board.COMMANDER_CHOICES}
 
 
 class Command(BaseCommand):
@@ -44,6 +45,9 @@ class Command(BaseCommand):
                 kind = entry.get("kind", "asic")
                 if kind not in KINDS:
                     raise CommandError(f"{path}: board {slug!r} has unknown kind {kind!r}")
+                commander = entry.get("commander", "main")
+                if commander not in COMMANDERS:
+                    raise CommandError(f"{path}: board {slug!r} has unknown commander {commander!r}")
                 defaults = {k: entry[k] for k in FIELDS if k in entry}
                 defaults["kind"] = kind
                 defaults.setdefault("title", slug)
