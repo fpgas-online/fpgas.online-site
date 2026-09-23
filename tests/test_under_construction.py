@@ -10,6 +10,7 @@ import pytest
 from django.http import HttpResponse, StreamingHttpResponse
 from django.test import Client
 from pibfpgas.middleware import UnderConstructionMiddleware
+from pibfpgas.models import Pi
 
 BANNER_TEXT = "Under construction!"
 
@@ -164,6 +165,7 @@ def test_banner_also_covers_the_tinytapeout_host(site_settings):
 def test_bare_fragments_are_left_alone(c):
     # pibup's templates are bare forms with no <html>/<body>, so there is no
     # sane place to put a banner. Accepted: they are transient upload pages.
+    Pi.objects.create(port=9, switch=2)
     r = c.get("/pibup/upload?pino=9")
 
     assert r.status_code == 200
