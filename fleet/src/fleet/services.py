@@ -64,6 +64,24 @@ def status(serial, payload):
     return machine
 
 
+def verified_serials():
+    """The serials of the machines whose FPGA check passed in the boot
+    they are running now.
+
+    fpgas-verify (fpgas.online-test-designs) publishes the stage
+    `fpga-verified` once per boot, its result in detail["result"]. A machine
+    counts only if the newest such event of its last boot says "pass": an
+    earlier boot's pass says nothing about the board now, and a boot still
+    checking (or whose check never ran) has no event yet."""
+    latest = {}
+    events = BootEvent.objects.filter(stage="fpga-verified") \
+        .select_related("machine").order_by("ts")
+    for e in events:
+        if e.boot_id and e.boot_id == e.machine.last_boot_id:
+            latest[e.machine.serial] = e.detail.get("result")
+    return {serial for serial, result in latest.items() if result == "pass"}
+
+
 def boot_event(serial, payload):
     """Record one boot-stage event ({"stage","boot_id","ts","detail"})."""
     machine = Machine.objects.filter(serial=serial).first()
