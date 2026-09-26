@@ -20,7 +20,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-django>=4.8", "ruff>=0.6"]
+dev = [
+    "channels-redis>=4.3.0",
+    "pytest>=8",
+    "pytest-django>=4.8",
+    "ruff>=0.6",
+]
 
 [tool.setuptools.packages.find]
 where = [".", "pibfpgas/src", "pistat/src", "pibdemos/src", "pibup/src", "ttsite/src", "fleet/src"]
