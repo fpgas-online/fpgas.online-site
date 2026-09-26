@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import importlib
 import io
@@ -244,3 +245,36 @@ def test_existing_server_loggers_are_not_disabled():
     # gunicorn and daphne create their loggers before Django reads settings;
     # disable_existing_loggers True would silence the server itself.
     assert settings.LOGGING["disable_existing_loggers"] is False
+
+
+# ---------------------------------------------------------------------------
+# Channel layer
+#
+# Regression cover for a real production failure: redis-py 8.0 changed the
+# default socket_timeout from None to 5 s. RedisChannelLayer.receive() blocks
+# in BZPOPMIN for brpop_timeout (also 5 s), so every idle websocket consumer
+# died with "redis.exceptions.TimeoutError: Timeout reading from
+# 127.0.0.1:6379" about 5 s after connecting (tweed and ps1, 2026-09). Built
+# from the real layer class so the check sees the kwargs redis-py will
+# actually get, not the shape of the settings dict.
+# ---------------------------------------------------------------------------
+
+
+def test_channel_layer_socket_timeout_outlives_blocking_receive():
+    from channels_redis.core import RedisChannelLayer
+
+    # Read pib.settings directly: conftest swaps django.conf.settings over to
+    # the in-memory layer for every test.
+    config = importlib.import_module("pib.settings").CHANNEL_LAYERS["default"]
+    assert config["BACKEND"] == "channels_redis.core.RedisChannelLayer"
+    layer = RedisChannelLayer(**config["CONFIG"])
+
+    async def socket_timeouts():
+        # connection() needs a running loop, hence the coroutine. Neither the
+        # pool nor make_connection() opens a socket. Read the timeout off a
+        # real Connection: an unset key in connection_kwargs is not None, it
+        # is redis-py's default, which Connection.__init__ fills in.
+        return [layer.connection(i).connection_pool.make_connection().socket_timeout for i in range(layer.ring_size)]
+
+    for socket_timeout in asyncio.run(socket_timeouts()):
+        assert socket_timeout is None or socket_timeout > layer.brpop_timeout, socket_timeout
