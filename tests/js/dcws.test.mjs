@@ -131,3 +131,104 @@ test("connects on load and asks for the PoE status", () => {
     assert.match(page.log(), /socket connected/);
     assert.deepEqual(page.sockets[0].sent, [`checking status: ${PI}`]);
 });
+
+test("reconnects by itself after the server drops the socket", () => {
+    const page = loadPage();
+    page.sockets[0].open();
+    page.sockets[0].serverClose(1011);
+    assert.match(page.log(), /socket closed/);
+    page.advance(999);
+    assert.equal(page.sockets.length, 1, "waits before reconnecting");
+    page.advance(1);
+    assert.equal(page.sockets.length, 2);
+    page.sockets[1].open();
+    assert.equal(page.live().length, 1);
+    assert.deepEqual(page.sockets[1].sent, [`checking status: ${PI}`], "status refreshed after reconnect");
+});
+
+// Waits, in ms, between each close and the reconnect it triggers, for
+// `drops` drops in a row. `openFor` is how long each socket stays open before
+// the server drops it (null: it never opens at all).
+function retryDelays(page, drops, openFor) {
+    const delays = [];
+    for (let i = 0; i < drops; i++) {
+        const socket = page.sockets.at(-1);
+        if (openFor !== null) {
+            socket.open();
+            page.advance(openFor);
+        }
+        socket.serverClose();
+        const before = page.sockets.length;
+        let waited = 0;
+        while (page.sockets.length === before) {
+            page.advance(500);
+            waited += 500;
+            assert.ok(waited <= 60000, "never reconnected");
+        }
+        delays.push(waited);
+    }
+    return delays;
+}
+
+test("backs off 1 s doubling to 30 s while the server is unreachable", () => {
+    const page = loadPage();
+    assert.deepEqual(retryDelays(page, 7, null), [1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+});
+
+test("a server that accepts and then drops each connection still gets the backoff, not a reconnect storm", () => {
+    // Found in a real browser: resetting the backoff as soon as a socket
+    // opened meant one reconnect (and one SNMP status query) per second.
+    // redis-py 8 did exactly this, killing every socket 5 s after it opened.
+    const page = loadPage();
+    assert.deepEqual(retryDelays(page, 6, 5000), [1000, 2000, 4000, 8000, 16000, 30000]);
+});
+
+test("after a connection that stayed up, the next drop retries after 1 s again", () => {
+    const page = loadPage();
+    retryDelays(page, 5, null);
+    assert.deepEqual(retryDelays(page, 1, 30000), [1000]);
+});
+
+test("the reconnect button leaves exactly one socket, even after the old one's close event", () => {
+    const page = loadPage();
+    page.sockets[0].open();
+    page.click(`reconnect${PI}`);
+    page.advance(60000);
+    assert.equal(page.sockets.length, 2, "no extra reconnect from the replaced socket");
+    assert.equal(page.live().length, 1);
+    assert.equal(page.live()[0], page.sockets[1]);
+});
+
+test("the reconnect button cancels a pending automatic retry", () => {
+    const page = loadPage();
+    page.sockets[0].open();
+    page.sockets[0].serverClose();
+    page.click(`reconnect${PI}`);
+    page.advance(60000);
+    assert.equal(page.sockets.length, 2);
+    assert.equal(page.live().length, 1);
+});
+
+test("reset reconnects at once and its log line goes out on the new socket", () => {
+    const page = loadPage();
+    page.sockets[0].open();
+    page.sockets[0].serverClose();
+    page.click(`reset${PI}`); // must not wait out the backoff, nor throw
+    assert.equal(page.sockets.length, 2);
+    page.sockets[1].open();
+    assert.ok(page.sockets[1].sent.includes(`reset: ${PI}`), JSON.stringify(page.sockets[1].sent));
+    page.advance(60000);
+    assert.equal(page.live().length, 1);
+});
+
+test("a message typed while disconnected is sent once the socket is back", () => {
+    const page = loadPage();
+    page.sockets[0].open();
+    page.sockets[0].serverClose();
+    page.el(`log-text${PI}`).value = "hello";
+    page.click(`log-submit${PI}`);
+    page.advance(1000);
+    page.sockets[1].open();
+    assert.ok(page.sockets[1].sent.includes("hello"), JSON.stringify(page.sockets[1].sent));
+    assert.deepEqual(page.sockets[0].dropped, []);
+});
