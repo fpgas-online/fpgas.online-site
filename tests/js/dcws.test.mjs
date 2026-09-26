@@ -180,7 +180,15 @@ test("a server that accepts and then drops each connection still gets the backof
     // opened meant one reconnect (and one SNMP status query) per second.
     // redis-py 8 did exactly this, killing every socket 5 s after it opened.
     const page = loadPage();
-    assert.deepEqual(retryDelays(page, 6, 5000), [1000, 2000, 4000, 8000, 16000, 30000]);
+    // 8 drops, not 6: a stale "stayed up" timer from a dropped socket would
+    // reset the delay during the 30 s wait, which only shows on the drop after.
+    assert.deepEqual(retryDelays(page, 8, 5000), [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+});
+
+test("a connection dropped just short of 30 s up does not reset the backoff", () => {
+    const page = loadPage();
+    retryDelays(page, 5, null); // delay is now 30 s
+    assert.deepEqual(retryDelays(page, 2, 29000), [30000, 30000]);
 });
 
 test("after a connection that stayed up, the next drop retries after 1 s again", () => {
