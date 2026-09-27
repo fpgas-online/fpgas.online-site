@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 
+from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -72,13 +73,16 @@ def verified_serials():
     `fpga-verified` once per boot, its result in detail["result"]. A machine
     counts only if the newest such event of its last boot says "pass": an
     earlier boot's pass says nothing about the board now, and a boot still
-    checking (or whose check never ran) has no event yet."""
+    checking (or whose check never ran) has no event yet. The broker is open
+    on the site LAN, so a detail that is not a dict counts as no result
+    rather than breaking every page that asks."""
     latest = {}
-    events = BootEvent.objects.filter(stage="fpga-verified") \
-        .select_related("machine").order_by("ts")
-    for e in events:
-        if e.boot_id and e.boot_id == e.machine.last_boot_id:
-            latest[e.machine.serial] = e.detail.get("result")
+    events = BootEvent.objects.filter(
+        stage="fpga-verified", boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "detail") \
+        .order_by("ts")
+    for serial, detail in events:
+        latest[serial] = detail.get("result") if isinstance(detail, dict) else None
     return {serial for serial, result in latest.items() if result == "pass"}
 
 

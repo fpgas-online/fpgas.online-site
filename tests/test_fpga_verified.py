@@ -49,6 +49,20 @@ def test_only_a_pass_in_the_current_boot_counts():
 
 
 @pytest.mark.django_db
+def test_a_detail_that_is_not_a_dict_is_no_pass_and_breaks_nothing(c, settings):
+    """The fleet broker is open on the site LAN: anyone on a Pi can publish."""
+    settings.FPGAS_REQUIRE_VERIFIED = True
+    Pi.objects.create(port=38, switch=2, serial_no="odd", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=42, switch=2, serial_no="good", fpga_board="Digilent Arty A7-35T")
+    BootEvent.objects.create(machine=machine("odd"), boot_id="b2", stage="fpga-verified",
+                             detail="pass", ts=T0)
+    verified(machine("good"), "pass")
+    assert verified_serials() == {"good"}
+    html = c.get("/fpgas/").content.decode()
+    assert "pi-sw2-p42" in html and "pi-sw2-p38" not in html
+
+
+@pytest.mark.django_db
 def test_off_by_default_every_pi_is_offered(c):
     Pi.objects.create(port=38, switch=2, serial_no="aaa", fpga_board="Digilent Arty A7-35T")
     assert "pi-sw2-p38" in c.get("/fpgas/").content.decode()
