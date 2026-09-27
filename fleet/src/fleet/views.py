@@ -1,10 +1,12 @@
 from django.shortcuts import get_object_or_404, render
 
 from .models import Machine
+from .services import fpga_states
 
 
 def machine_list(request):
     machines = Machine.objects.select_related("latest_snapshot")
+    states = fpga_states()
     rows = []
     for m in machines:
         doc = m.latest_snapshot.document if m.latest_snapshot else {}
@@ -13,6 +15,7 @@ def machine_list(request):
             "model": doc.get("machine", {}).get("model", ""),
             "fpga_kinds": sorted(b.get("kind", "?")
                                  for b in doc.get("fpga", {}).get("boards", [])),
+            "fpga_check": states.get(m.serial, ""),
         })
     return render(request, "fleet/list.html", {"rows": rows})
 
@@ -26,4 +29,5 @@ def machine_detail(request, serial):
         "machine": machine,
         "snapshots": snapshots,
         "events": events,
+        "fpga_check": fpga_states().get(machine.serial, ""),
     })
