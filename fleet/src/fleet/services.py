@@ -65,25 +65,44 @@ def status(serial, payload):
     return machine
 
 
-def verified_serials():
-    """The serials of the machines whose FPGA check passed in the boot
-    they are running now.
+# fpgas-verify (fpgas.online-test-designs) publishes `fpga-verifying` as the
+# FPGA boot check starts and `fpga-verified` when it is done.
+FPGA_STAGES = ("fpga-verifying", "fpga-verified")
 
-    fpgas-verify (fpgas.online-test-designs) publishes the stage
-    `fpga-verified` once per boot, its result in detail["result"]. A machine
-    counts only if the newest such event of its last boot says "pass": an
-    earlier boot's pass says nothing about the board now, and a boot still
-    checking (or whose check never ran) has no event yet. The broker is open
-    on the site LAN, so a detail that is not a dict counts as no result
-    rather than breaking every page that asks."""
-    latest = {}
+
+def fpga_states():
+    """{serial: state} of each machine's FPGA boot check in the boot it is
+    running now: "verifying" from `fpga-verifying` until an `fpga-verified`
+    follows, then that event's detail["result"] ("pass", "fail",
+    "missing", ...). A machine whose check has not started this boot (or
+    that has none) is absent: an earlier boot's result says nothing about the
+    board now.
+
+    The newest event wins, newest by arrival (id), not by the Pi's
+    timestamp: `fpga-verifying` goes out early in the boot, often before the
+    Pi's clock is set. The broker is open on the site LAN, so a detail that
+    is not a dict (or has no result) is "unknown" rather than breaking every
+    page that asks."""
+    states = {}
     events = BootEvent.objects.filter(
-        stage="fpga-verified", boot_id=F("machine__last_boot_id")) \
-        .exclude(boot_id="").values_list("machine__serial", "detail") \
-        .order_by("ts")
-    for serial, detail in events:
-        latest[serial] = detail.get("result") if isinstance(detail, dict) else None
-    return {serial for serial, result in latest.items() if result == "pass"}
+        stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "stage", "detail") \
+        .order_by("id")
+    for serial, stage, detail in events:
+        if stage == "fpga-verifying":
+            states[serial] = "verifying"
+        elif isinstance(detail, dict) and detail.get("result"):
+            states[serial] = str(detail["result"])
+        else:
+            states[serial] = "unknown"
+    return states
+
+
+def verified_serials():
+    """The serials of the machines whose FPGA check passed in the boot they
+    are running now, and that are not being checked again."""
+    return {serial for serial, state in fpga_states().items()
+            if state == "pass"}
 
 
 def boot_event(serial, payload):

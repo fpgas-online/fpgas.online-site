@@ -1,0 +1,2 @@
+{# The FPGA boot check this boot (fleet.services.fpga_states): verifying, pass, or what it found wrong. #}
+{% if not state %}<span class="muted">not started</span>{% else %}<span class="badge {% if state == "pass" %}online{% elif state == "verifying" %}verifying{% else %}offline{% endif %}">{{ state }}</span>{% endif %}

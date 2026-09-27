@@ -7,7 +7,7 @@ import pytest
 from django.test import Client
 from django.utils import timezone
 from fleet.models import BootEvent, Machine
-from fleet.services import verified_serials
+from fleet.services import fpga_states, verified_serials
 from pibfpgas.models import Pi
 
 T0 = timezone.now()
@@ -16,6 +16,12 @@ T0 = timezone.now()
 def machine(serial, boot_id="b2"):
     return Machine.objects.create(serial=serial, site="welland", last_seen=T0,
                                   last_boot_id=boot_id)
+
+
+def verifying(m, boot_id="b2", minutes=0):
+    BootEvent.objects.create(machine=m, boot_id=boot_id, stage="fpga-verifying",
+                             detail={"started_at": "2026-09-27T06:00:00+00:00"},
+                             ts=T0 + datetime.timedelta(minutes=minutes))
 
 
 def verified(m, result, boot_id="b2", minutes=0):
@@ -83,3 +89,46 @@ def test_required_hides_pis_that_did_not_pass(c, settings):
     assert c.get("/fpgas/pi38.html").status_code == 200
     assert c.get("/fpgas/pi46.html").status_code == 404
     assert c.get("/fpgas/pi16.html").status_code == 404
+
+
+@pytest.mark.django_db
+def test_the_check_is_verifying_until_its_result_follows():
+    m = machine("checking")
+    verifying(m)
+    m = machine("checked")
+    verifying(m)
+    verified(m, "fail", minutes=5)
+    m = machine("rechecking")  # passed, then `systemctl restart fpgas-verify`
+    verifying(m)
+    verified(m, "pass", minutes=5)
+    verifying(m, minutes=10)
+    m = machine("started-last-boot")
+    verifying(m, boot_id="b1")
+    machine("not-started")
+    assert fpga_states() == {"checking": "verifying", "checked": "fail", "rechecking": "verifying"}
+    assert verified_serials() == set()  # a Pi being checked is not offered
+
+
+@pytest.mark.django_db
+def test_the_newest_event_by_arrival_wins_not_by_the_pis_clock():
+    """fpga-verifying goes out early in the boot, often before the Pi's clock is set."""
+    m = machine("clock-behind")
+    verifying(m, minutes=60)  # stamped by a clock that later stepped back
+    verified(m, "pass", minutes=0)
+    assert fpga_states() == {"clock-behind": "pass"}
+    assert verified_serials() == {"clock-behind"}
+
+
+@pytest.mark.django_db
+def test_the_fleet_pages_show_the_check(c):
+    verifying(machine("aaa"))
+    m = machine("bbb")
+    verifying(m)
+    verified(m, "missing", minutes=5)
+    machine("ccc")
+    html = c.get("/fleet/").content.decode()
+    assert 'class="badge verifying">verifying<' in html
+    assert 'class="badge offline">missing<' in html
+    assert "not started" in html
+    assert 'class="badge verifying">verifying<' in c.get("/fleet/aaa/").content.decode()
+    assert "not started" in c.get("/fleet/ccc/").content.decode()
