@@ -168,7 +168,7 @@ def test_acorn_is_copied_with_only_rpi_hwid_fields(machine):
         "kind": "acorn", "dna": "0x0054b48664b04854", "idcode": "0x13636093",
         "flash_jedec": "0x010219", "flash_extended_id": "0x4d0180", "flash": "S25FL256S",
         "flash_uid": "edcbeececb2b2a88b04f914d2e46af90", "flash_uid_bits": 128,
-        "flash_uid_state": "read"}
+        "flash_uid_state": "read", "dna_sources": ["fpgas-verify"]}
     assert built.document["sources"]["fpga-board-identified"] == "b2"
     assert not built.notes[1:]  # only the missing pi-identified
 

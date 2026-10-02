@@ -202,7 +202,12 @@ def fpga_boards(machine, notes):
         where = event.detail.get("board") or kind or "a board"
         try:
             if kind in FPGA_KINDS:
-                fpga.append(pick(event.detail, FPGA_FIELDS))
+                board = pick(event.detail, FPGA_FIELDS)
+                if board.get("dna"):
+                    # who read the DNA, as rpi-hwid records it when it puts
+                    # fpgas-verify's reading on a board (fpga.merge_dna)
+                    board["dna_sources"] = ["fpgas-verify"]
+                fpga.append(board)
             elif kind in TT_KINDS:
                 tt = pick(event.detail, TT_FIELDS)
                 if tt.get("usb_serial"):
