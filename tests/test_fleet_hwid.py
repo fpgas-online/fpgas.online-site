@@ -1,4 +1,3 @@
-import importlib.util
 import json
 
 import pytest
@@ -7,8 +6,6 @@ from fleet.models import BootEvent, Machine
 from fleet.services import register_document, status
 
 from fleet import hwid
-
-HAVE_LABEL_INPUT = importlib.util.find_spec("rpi_hwid.label_input") is not None
 
 SERIAL = "c36b093f773d46b8"
 REGISTRATION = {
@@ -258,13 +255,9 @@ def test_no_registration():
     assert "no registration from this Pi" in built.notes
 
 
-# Against rpi-hwid's own label_input: these run once the release that has it
-# is installed (pyproject.toml pins it before this merges).
-needs_label_input = pytest.mark.skipif(not HAVE_LABEL_INPUT,
-                                       reason="rpi-hwid release with label_input not yet on PyPI")
+# Against rpi-hwid's own label_input.
 
 
-@needs_label_input
 @pytest.mark.django_db
 def test_rpi_hwid_reads_back_what_the_site_writes(machine):
     from rpi_hwid import label_input
@@ -274,14 +267,13 @@ def test_rpi_hwid_reads_back_what_the_site_writes(machine):
     assert hwid.dumps(label_input.load(text)) == text
 
 
-@needs_label_input
 @pytest.mark.django_db
 def test_rpi_hwid_says_registration_alone_is_not_enough(machine):
     missing = hwid.missing(hwid.build(machine).document)
-    assert any("power_class" in fields for fields in missing.values())
+    # the header nothing read, and the Pi 5 facts only pi-identified gives
+    assert {"header", "fan", "rtc_battery"} <= set(missing["board"])
 
 
-@needs_label_input
 @pytest.mark.django_db
 def test_rpi_hwid_needs_nothing_more_for_a_full_acorn_pi(machine):
     event(machine, "pi-identified", PI_IDENTIFIED)
