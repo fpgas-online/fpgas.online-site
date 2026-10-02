@@ -60,8 +60,12 @@ def labels_context(machine):
     }
 
 
-# What a download's file name may hold; anything else is the serial's.
-SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+# What a download's file name may hold, all of it (fullmatch: `$` would also
+# match before a trailing newline). A host name that is anything else -- it
+# comes from the registration, which anyone on the site LAN can send -- gives
+# FALLBACK_NAME, never the serial, which comes from the same place.
+SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+FALLBACK_NAME = "rpi-hwid"
 
 
 def label_input(request, serial):
@@ -78,7 +82,7 @@ def label_input(request, serial):
                             + "\n".join(exc.problems + built.notes) + "\n",
                             status=409, content_type="text/plain; charset=utf-8")
     host = built.document["host"]
-    name = host if SAFE_NAME.match(host) else machine.serial
+    name = host if SAFE_NAME.fullmatch(host) else FALLBACK_NAME
     response = HttpResponse(text, content_type="application/json")
     response["Content-Disposition"] = f'attachment; filename="{name}.json"'
     return response

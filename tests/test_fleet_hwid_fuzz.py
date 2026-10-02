@@ -3,6 +3,7 @@ and one bad event spoils nothing else (label contract §35)."""
 
 import itertools
 import json
+from urllib.parse import quote
 
 import pytest
 from django.test import Client
@@ -123,5 +124,40 @@ def test_a_bad_registration_leaves_the_pages_standing(c, machine_section):
                        "connection": {"site": "welland", "hostname": 'bad"name\\x'}})
     assert_pages_stand(c)
     r = Client(HTTP_HOST="welland.fpgas.online").get(f"/fleet/{SERIAL}/rpi-hwid.json")
-    # a host name that cannot be a file name gives the serial's
-    assert r["Content-Disposition"] == f'attachment; filename="{SERIAL}.json"'
+    # a host name that cannot be a file name gives the fixed one
+    assert r["Content-Disposition"] == 'attachment; filename="rpi-hwid.json"'
+
+
+UNSAFE_NAMES = ["pi\n", "pi\r", "p\ni", "pi\r\n", 'pi"x', "pi'x", "pi/x", "pi\\x", "../pi",
+                "pïe", "pi ", "pi x", "pi;x", "-pi", ".pi", "", "x" * 65, "pi\x00"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("hostname", UNSAFE_NAMES)
+def test_an_unsafe_hostname_gives_a_safe_download_name(c, hostname):
+    register_document({**REGISTRATION, "connection": {"site": "welland", "hostname": hostname}})
+    r = c.get(f"/fleet/{SERIAL}/rpi-hwid.json")
+    assert r.status_code == 200
+    # no host name at all: the document's host is the serial, here a safe one
+    name = SERIAL if hostname == "" else "rpi-hwid"
+    assert r["Content-Disposition"] == f'attachment; filename="{name}.json"'
+    assert c.get(f"/fleet/{SERIAL}/").status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("serial", [s for s in UNSAFE_NAMES if s and "/" not in s and "\x00" not in s])
+def test_an_unsafe_serial_with_no_hostname_gives_a_safe_download_name(c, serial):
+    # the URL takes no "/"; an empty serial or a NUL cannot be one at all
+    register_document({**REGISTRATION, "machine": {**REGISTRATION["machine"], "serial": serial},
+                       "connection": {"site": "welland", "hostname": ""}})
+    r = c.get(f"/fleet/{quote(serial, safe='')}/rpi-hwid.json")
+    assert r.status_code == 200
+    assert r["Content-Disposition"] == 'attachment; filename="rpi-hwid.json"'
+    assert c.get(f"/fleet/{quote(serial, safe='')}/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_a_safe_hostname_names_the_download(c):
+    register_document(REGISTRATION)
+    r = c.get(f"/fleet/{SERIAL}/rpi-hwid.json")
+    assert r["Content-Disposition"] == 'attachment; filename="pi-sw2-p48.json"'
