@@ -250,6 +250,19 @@ def test_every_kind_but_tt_and_fomu_stays_in_fpga(machine):
 
 
 @pytest.mark.django_db
+def test_a_board_field_read_as_none_is_left_out_but_a_pi_fact_stays_null(machine):
+    # label contract §34: dumps() then fills the board's default, as
+    # rpi-hwid's fpga_summary leaves its None out; §17: a Pi fact keeps null
+    event(machine, "pi-identified", {**PI_IDENTIFIED, "fan": "-"})
+    event(machine, "fpga-board-identified", {**ACORN, "serial": "-", "dna": "-", "flash_sfdp": "-"})
+    s = hwid.build(machine).document["summary"]
+    (board,) = s["fpga"]
+    assert "serial" not in board and "dna" not in board and "flash_sfdp" not in board
+    assert "dna_sources" not in board
+    assert s["fan"] is None
+
+
+@pytest.mark.django_db
 def test_a_board_without_a_kind_is_noted_and_left_out(machine):
     event(machine, "fpga-board-identified", {k: v for k, v in ACORN.items() if k != "kind"})
     built = hwid.build(machine)

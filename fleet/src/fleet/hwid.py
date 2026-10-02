@@ -108,13 +108,17 @@ def typed(value, kind):
     return str(value)
 
 
-def pick(detail, fields):
+def pick(detail, fields, drop_none=False):
     """The fields of `detail` that `fields` names, typed. A key that is
-    absent was not read, so it stays absent."""
+    absent was not read, so it stays absent. With `drop_none`, a value read
+    as none ("-") is left out too, as rpi-hwid's fpga_summary leaves out
+    a board's None, so dumps() fills the same default (label contract §34)."""
     out = {}
     for name, kind in fields.items():
         if name in detail:
-            out[name] = typed(detail[name], kind)
+            value = typed(detail[name], kind)
+            if value is not None or not drop_none:
+                out[name] = value
     return out
 
 
@@ -214,7 +218,7 @@ def fpga_boards(machine, notes):
             elif kind in UNLABELLED_KINDS:
                 notes.append(f"a {kind} board ({where}) was identified; it gets no label")
             else:
-                board = pick(event.detail, FPGA_FIELDS)
+                board = pick(event.detail, FPGA_FIELDS, drop_none=True)
                 if board.get("dna"):
                     # who read the DNA, as rpi-hwid records it when it puts
                     # fpgas-verify's reading on a board (fpga.merge_dna, §32)
