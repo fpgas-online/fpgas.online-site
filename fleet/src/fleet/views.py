@@ -1,3 +1,5 @@
+import re
+
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 
@@ -43,13 +45,23 @@ def labels_context(machine):
     built = hwid.build(machine)
     summary = built.document["summary"]
     boards = summary.get("fpga", []) + summary.get("tinytapeout", [])
+    try:
+        missing = sorted(hwid.missing(built.document).items())
+    except hwid.label_input.InputError as exc:
+        # build() only makes documents rpi-hwid takes; this is the last
+        # guard, so a page is never lost to what a Pi sent (contract §35)
+        missing = [("document", exc.problems)]
     return {
         "fields": [(k, v) for k, v in sorted(summary.items()) if k not in ("fpga", "tinytapeout")],
         "boards": [sorted(b.items()) for b in boards],
-        "missing": sorted(hwid.missing(built.document).items()),
+        "missing": missing,
         "notes": built.notes,
         "sources": sorted(built.document["sources"].items()),
     }
+
+
+# What a download's file name may hold; anything else is the serial's.
+SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def label_input(request, serial):
@@ -57,7 +69,16 @@ def label_input(request, serial):
     named as rpi-hwid names a host's file. Offered complete or not: it is
     what the Pi sent, to compare with what rpi-hwid makes on the Pi."""
     machine = get_object_or_404(Machine, serial=serial)
-    document = hwid.build(machine).document
-    response = HttpResponse(hwid.dumps(document), content_type="application/json")
-    response["Content-Disposition"] = f'attachment; filename="{document["host"]}.json"'
+    built = hwid.build(machine)
+    try:
+        text = hwid.dumps(built.document)
+    except hwid.label_input.InputError as exc:
+        # the last guard, as on the detail page (contract §35)
+        return HttpResponse("rpi-hwid refuses this Pi's label input:\n"
+                            + "\n".join(exc.problems + built.notes) + "\n",
+                            status=409, content_type="text/plain; charset=utf-8")
+    host = built.document["host"]
+    name = host if SAFE_NAME.match(host) else machine.serial
+    response = HttpResponse(text, content_type="application/json")
+    response["Content-Disposition"] = f'attachment; filename="{name}.json"'
     return response

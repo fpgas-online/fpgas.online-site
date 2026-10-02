@@ -72,8 +72,8 @@ def test_registration_alone_gives_the_pi_basics_and_says_what_did_not_come(machi
     assert s["header"] is None and "hat_uuid" not in s
     # never guessed, and left out so rpi-hwid's dumps() writes its default
     assert "power_class" not in s and "fpga" not in s and "fan" not in s
-    assert "no pi-identified event from this Pi" in built.notes
-    assert "no fpga-board-identified event from this Pi" in built.notes
+    assert "no usable pi-identified event from this Pi" in built.notes
+    assert "no usable fpga-board-identified event from this Pi" in built.notes
 
 
 @pytest.mark.django_db
@@ -191,6 +191,25 @@ def test_boards_from_an_earlier_boot_are_flagged(machine):
 
 
 @pytest.mark.django_db
+def test_a_boot_with_no_usable_board_event_falls_back_to_the_one_before(machine):
+    event(machine, "fpga-board-identified", ACORN, boot_id="b1")
+    event(machine, "fpga-board-identified", {**ACORN, "schema": "fpga-identity/9"}, boot_id="b2")
+    built = hwid.build(machine)
+    assert built.document["summary"]["fpga"][0]["dna"] == ACORN["dna"]
+    assert built.document["sources"]["fpga-board-identified"] == "b1"
+
+
+@pytest.mark.django_db
+def test_only_the_newest_boots_are_looked_at(machine):
+    event(machine, "fpga-board-identified", ACORN, boot_id="b0")
+    for i in range(hwid.FPGA_BOOTS_TRIED):
+        event(machine, "fpga-board-identified", {**ACORN, "schema": "x"}, boot_id=f"old{i}")
+    built = hwid.build(machine)
+    assert "fpga" not in built.document["summary"]
+    assert "no usable fpga-board-identified event from this Pi" in built.notes
+
+
+@pytest.mark.django_db
 def test_tt_goes_to_tinytapeout_and_fomu_gets_no_label(machine):
     event(machine, "fpga-board-identified", {
         "schema": "fpga-identity/1", "board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e",
@@ -246,7 +265,7 @@ def test_every_kind_but_tt_and_fomu_stays_in_fpga(machine):
             "idcode": "0x13631093"})
     built = hwid.build(machine)
     assert [b["kind"] for b in built.document["summary"]["fpga"]] == ["pcileech", "unknown-fpga"]
-    assert built.notes == ["no pi-identified event from this Pi"]
+    assert built.notes == ["no usable pi-identified event from this Pi"]
 
 
 @pytest.mark.django_db

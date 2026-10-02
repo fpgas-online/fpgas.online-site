@@ -41,7 +41,7 @@ def test_detail_says_what_the_labels_still_need(c):
     html = c.get("/fleet/abc123/").content.decode()
     assert "<h2>Labels</h2>" in html and "Not enough for full labels yet" in html
     assert "<td>board</td><td class=\"missing\">revision, header, fan, rtc_battery</td>" in html
-    assert "no pi-identified event from this Pi" in html
+    assert "no usable pi-identified event from this Pi" in html
     assert 'href="/fleet/abc123/rpi-hwid.json"' in html
 
 
