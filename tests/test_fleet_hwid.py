@@ -1,4 +1,5 @@
 import importlib.util
+import json
 
 import pytest
 from django.utils import timezone
@@ -25,8 +26,12 @@ PI_IDENTIFIED = {
     "schema": "pi-identity/1", "reader": "rpi-hwid",
     "power_class": "gpio-poe-hat", "compatible": "raspberrypi,5-model-b brcm,bcm2712",
     "hat_uuid": "0d9c4a0a-0000-0000-0000-000000000000",
-    "header0": "PoE+ HAT", "fan": "true", "rtc_battery": "false",
-    "max_current_ma": "3000", "ext5v_v": "5.08",
+    # lists and objects: one key, compact JSON (label contract §13)
+    "header": json.dumps(["PoE+ HAT"], separators=(",", ":"), sort_keys=True),
+    "macs": json.dumps([{"kind": "eth", "mac": "2c:cf:67:00:00:01", "signal": "onboard"},
+                        {"kind": "wlan", "mac": "2c:cf:67:00:00:02", "signal": "onboard"}],
+                       separators=(",", ":"), sort_keys=True),
+    "fan": "true", "rtc_battery": "false", "max_current_ma": "3000", "ext5v_v": "5.08",
 }
 # the p48 values of the contract's golden fixture (identity-v1-acorn-p48.json)
 ACORN = {
@@ -76,9 +81,29 @@ def test_pi_identified_fills_the_pi_facts_typed(machine):
     s = hwid.build(machine).document["summary"]
     assert s["power_class"] == "gpio-poe-hat"
     assert s["compatible"] == "raspberrypi,5-model-b brcm,bcm2712"
-    assert s["header"] == ["PoE+ HAT"]           # rpi-hwid's reading wins
+    # rpi-hwid's readings win over the registration's
+    assert s["header"] == ["PoE+ HAT"]
+    assert [m["signal"] for m in s["macs"]] == ["onboard", "onboard"]
     assert s["fan"] is True and s["rtc_battery"] is False
     assert s["max_current_ma"] == 3000 and s["ext5v_v"] == 5.08
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("value", "why"), [
+    ("PoE+ HAT", "not JSON"), ('{"a":1}', "not a JSON array"), ("header0", "not JSON")])
+def test_a_list_that_is_not_a_json_array_drops_that_event(machine, value, why):
+    event(machine, "pi-identified", {**PI_IDENTIFIED, "header": value})
+    built = hwid.build(machine)
+    assert "power_class" not in built.document["summary"]
+    assert any(why in n and "ignored" in n for n in built.notes)
+
+
+@pytest.mark.django_db
+def test_indexed_keys_are_not_read(machine):
+    detail = {k: v for k, v in PI_IDENTIFIED.items() if k != "header"}
+    event(machine, "pi-identified", {**detail, "header0": "Something else"})
+    # the registration's HAT stays: header0 is not a field
+    assert hwid.build(machine).document["summary"]["header"] == ["Raspberry Pi PoE+ HAT"]
 
 
 @pytest.mark.django_db

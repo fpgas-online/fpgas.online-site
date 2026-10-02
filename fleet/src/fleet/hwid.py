@@ -13,6 +13,7 @@ written only by rpi-hwid's own serialiser (`dumps`), so the site's file and
 the one rpi-hwid makes on the Pi can be compared byte for byte.
 """
 
+import json
 from dataclasses import dataclass, field
 
 from rpi_hwid.probe import nominal_memory
@@ -33,6 +34,8 @@ SCHEMA_MAJOR = 1
 PI_FIELDS = {
     "compatible": str, "power_class": str, "hat_uuid": str,
     "fan": bool, "rtc_battery": bool, "max_current_ma": int, "ext5v_v": float,
+    # rpi-hwid's own lists, the MACs with their `signal`
+    "header": list, "macs": list,
 }
 # rpi-hwid's FpgaBoard fields the contract names (§1); fpgas-verify's own
 # extras (board, variant, bdf, ...) stay in the event and out of the document.
@@ -72,11 +75,19 @@ def schema_major(detail, name):
 
 
 def typed(value, kind):
-    """One flat-string value as its field's type. "-" is a value that was
-    read and is none (fpgas-verify's flatten() writes None so); a value that
-    does not parse raises ValueError."""
+    """One flat-string value as its field's type (label contract §13): "-"
+    is a value that was read and is none; a list or object is one key whose
+    value is compact JSON. A value that does not parse raises ValueError."""
     if value is None or value == "-":
         return None
+    if kind in (list, dict):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"not JSON: {value!r}") from None
+        if not isinstance(parsed, kind):
+            raise ValueError(f"not a JSON {'array' if kind is list else 'object'}: {value!r}")
+        return parsed
     if kind is bool:
         if value in ("true", "false"):
             return value == "true"
@@ -96,15 +107,6 @@ def pick(detail, fields):
         if name in detail:
             out[name] = typed(detail[name], kind)
     return out
-
-
-def indexed(detail, name):
-    """A list sent as name0, name1, ... (fpgas-verify's flatten()), or None
-    when no item was sent."""
-    items = []
-    while f"{name}{len(items)}" in detail:
-        items.append(str(detail[f"{name}{len(items)}"]))
-    return items or None
 
 
 def registration_summary(doc):
@@ -154,9 +156,6 @@ def pi_facts(machine, notes):
         except ValueError as exc:
             notes.append(f"{PI_STAGE} at {event.ts:%Y-%m-%dT%H:%M:%SZ}: {exc}: ignored")
             continue
-        header = indexed(event.detail, "header")
-        if header is not None:
-            facts["header"] = header
         return event, facts
     notes.append(f"no {PI_STAGE} event from this Pi")
     return None, {}
