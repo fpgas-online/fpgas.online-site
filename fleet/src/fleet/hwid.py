@@ -56,10 +56,11 @@ TT_FIELDS = {
     "usb_serial": str, "mcu": str, "shuttle": str, "chip": str, "repo": str, "commit": str,
     "demoboard": str, "demoboard_version": str, "sdk": str,
 }
-# Which list a board goes to, by its `kind` (§10, §27).
-FPGA_KINDS = ("acorn", "arty", "netv2")
+# Which list a board goes to, by its `kind` (§10, §27, §33): a tt board to
+# tinytapeout, a fomu to none (no label in v1), and every other kind to fpga,
+# as rpi-hwid's fpga_summary keeps them -- pcileech and unknown-fpga too,
+# which get no label but are in the document, so the two sides compare equal.
 TT_KINDS = ("tt",)
-# Recorded, but no label in v1.
 UNLABELLED_KINDS = ("fomu",)
 
 
@@ -201,13 +202,8 @@ def fpga_boards(machine, notes):
         kind = event.detail.get("kind") or ""
         where = event.detail.get("board") or kind or "a board"
         try:
-            if kind in FPGA_KINDS:
-                board = pick(event.detail, FPGA_FIELDS)
-                if board.get("dna"):
-                    # who read the DNA, as rpi-hwid records it when it puts
-                    # fpgas-verify's reading on a board (fpga.merge_dna)
-                    board["dna_sources"] = ["fpgas-verify"]
-                fpga.append(board)
+            if not kind:
+                notes.append(f"{FPGA_STAGE} for {where} has no kind: ignored")
             elif kind in TT_KINDS:
                 tt = pick(event.detail, TT_FIELDS)
                 if tt.get("usb_serial"):
@@ -218,7 +214,12 @@ def fpga_boards(machine, notes):
             elif kind in UNLABELLED_KINDS:
                 notes.append(f"a {kind} board ({where}) was identified; it gets no label")
             else:
-                notes.append(f"{FPGA_STAGE} for {where} has kind {kind!r}, which gets no label: ignored")
+                board = pick(event.detail, FPGA_FIELDS)
+                if board.get("dna"):
+                    # who read the DNA, as rpi-hwid records it when it puts
+                    # fpgas-verify's reading on a board (fpga.merge_dna, §32)
+                    board["dna_sources"] = ["fpgas-verify"]
+                fpga.append(board)
         except ValueError as exc:
             notes.append(f"{FPGA_STAGE} for {where}: {exc}: ignored")
     # oldest first, as the boards were found

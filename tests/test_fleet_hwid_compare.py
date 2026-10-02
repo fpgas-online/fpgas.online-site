@@ -49,12 +49,27 @@ def flat(value):
     return str(value)
 
 
-def pi_side():
-    """The label input `rpi-hwid labels --this-host` builds on p48."""
+# A second board, of a kind that gets no label but is in the document
+# (label contract §33), with a field read as none: null in fpgas-verify's
+# identity document, "-" in its event (§34).
+PCILEECH = {"board": "pcileech", "kind": "pcileech", "dna": "0x00112233445566ff",
+            "idcode": "0x13631093", "serial": None, "flash_uid": None}
+
+
+def identity(*extra):
+    doc = json.loads(IDENTITY_TEXT)
+    doc["boards"] += extra
+    return doc
+
+
+def pi_side(*extra):
+    """The label input `rpi-hwid labels --this-host` builds on p48, with
+    fpgas-verify having identified the `extra` boards as well."""
     summary = copy.deepcopy(PI_FACTS)
     summary["memory"] = nominal_memory(MEM_TOTAL_KB)
-    read, why = fpga.identity_parse(IDENTITY_TEXT)
+    read, why = fpga.identity_parse(json.dumps(identity(*extra)))
     assert why is None
+    # what sysfs shows: the Acorn on PCIe
     boards = [{"kind": "acorn", "slot": read[0]["bdf"]}]
     assert fpga.merge_identity(boards, read) == []
     summary["fpga"] = fpga.fpga_summary(boards)
@@ -86,11 +101,24 @@ def pi_identified():
     return detail
 
 
-def fpga_board_identified():
-    (board,) = json.loads(IDENTITY_TEXT)["boards"]
+def fpga_board_identified(board=None):
+    """One board's event, as fpgas-verify sends it: the p48 Acorn's by default."""
+    if board is None:
+        (board,) = json.loads(IDENTITY_TEXT)["boards"]
     detail = {"schema": "fpga-identity/1"}
     detail.update((k, flat(v)) for k, v in board.items())
     return detail
+
+
+@pytest.mark.django_db
+def test_a_board_without_a_label_and_a_field_read_as_none_still_agree(machine):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified(PCILEECH))
+    built = hwid.build(machine)
+    assert built.notes == []
+    assert [b["kind"] for b in built.document["summary"]["fpga"]] == ["acorn", "pcileech"]
+    assert label_input.comparable(built.document) == label_input.comparable(pi_side(PCILEECH))
 
 
 @pytest.mark.django_db

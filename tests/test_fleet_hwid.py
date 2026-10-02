@@ -238,13 +238,23 @@ def test_a_tt_board_without_usb_serial_is_dropped_with_a_note(machine, usb_seria
 
 
 @pytest.mark.django_db
-def test_a_board_without_a_known_kind_is_noted_not_labelled(machine):
-    event(machine, "fpga-board-identified", {**ACORN, "kind": "cynthion"})
-    event(machine, "fpga-board-identified", {k: v for k, v in ACORN.items() if k != "kind"} | {"bdf": "x"})
+def test_every_kind_but_tt_and_fomu_stays_in_fpga(machine):
+    # as rpi-hwid's fpga_summary keeps them (label contract §33)
+    for kind, bdf in (("pcileech", "0000:01:00.0"), ("unknown-fpga", "0000:02:00.0")):
+        event(machine, "fpga-board-identified", {
+            "schema": "fpga-identity/1", "board": kind, "kind": kind, "bdf": bdf,
+            "idcode": "0x13631093"})
+    built = hwid.build(machine)
+    assert [b["kind"] for b in built.document["summary"]["fpga"]] == ["pcileech", "unknown-fpga"]
+    assert built.notes == ["no pi-identified event from this Pi"]
+
+
+@pytest.mark.django_db
+def test_a_board_without_a_kind_is_noted_and_left_out(machine):
+    event(machine, "fpga-board-identified", {k: v for k, v in ACORN.items() if k != "kind"})
     built = hwid.build(machine)
     assert "fpga" not in built.document["summary"]
-    assert any("kind 'cynthion'" in n for n in built.notes)
-    assert any("kind ''" in n for n in built.notes)
+    assert any("acorn has no kind: ignored" in n for n in built.notes)
 
 
 @pytest.mark.django_db
