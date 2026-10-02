@@ -67,10 +67,10 @@ def test_registration_alone_gives_the_pi_basics_and_says_what_did_not_come(machi
     assert s["memory"] == "4 GB"
     assert s["macs"] == [{"kind": "eth", "mac": "2c:cf:67:00:00:01", "signal": None},
                          {"kind": "wlan", "mac": "2c:cf:67:00:00:02", "signal": None}]
-    assert s["header"] == ["Raspberry Pi PoE+ HAT"]
-    assert s["hat_uuid"] == "0d9c4a0a-0000-0000-0000-000000000000"
-    # never guessed: rpi-hwid's missing() names it
-    assert "power_class" not in s and "fpga" not in s
+    # the firmware's HAT is not a read of the header: null, never [] ("no HAT")
+    assert s["header"] is None and "hat_uuid" not in s
+    # never guessed, and left out so rpi-hwid's dumps() writes its default
+    assert "power_class" not in s and "fpga" not in s and "fan" not in s
     assert "no pi-identified event from this Pi" in built.notes
     assert "no fpga-board-identified event from this Pi" in built.notes
 
@@ -81,8 +81,9 @@ def test_pi_identified_fills_the_pi_facts_typed(machine):
     s = hwid.build(machine).document["summary"]
     assert s["power_class"] == "gpio-poe-hat"
     assert s["compatible"] == "raspberrypi,5-model-b brcm,bcm2712"
-    # rpi-hwid's readings win over the registration's
     assert s["header"] == ["PoE+ HAT"]
+    assert s["hat_uuid"] == "0d9c4a0a-0000-0000-0000-000000000000"
+    # rpi-hwid's MACs win over the registration's
     assert [m["signal"] for m in s["macs"]] == ["onboard", "onboard"]
     assert s["fan"] is True and s["rtc_battery"] is False
     assert s["max_current_ma"] == 3000 and s["ext5v_v"] == 5.08
@@ -102,8 +103,23 @@ def test_a_list_that_is_not_a_json_array_drops_that_event(machine, value, why):
 def test_indexed_keys_are_not_read(machine):
     detail = {k: v for k, v in PI_IDENTIFIED.items() if k != "header"}
     event(machine, "pi-identified", {**detail, "header0": "Something else"})
-    # the registration's HAT stays: header0 is not a field
-    assert hwid.build(machine).document["summary"]["header"] == ["Raspberry Pi PoE+ HAT"]
+    # header0 is not a field, so the header was not read
+    assert hwid.build(machine).document["summary"]["header"] is None
+
+
+@pytest.mark.django_db
+def test_header_read_with_no_hat_is_kept_as_an_empty_list(machine):
+    event(machine, "pi-identified", {**PI_IDENTIFIED, "header": "[]"})
+    assert hwid.build(machine).document["summary"]["header"] == []
+
+
+@pytest.mark.django_db
+def test_pi_facts_not_read_are_left_out(machine):
+    detail = {k: v for k, v in PI_IDENTIFIED.items() if k not in ("fan", "hat_uuid", "header")}
+    event(machine, "pi-identified", detail)
+    s = hwid.build(machine).document["summary"]
+    assert "fan" not in s and "hat_uuid" not in s
+    assert s["header"] is None
 
 
 @pytest.mark.django_db
@@ -193,7 +209,7 @@ def test_tt_goes_to_tinytapeout_and_fomu_gets_no_label(machine):
 def test_no_registration():
     m = Machine.objects.create(serial="x1", site="welland", last_seen=timezone.now())
     built = hwid.build(m)
-    assert built.document["host"] == "x1" and built.document["summary"] == {}
+    assert built.document["host"] == "x1" and built.document["summary"] == {"header": None}
     assert "no registration from this Pi" in built.notes
 
 

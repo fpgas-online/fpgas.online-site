@@ -1,8 +1,8 @@
 """rpi-hwid's label-input document for one Pi, built from what the Pi sends.
 
-The Pi's registration gives its serial, model, revision, memory, MACs and the
-HAT the firmware saw. fpgas-verify adds a `pi-identified` event (the Pi facts
-rpi-hwid reads: power class, fan, RTC battery, HAT, ...) and one
+The Pi's registration gives its serial, model, revision, memory and MACs.
+fpgas-verify adds a `pi-identified` event (the Pi facts rpi-hwid reads: power
+class, fan, RTC battery, HAT, MACs with their signal, ...) and one
 `fpga-board-identified` event per FPGA board. Both carry flat-string details
 named as rpi-hwid's Summary / FpgaBoard / TinyTapeoutBoard fields, with a
 `schema` of `pi-identity/1` or `fpga-identity/1` (the label contract, v1).
@@ -10,7 +10,12 @@ named as rpi-hwid's Summary / FpgaBoard / TinyTapeoutBoard fields, with a
 `build` only gathers: it never guesses a value that was not sent. What a full
 label still needs is rpi-hwid's to say (`missing`), and the document is
 written only by rpi-hwid's own serialiser (`dumps`), so the site's file and
-the one rpi-hwid makes on the Pi can be compared byte for byte.
+the one `rpi-hwid labels --this-host` makes on the Pi can be compared byte
+for byte (`label_input.comparable`, which leaves out `sources`).
+
+Not read and read-as-none differ (label contract §17): in an event an
+absent key was not read and "-" was read and is none; in the document an
+absent field takes rpi-hwid's default and null means not read.
 """
 
 import json
@@ -125,14 +130,9 @@ def registration_summary(doc):
         macs.append({"kind": kind, "mac": mac, "signal": None})
     if macs:
         summary["macs"] = macs
-    hats = doc.get("peripherals", {}).get("hats", [])
-    if hats:
-        # what the firmware exposes in /proc/device-tree/hat, named as the
-        # probe names a HAT it knows only that way
-        hat = hats[0]
-        summary["header"] = [f"{hat.get('vendor', '')} {hat.get('product', '')}".strip()]
-        if hat.get("uuid"):
-            summary["hat_uuid"] = hat["uuid"]
+    # No HAT from here: the registration's is only what the firmware
+    # exposed, not a read of the header. The Pi facts (header, hat_uuid,
+    # power class, ...) come from pi-identified alone (label contract §8).
     return summary
 
 
@@ -225,6 +225,11 @@ def build(machine):
         summary = registration_summary(snapshot.document)
     pi_event, facts = pi_facts(machine, notes)
     summary.update(facts)
+    # A field nobody sent is left out, and rpi-hwid's dumps() writes the
+    # default the Pi's probe would. Not the header: its default, [], says
+    # "read, no HAT", so a header nothing read is an explicit null, which
+    # missing() lists and the Pi label refuses (label contract §17).
+    summary.setdefault("header", None)
     fpga, tinytapeout, fpga_boot = fpga_boards(machine, notes)
     if fpga:
         summary["fpga"] = fpga
