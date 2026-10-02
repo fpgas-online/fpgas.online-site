@@ -39,8 +39,9 @@ SCHEMA_MAJOR = 1
 PI_FIELDS = {
     "compatible": str, "power_class": str, "hat_uuid": str,
     "fan": bool, "rtc_battery": bool, "max_current_ma": int, "ext5v_v": float,
-    # rpi-hwid's own lists, the MACs with their `signal`
-    "header": list, "macs": list,
+    # rpi-hwid's own lists: the MACs with their `signal`, and the USB
+    # network adapters (§19)
+    "header": list, "macs": list, "usb_net": list,
 }
 # rpi-hwid's FpgaBoard fields the contract names (§1); fpgas-verify's own
 # extras (board, variant, bdf, ...) stay in the event and out of the document.
@@ -55,9 +56,11 @@ TT_FIELDS = {
     "usb_serial": str, "mcu": str, "shuttle": str, "chip": str, "repo": str, "commit": str,
     "demoboard": str, "demoboard_version": str, "sdk": str,
 }
-TT_BOARDS = ("tt",)
-# Recorded, but no label in v1 (§10).
-UNLABELLED_BOARDS = ("fomu",)
+# Which list a board goes to, by its `kind` (§10, §27).
+FPGA_KINDS = ("acorn", "arty", "netv2")
+TT_KINDS = ("tt",)
+# Recorded, but no label in v1.
+UNLABELLED_KINDS = ("fomu",)
 
 
 @dataclass
@@ -170,7 +173,9 @@ def board_key(detail):
 def fpga_boards(machine, notes):
     """(fpga, tinytapeout, boot_id) from the newest boot that identified a
     board: every board identified in that boot, the newest event of each.
-    A board not seen in that boot has gone, so it is not carried over."""
+    A board not seen in that boot has gone, so it is not carried over. A TT
+    board seen at boot and unplugged since stays here, where rpi-hwid on the
+    Pi leaves it out: the site cannot see USB (label contract §28)."""
     events = list(latest(machine, FPGA_STAGE))
     good = []
     for event in events:
@@ -191,16 +196,21 @@ def fpga_boards(machine, notes):
         if event.boot_id != boot_id or board_key(event.detail) in seen:
             continue
         seen.add(board_key(event.detail))
-        board = event.detail.get("board") or event.detail.get("kind") or ""
+        # by `kind`, never by `board`: that is fpgas-verify's state key,
+        # "tt@1-1.2" for a second TT board (label contract §27)
+        kind = event.detail.get("kind") or ""
+        where = event.detail.get("board") or kind or "a board"
         try:
-            if board in TT_BOARDS:
-                tinytapeout.append(pick(event.detail, TT_FIELDS))
-            elif board in UNLABELLED_BOARDS:
-                notes.append(f"a {board} board was identified; it gets no label")
-            else:
+            if kind in FPGA_KINDS:
                 fpga.append(pick(event.detail, FPGA_FIELDS))
+            elif kind in TT_KINDS:
+                tinytapeout.append(pick(event.detail, TT_FIELDS))
+            elif kind in UNLABELLED_KINDS:
+                notes.append(f"a {kind} board ({where}) was identified; it gets no label")
+            else:
+                notes.append(f"{FPGA_STAGE} for {where} has kind {kind!r}, which gets no label: ignored")
         except ValueError as exc:
-            notes.append(f"{FPGA_STAGE} for {board or 'a board'}: {exc}: ignored")
+            notes.append(f"{FPGA_STAGE} for {where}: {exc}: ignored")
     # oldest first, as the boards were found
     return fpga[::-1], tinytapeout[::-1], boot_id
 

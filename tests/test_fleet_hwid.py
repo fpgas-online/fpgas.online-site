@@ -22,6 +22,9 @@ REGISTRATION = {
                               "product_id": "0x0001", "product_ver": "0x0001",
                               "uuid": "0d9c4a0a-0000-0000-0000-000000000000"}]},
 }
+USB_NET = {"iface": "eth1", "mac": "00:e0:4c:68:00:01", "vidpid": "0bda:8153", "kind": "ethernet",
+           "driver": "r8152", "manufacturer": "Realtek", "product": "USB 10/100/1000 LAN",
+           "usb_serial": "000001", "bcd_usb": "3.00", "usb_speed": "5000", "signal": "usb"}
 PI_IDENTIFIED = {
     "schema": "pi-identity/1", "reader": "rpi-hwid",
     "power_class": "gpio-poe-hat", "compatible": "raspberrypi,5-model-b brcm,bcm2712",
@@ -31,6 +34,7 @@ PI_IDENTIFIED = {
     "macs": json.dumps([{"kind": "eth", "mac": "2c:cf:67:00:00:01", "signal": "onboard"},
                         {"kind": "wlan", "mac": "2c:cf:67:00:00:02", "signal": "onboard"}],
                        separators=(",", ":"), sort_keys=True),
+    "usb_net": json.dumps([USB_NET], separators=(",", ":"), sort_keys=True),
     "fan": "true", "rtc_battery": "false", "max_current_ma": "3000", "ext5v_v": "5.08",
 }
 # the p48 values of the contract's golden fixture (identity-v1-acorn-p48.json)
@@ -85,6 +89,7 @@ def test_pi_identified_fills_the_pi_facts_typed(machine):
     assert s["hat_uuid"] == "0d9c4a0a-0000-0000-0000-000000000000"
     # rpi-hwid's MACs win over the registration's
     assert [m["signal"] for m in s["macs"]] == ["onboard", "onboard"]
+    assert s["usb_net"] == [USB_NET]
     assert s["fan"] is True and s["rtc_battery"] is False
     assert s["max_current_ma"] == 3000 and s["ext5v_v"] == 5.08
 
@@ -191,18 +196,46 @@ def test_boards_from_an_earlier_boot_are_flagged(machine):
 @pytest.mark.django_db
 def test_tt_goes_to_tinytapeout_and_fomu_gets_no_label(machine):
     event(machine, "fpga-board-identified", {
-        "schema": "fpga-identity/1", "board": "tt", "usb_serial": "e6614c311b6b8a2e",
+        "schema": "fpga-identity/1", "board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e",
         "mcu": "RP2040", "chip": "asic", "shuttle": "tt06", "demoboard": "TT06+",
         "demoboard_version": "v2.0.1", "sdk": "2.0.1"})
     event(machine, "fpga-board-identified", {
-        "schema": "fpga-identity/1", "board": "fomu", "flash_jedec": "0xc84015"})
+        "schema": "fpga-identity/1", "board": "fomu", "kind": "fomu", "flash_jedec": "0xc84015"})
     built = hwid.build(machine)
     s = built.document["summary"]
     assert "fpga" not in s
     assert s["tinytapeout"] == [{"usb_serial": "e6614c311b6b8a2e", "mcu": "RP2040",
                                  "shuttle": "tt06", "chip": "asic", "demoboard": "TT06+",
                                  "demoboard_version": "v2.0.1", "sdk": "2.0.1"}]
-    assert any("fomu board was identified; it gets no label" in n for n in built.notes)
+    assert any("fomu board (fomu) was identified; it gets no label" in n for n in built.notes)
+
+
+@pytest.mark.django_db
+def test_second_boards_of_a_kind_go_by_kind_not_by_their_state_key(machine):
+    # fpgas-verify names a second board of a kind "tt@1-1.2" (runner.py _keys)
+    for board, serial in (("tt", "e6614c311b6b8a2e"), ("tt@1-1.2", "e6614c311b6b8a2f")):
+        event(machine, "fpga-board-identified", {
+            "schema": "fpga-identity/1", "board": board, "kind": "tt", "usb_serial": serial,
+            "mcu": "RP2350", "usb": board})
+    for board, usb in (("fomu", "1-1.3"), ("fomu@1-1.4", "1-1.4")):
+        event(machine, "fpga-board-identified", {
+            "schema": "fpga-identity/1", "board": board, "kind": "fomu", "usb": usb})
+    built = hwid.build(machine)
+    s = built.document["summary"]
+    assert "fpga" not in s
+    assert s["tinytapeout"] == [{"usb_serial": "e6614c311b6b8a2e", "mcu": "RP2350"},
+                                {"usb_serial": "e6614c311b6b8a2f", "mcu": "RP2350"}]
+    assert sum("gets no label" in n for n in built.notes) == 2
+
+
+@pytest.mark.django_db
+def test_a_board_without_a_known_kind_is_noted_not_labelled(machine):
+    event(machine, "fpga-board-identified", {**ACORN, "kind": "cynthion"})
+    event(machine, "fpga-board-identified", {k: v for k, v in ACORN.items() if k != "kind"} | {"bdf": "x"})
+    built = hwid.build(machine)
+    assert "fpga" not in built.document["summary"]
+    assert any("kind 'cynthion'" in n for n in built.notes)
+    assert any("kind ''" in n for n in built.notes)
 
 
 @pytest.mark.django_db
