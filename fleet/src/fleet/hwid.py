@@ -204,7 +204,12 @@ def fpga_boards(machine, notes):
             if kind in FPGA_KINDS:
                 fpga.append(pick(event.detail, FPGA_FIELDS))
             elif kind in TT_KINDS:
-                tinytapeout.append(pick(event.detail, TT_FIELDS))
+                tt = pick(event.detail, TT_FIELDS)
+                if tt.get("usb_serial"):
+                    tinytapeout.append(tt)
+                else:
+                    # rpi-hwid drops it on the Pi too (label contract §31)
+                    notes.append("tinytapeout board without usb_serial: no label")
             elif kind in UNLABELLED_KINDS:
                 notes.append(f"a {kind} board ({where}) was identified; it gets no label")
             else:

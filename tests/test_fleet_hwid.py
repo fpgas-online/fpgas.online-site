@@ -229,6 +229,18 @@ def test_second_boards_of_a_kind_go_by_kind_not_by_their_state_key(machine):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("usb_serial", [None, "-", ""])
+def test_a_tt_board_without_usb_serial_is_dropped_with_a_note(machine, usb_serial):
+    detail = {"schema": "fpga-identity/1", "board": "tt", "kind": "tt", "mcu": "RP2040"}
+    if usb_serial is not None:
+        detail["usb_serial"] = usb_serial
+    event(machine, "fpga-board-identified", detail)
+    built = hwid.build(machine)
+    assert "tinytapeout" not in built.document["summary"]
+    assert "tinytapeout board without usb_serial: no label" in built.notes
+
+
+@pytest.mark.django_db
 def test_a_board_without_a_known_kind_is_noted_not_labelled(machine):
     event(machine, "fpga-board-identified", {**ACORN, "kind": "cynthion"})
     event(machine, "fpga-board-identified", {k: v for k, v in ACORN.items() if k != "kind"} | {"bdf": "x"})
