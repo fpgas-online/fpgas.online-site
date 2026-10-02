@@ -667,7 +667,7 @@ requires-dist = [
     { name = "paramiko" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2.31" },
-    { name = "rpi-hwid", extras = ["labels"] },
+    { name = "rpi-hwid", extras = ["labels"], specifier = ">=0.0.post454" },
 ]
 
 [package.metadata.requires-dev]
@@ -1275,11 +1275,11 @@ wheels = [
 
 [[package]]
 name = "rpi-hwid"
-version = "0.0.post365"
+version = "0.0.post454"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2c/fc/df82cdcec50fd34b28be60eac36dcd511e96c717de0d6f9a54a07bda5e58/rpi_hwid-0.0.post365.tar.gz", hash = "sha256:068e1c638c0d4af061bf2dd525ea3af49c8a9e01333c81fe218d1a8c88d654cb", size = 3137871, upload-time = "2026-10-02T03:36:44.455Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/2b/a53672cb1d8d8dd9a0840e1f6a67e07b661791da159f115263286c62d8cc/rpi_hwid-0.0.post454.tar.gz", hash = "sha256:abee42f5cc94e2147b3312d83c1039380ae8d78b2b9cea0a210c7df2bf290132", size = 3203867, upload-time = "2026-10-02T16:53:40.875Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/af/f01fab686c4b246589a48b9a2c54217097451dcbbda91c6dc206d336b10b/rpi_hwid-0.0.post365-py3-none-any.whl", hash = "sha256:1d4501565a61efcbf741a5d94d8ad97466f6b6c22ce956d154cbd280a31cce5c", size = 416273, upload-time = "2026-10-02T03:36:41.685Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/dd/f798b21d879528320c20a40d2cb8c7c54cdb31d7597bc29897618da95912/rpi_hwid-0.0.post454-py3-none-any.whl", hash = "sha256:f3fd5bfe60826632831c6bdd2d783dbabfe505b64f4648c28286f97e73039818", size = 440278, upload-time = "2026-10-02T16:53:38.823Z" },
 ]
 
 [package.optional-dependencies]
