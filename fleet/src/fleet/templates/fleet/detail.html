@@ -16,6 +16,37 @@
   <tr><th>Uptime</th><td>{{ machine.last_uptime_s }} s</td></tr>
 </table>
 
+<h2>Labels</h2>
+{% if labels.missing %}
+<p class="missing">Not enough for full labels yet. rpi-hwid still needs:</p>
+<table>
+  <tr><th>Label</th><th>Missing</th></tr>
+  {% for label, fields in labels.missing %}
+  <tr><td>{{ label }}</td><td class="missing">{{ fields|join:", " }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>Everything rpi-hwid needs for this Pi's labels is here.</p>
+{% endif %}
+{% if labels.notes %}
+<ul>
+  {% for note in labels.notes %}<li>{{ note }}</li>{% endfor %}
+</ul>
+{% endif %}
+<table>
+  {% for name, value in labels.fields %}
+  <tr><th>{{ name }}</th><td>{{ value }}</td></tr>
+  {% endfor %}
+  {% for board in labels.boards %}
+  <tr><th>board {{ forloop.counter }}</th>
+      <td>{% for name, value in board %}{{ name }}={{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
+  {% endfor %}
+  {% for name, value in labels.sources %}
+  <tr><th class="muted">source: {{ name }}</th><td class="muted">{{ value }}</td></tr>
+  {% endfor %}
+</table>
+<p><a href="/fleet/{{ machine.serial }}/rpi-hwid.json">Download rpi-hwid's .json</a></p>
+
 <h2>Hardware history</h2>
 {% for snap in snapshots %}
 <details {% if forloop.first %}open{% endif %}>

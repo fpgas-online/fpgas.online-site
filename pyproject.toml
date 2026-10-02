@@ -16,6 +16,8 @@ dependencies = [
     "paramiko",
     "requests>=2.31",
     "PyYAML>=6",
+    # builds and renders rpi-hwid's labels (fleet/hwid.py); a hard dependency
+    "rpi-hwid[labels]>=0.0.post454",
     "fpgas-online-poe @ git+https://github.com/fpgas-online/fpgas.online-poe.git",
 ]
 
