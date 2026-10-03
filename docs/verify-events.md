@@ -132,11 +132,16 @@ its FPGA check passed in the boot it is running now.
 | `fleet/services.py` `fpga_states()`, `offered_hosts()` | `fpga-verifying`, `fpga-verified` `result`, current boot only | Which Pis `/fpgas/` lists and serves pages and uploads for |
 | `fleet/services.py` `found_boards()` | `fpga-board-found` `board`, `variant`, `where`, current boot only | The board name on `/fpgas/` and each board page |
 | `fleet/hwid.py` `fpga_boards()` | `fpga-board-identified` with `schema` `fpga-identity/1` | rpi-hwid label documents |
-| `fleet/consumer.py` `_bridge()` | the stage name of every event | A `piview: <stage>` line in the board page's status box |
+| `fleet/consumer.py` `_bridge()` | the stage name of every event | A `piview: <stage>` line in that Pi's status log (group `pistat_<hostname>`) |
 | `/fleet/<serial>/` page | every event of the current boot | Shown raw, for debugging |
 
 Not read anywhere yet: per-test results, `board<i>_tests` / `board<i>_reason`
 in `fpga-verified`, and `fpga-no-board`'s reason.
+
+The broker takes anonymous messages from any Pi on the site LAN, so the
+listing is only as trustworthy as that (fpgas.online-infra#196). The
+addresses the site reaches (upload, ping, ssh) derive from the port's
+hostname, never from anything a message says.
 
 ## Sources
 
