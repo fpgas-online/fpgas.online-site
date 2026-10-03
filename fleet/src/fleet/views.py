@@ -46,7 +46,10 @@ def labels_context(machine):
     summary = built.document["summary"]
     boards = summary.get("fpga", []) + summary.get("tinytapeout", [])
     try:
-        missing = sorted(hwid.missing(built.document).items())
+        # rpi-hwid lists every label it can make, one with nothing missing
+        # as [], so complete is no label with a field missing
+        missing = sorted((label, fields) for label, fields
+                         in hwid.missing(built.document).items() if fields)
     except hwid.label_input.InputError as exc:
         # build() only makes documents rpi-hwid takes; this is the last
         # guard, so a page is never lost to what a Pi sent (contract §35)

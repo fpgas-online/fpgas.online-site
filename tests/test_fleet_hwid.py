@@ -133,10 +133,11 @@ def test_a_value_read_as_none_is_kept_as_none(machine):
 
 @pytest.mark.django_db
 def test_pi_without_rpi_hwid_says_so(machine):
-    event(machine, "pi-identified", {"schema": "pi-identity/1", "reader": "none"})
+    sent = event(machine, "pi-identified", {"schema": "pi-identity/1", "reader": "none"})
     built = hwid.build(machine)
     assert "power_class" not in built.document["summary"]
-    assert any("rpi-hwid is not installed" in n for n in built.notes)
+    assert any(n.startswith(f"{hwid.named(sent)}: rpi-hwid is not installed")
+               for n in built.notes)
 
 
 @pytest.mark.django_db
@@ -215,7 +216,7 @@ def test_tt_goes_to_tinytapeout_and_fomu_gets_no_label(machine):
         "schema": "fpga-identity/1", "board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e",
         "mcu": "RP2040", "chip": "asic", "shuttle": "tt06", "demoboard": "TT06+",
         "demoboard_version": "v2.0.1", "sdk": "2.0.1"})
-    event(machine, "fpga-board-identified", {
+    fomu = event(machine, "fpga-board-identified", {
         "schema": "fpga-identity/1", "board": "fomu", "kind": "fomu", "flash_jedec": "0xc84015"})
     built = hwid.build(machine)
     s = built.document["summary"]
@@ -223,7 +224,20 @@ def test_tt_goes_to_tinytapeout_and_fomu_gets_no_label(machine):
     assert s["tinytapeout"] == [{"usb_serial": "e6614c311b6b8a2e", "mcu": "RP2040",
                                  "shuttle": "tt06", "chip": "asic", "demoboard": "TT06+",
                                  "demoboard_version": "v2.0.1", "sdk": "2.0.1"}]
-    assert any("fomu board (fomu) was identified; it gets no label" in n for n in built.notes)
+    assert f"{hwid.named(fomu)}: a fomu board (fomu) was identified; it gets no label" \
+        in built.notes
+
+
+@pytest.mark.django_db
+def test_a_tt_field_read_as_none_is_left_out(machine):
+    # as rpi-hwid's this_host leaves a TT board's None out; dumps() then
+    # fills the same default on both sides
+    event(machine, "fpga-board-identified", {
+        "schema": "fpga-identity/1", "board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e",
+        "mcu": "RP2350", "chip": "fpga", "shuttle": "-", "repo": "-", "commit": "-"})
+    s = hwid.build(machine).document["summary"]
+    assert s["tinytapeout"] == [{"usb_serial": "e6614c311b6b8a2e", "mcu": "RP2350",
+                                 "chip": "fpga"}]
 
 
 @pytest.mark.django_db
@@ -250,10 +264,11 @@ def test_a_tt_board_without_usb_serial_is_dropped_with_a_note(machine, usb_seria
     detail = {"schema": "fpga-identity/1", "board": "tt", "kind": "tt", "mcu": "RP2040"}
     if usb_serial is not None:
         detail["usb_serial"] = usb_serial
-    event(machine, "fpga-board-identified", detail)
+    sent = event(machine, "fpga-board-identified", detail)
     built = hwid.build(machine)
     assert "tinytapeout" not in built.document["summary"]
-    assert "tinytapeout board without usb_serial: no label" in built.notes
+    assert f"{hwid.named(sent)} for tt: tinytapeout board without usb_serial: no label" \
+        in built.notes
 
 
 @pytest.mark.django_db
