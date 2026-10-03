@@ -105,13 +105,26 @@ def verified_serials():
             if state == "pass"}
 
 
-def verified_hostnames(serials=None):
-    """The hostnames those machines registered with (pi-sw<s>-p<p> at a
-    VLAN-per-port site): a Pi's hostname is the port it is plugged into, so a
-    board row for that port is the Pi's even before the row knows its serial."""
-    serials = verified_serials() if serials is None else serials
-    return set(Machine.objects.filter(serial__in=serials).exclude(hostname="")
-               .values_list("hostname", flat=True))
+def board_claims():
+    """Who may claim a board row, for FPGAS_REQUIRE_VERIFIED.
+
+    Returns (hosts, serials): `hosts` are the hostnames (the short name,
+    pi-sw<s>-p<p> at a VLAN-per-port site, so a port) whose most recently
+    seen machine passed its FPGA check this boot; `serials` maps each machine
+    that passed to its short hostname ("" when it registered none). A machine
+    that left a port keeps its last result, so only the newest machine on a
+    hostname speaks for it."""
+    states = fpga_states()
+    newest = {}
+    serials = {}
+    for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
+        host = hostname.split(".")[0]
+        if states.get(serial) == "pass":
+            serials[serial] = host
+        if host and (host not in newest or seen > newest[host][0]):
+            newest[host] = (seen, serial)
+    hosts = {host for host, (_, serial) in newest.items() if states.get(serial) == "pass"}
+    return hosts, serials
 
 
 def boot_event(serial, payload):
