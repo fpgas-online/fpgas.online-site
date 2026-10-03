@@ -55,11 +55,9 @@ def test_wheel_ships_every_django_app(wheel_names):
     assert APP_PACKAGES <= {name.split("/")[0] for name in wheel_names}
 
 
-def test_wheel_ships_the_pi_fixtures(wheel_names):
-    # the infra role seeds a fresh DB with `manage.py loaddata <name>`, which
-    # resolves the fixture from the installed app -- so it has to ship
-    assert "pibfpgas/fixtures/fpgas.online.json" in wheel_names
-    assert "pibfpgas/fixtures/ps1.fpgas.online.json" in wheel_names
+def test_wheel_ships_no_pi_fixtures(wheel_names):
+    # the board pages come from fleet registration alone: nothing to seed
+    assert [n for n in wheel_names if n.startswith("pibfpgas/fixtures/")] == []
 
 
 def test_wheel_excludes_tests_and_local_settings(wheel_names):
