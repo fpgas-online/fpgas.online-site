@@ -5,9 +5,9 @@ import subprocess
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
-from pibfpgas.pis import Pi
+from pibfpgas.pis import Pi, offered_pi
 
 
 def humanize(m):
@@ -64,15 +64,21 @@ def ping(request, pi_name):
     # pi_name is "pi{port}" (the status log's group); the board page posts
     # {"port", "switch"} as it does to /snmp/, with no switch on a
     # legacy flat site. The address derives from them: 10.21.<switch>.<port>
-    # (VLAN-per-port) or 10.21.0.<100+port> (flat).
-    port = int(pi_name[2:])
+    # (VLAN-per-port) or 10.21.0.<100+port> (flat). Anyone can call this, so
+    # it only pings a Pi the board pages offer, never an arbitrary address.
+    flat = Pi.from_hostname(pi_name)
+    if flat is None or flat.switch is not None:
+        raise Http404("not a pi<port> name")
     try:
         switch = json.loads(request.body or b"{}").get("switch")
     except (ValueError, AttributeError):
         return HttpResponseBadRequest("the body is not a JSON object")
     if switch is not None and (not isinstance(switch, int) or isinstance(switch, bool)):
         return HttpResponseBadRequest("switch is not a number")
-    pi_ip = Pi(port=port, switch=switch).ip
+    pi = offered_pi(Pi(port=flat.port, switch=switch).hostname)
+    if pi is None:
+        raise Http404("no Pi there has checked in and passed its FPGA check this boot")
+    pi_ip = pi.ip
 
     cmd = ["ping",
             "-c", "3",
