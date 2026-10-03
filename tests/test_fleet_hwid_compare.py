@@ -190,6 +190,20 @@ def test_a_tt_field_read_as_none_is_left_out_as_on_the_pi(machine):
     assert label_input.comparable(built.document) == label_input.comparable(pi_side_tt())
 
 
+@pytest.mark.django_db
+def test_rpi_hwid_refuses_a_label_with_a_fact_missing(machine):
+    # The page lists only labels with a field missing; rpi-hwid itself still
+    # refuses to make any label that has one (a partial label is never made).
+    from rpi_hwid import labels
+    send(machine, "pi-identified", pi_identified())
+    acorn = {k: v for k, v in json.loads(IDENTITY_TEXT)["boards"][0].items() if k != "dna"}
+    send(machine, "fpga-board-identified", fpga_board_identified(acorn))
+    document = hwid.build(machine).document
+    assert "dna" in label_input.missing(document)["fpga[0]"]
+    with pytest.raises(labels.MissingFieldsError, match=r"fpga\[0\] label needs .*dna"):
+        labels.render_sheet([document])
+
+
 # The detail page: complete is every label with nothing missing, not a
 # `missing` with no keys -- rpi-hwid lists each label it can make, with [].
 
