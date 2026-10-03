@@ -146,8 +146,9 @@ def pick(detail, fields, drop_none=False):
     """The fields of `detail` that `fields` names, typed; ValueError naming
     the field when one is not its type. A key that is absent was not read, so
     it stays absent. With `drop_none`, a value read as none ("-") is left
-    out too, as rpi-hwid's fpga_summary leaves out a board's None, so dumps()
-    fills the same default (label contract §34)."""
+    out too, as rpi-hwid leaves out a board's None (fpga_summary for an FPGA
+    board, label contract §34; this_host for a Tiny Tapeout board), so
+    dumps() fills the same default."""
     out = {}
     for name, kind in fields.items():
         if name in detail:
@@ -216,7 +217,7 @@ def pi_facts(machine, notes):
                          f"not {PI_SCHEMA}/{SCHEMA_MAJOR}: ignored")
             continue
         if detail.get("reader") == "none":
-            notes.append(f"{PI_STAGE}: rpi-hwid is not installed on this Pi, so nothing read "
+            notes.append(f"{named(event)}: rpi-hwid is not installed on this Pi, so nothing read "
                          "its power class, fan, RTC battery or HAT EEPROM")
             return event, {}
         try:
@@ -255,14 +256,17 @@ def board(event, notes):
         notes.append(f"{named(event)} for {where}: kind: not a string: {shown(kind)}: ignored")
         return None, None
     if kind in UNLABELLED_KINDS:
-        notes.append(f"a {kind} board ({where}) was identified; it gets no label")
+        notes.append(f"{named(event)}: a {kind} board ({where}) was identified; it gets no label")
         return None, None
     try:
         if kind in TT_KINDS:
-            part, record = "tinytapeout", pick(detail, TT_FIELDS)
+            # a field read as none is left out, as rpi-hwid's this_host
+            # leaves out a TT board's None (identity_tinytapeout)
+            part, record = "tinytapeout", pick(detail, TT_FIELDS, drop_none=True)
             if not record.get("usb_serial"):
                 # rpi-hwid drops it on the Pi too (label contract §31)
-                notes.append("tinytapeout board without usb_serial: no label")
+                notes.append(f"{named(event)} for {where}: "
+                             "tinytapeout board without usb_serial: no label")
                 return None, None
         else:
             part, record = "fpga", pick(detail, FPGA_FIELDS, drop_none=True)

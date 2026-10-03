@@ -158,3 +158,61 @@ def test_without_the_events_the_site_cannot_match(machine):
     built = hwid.build(machine)
     assert label_input.comparable(built.document) != label_input.comparable(pi_side())
     assert any(label_input.missing(built.document).values())
+
+
+# A Tiny Tapeout board fpgas-verify identified with no ROM answer: shuttle,
+# repo and commit read as none ("-" in the event, null in its identity).
+TT = {"board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e", "mcu": "RP2350",
+      "chip": "fpga", "shuttle": None, "repo": None, "commit": None, "demoboard": "TT06+",
+      "demoboard_version": "v2.0.1", "sdk": "2.0.1"}
+# The record rpi-hwid's this_host makes of it: TinyTapeoutBoard's fields,
+# each one that is not None (this_host.identity_tinytapeout).
+TT_RECORD = {k: v for k, v in TT.items() if k in label_input.TT_FIELDS and v is not None}
+
+
+def pi_side_tt():
+    """p48's label input with that TT board on its USB, as `rpi-hwid labels
+    --this-host` builds it."""
+    doc = pi_side()
+    doc["summary"]["tinytapeout"] = [TT_RECORD]
+    return label_input.load(label_input.dumps(doc))
+
+
+@pytest.mark.django_db
+def test_a_tt_field_read_as_none_is_left_out_as_on_the_pi(machine):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified(TT))
+    built = hwid.build(machine)
+    assert built.notes == []
+    (tt,) = built.document["summary"]["tinytapeout"]
+    assert tt == TT_RECORD and "shuttle" not in tt
+    assert label_input.comparable(built.document) == label_input.comparable(pi_side_tt())
+
+
+# The detail page: complete is every label with nothing missing, not a
+# `missing` with no keys -- rpi-hwid lists each label it can make, with [].
+
+COMPLETE = "Everything rpi-hwid needs for this Pi's labels is here."
+INCOMPLETE = "Not enough for full labels yet."
+
+
+@pytest.mark.django_db
+def test_the_page_says_a_complete_pi_is_complete(machine, client):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    missing = label_input.missing(hwid.build(machine).document)
+    assert missing and not any(missing.values())    # labels, each with nothing missing
+    page = client.get(f"/fleet/{machine.serial}/").content.decode()
+    assert COMPLETE in page and INCOMPLETE not in page
+
+
+@pytest.mark.django_db
+def test_the_page_says_an_incomplete_pi_is_incomplete(machine, client):
+    send(machine, "pi-identified", {k: v for k, v in pi_identified().items() if k != "header"})
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    page = client.get(f"/fleet/{machine.serial}/").content.decode()
+    assert INCOMPLETE in page and COMPLETE not in page
+    assert '<td>board</td><td class="missing">header</td>' in page
+    # a label with nothing missing is not listed as needing something
+    assert "<td>fpga[0]</td>" not in page
