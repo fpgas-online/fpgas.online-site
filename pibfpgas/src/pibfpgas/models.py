@@ -20,15 +20,14 @@ class Pi(models.Model):
     location = models.CharField(max_length=30, blank=True)
     model = models.CharField(max_length=30, blank=True)
     cable_color = models.CharField(max_length=10, blank=True)
-    fpga_board = models.CharField(
-        max_length=80, blank=True,
-        help_text='Attached FPGA board, e.g. "Digilent Arty A7-35T"')
+    # No board field: the board on a port is what its Pi found this boot
+    # (fleet.services.found_boards), not something typed in here.
 
     class Meta:
         ordering = ["switch", "port"]
 
     def __str__(self):
-        return f"{self.hostname} ({self.fpga_board})" if self.fpga_board else self.hostname
+        return self.hostname
 
     # -- derived network identity --
     @property

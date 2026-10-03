@@ -58,8 +58,8 @@ def test_only_a_pass_in_the_current_boot_counts():
 def test_a_detail_that_is_not_a_dict_is_no_pass_and_breaks_nothing(c, settings):
     """The fleet broker is open on the site LAN: anyone on a Pi can publish."""
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=38, switch=2, serial_no="odd", fpga_board="Digilent Arty A7-35T")
-    Pi.objects.create(port=42, switch=2, serial_no="good", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=38, switch=2, serial_no="odd")
+    Pi.objects.create(port=42, switch=2, serial_no="good")
     BootEvent.objects.create(machine=machine("odd"), boot_id="b2", stage="fpga-verified",
                              detail="pass", ts=T0)
     verified(machine("good"), "pass")
@@ -70,7 +70,7 @@ def test_a_detail_that_is_not_a_dict_is_no_pass_and_breaks_nothing(c, settings):
 
 @pytest.mark.django_db
 def test_off_by_default_every_pi_is_offered(c):
-    Pi.objects.create(port=38, switch=2, serial_no="aaa", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=38, switch=2, serial_no="aaa")
     assert "pi-sw2-p38" in c.get("/fpgas/").content.decode()
     assert c.get("/fpgas/pi38.html").status_code == 200
 
@@ -78,9 +78,9 @@ def test_off_by_default_every_pi_is_offered(c):
 @pytest.mark.django_db
 def test_required_hides_pis_that_did_not_pass(c, settings):
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=38, switch=2, serial_no="good", fpga_board="Digilent Arty A7-35T")
-    Pi.objects.create(port=46, switch=2, serial_no="nofpga", fpga_board="Sqrl Acorn CLE-215+")
-    Pi.objects.create(port=16, switch=2, serial_no="", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=38, switch=2, serial_no="good")
+    Pi.objects.create(port=46, switch=2, serial_no="nofpga")
+    Pi.objects.create(port=16, switch=2, serial_no="")
     verified(machine("good"), "pass")
     verified(machine("nofpga"), "missing")
     html = c.get("/fpgas/").content.decode()
@@ -149,8 +149,8 @@ def test_a_verified_pi_claims_its_ports_row_by_hostname_and_only_there(c, settin
     # a placeholder row (no serial yet) is claimed by the Pi registered with that
     # port's hostname; the row on the port it left, still holding its serial, is not
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
-    Pi.objects.create(port=37, switch=2, serial_no="moved", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=9, switch=2, serial_no="")
+    Pi.objects.create(port=37, switch=2, serial_no="moved")
     registered("moved", "pi-sw2-p9", "pass")
     html = c.get("/fpgas/").content.decode()
     assert "pi-sw2-p9" in html and "pi-sw2-p37" not in html
@@ -161,7 +161,7 @@ def test_a_verified_pi_claims_its_ports_row_by_hostname_and_only_there(c, settin
 @pytest.mark.django_db
 def test_a_hostname_only_counts_for_a_pi_that_passed(c, settings):
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
+    Pi.objects.create(port=9, switch=2, serial_no="")
     registered("failed", "pi-sw2-p9", "fail")
     assert "pi-sw2-p9" not in c.get("/fpgas/").content.decode()
     assert c.get("/fpgas/pi9.html").status_code == 404
@@ -172,7 +172,7 @@ def test_the_newest_pi_on_a_hostname_speaks_for_it(c, settings):
     # the Pi that passed and was unplugged keeps its last result; the one on the
     # port now failed, so the port is not offered
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
+    Pi.objects.create(port=9, switch=2, serial_no="")
     registered("gone", "pi-sw2-p9", "pass", minutes=0)
     registered("here", "pi-sw2-p9", "fail", minutes=5)
     assert c.get("/fpgas/pi9.html").status_code == 404
@@ -181,7 +181,7 @@ def test_the_newest_pi_on_a_hostname_speaks_for_it(c, settings):
 @pytest.mark.django_db
 def test_a_fully_qualified_hostname_still_claims_its_row(c, settings):
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
+    Pi.objects.create(port=9, switch=2, serial_no="")
     registered("fqdn", "pi-sw2-p9.welland.fpgas.online", "pass")
     assert c.get("/fpgas/pi9.html").status_code == 200
 
@@ -189,12 +189,12 @@ def test_a_fully_qualified_hostname_still_claims_its_row(c, settings):
 @pytest.mark.django_db
 def test_a_serial_with_no_hostname_still_claims_its_row(c, settings):
     settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=38, switch=2, serial_no="old-agent", fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=38, switch=2, serial_no="old-agent")
     verified(machine("old-agent"), "pass")  # registered before hostnames were sent
     assert c.get("/fpgas/pi38.html").status_code == 200
 
 
 @pytest.mark.django_db
 def test_the_tt_page_needs_a_board_on_port_21(c):
-    Pi.objects.create(port=21, switch=2, serial_no="opi", fpga_board="")  # an Orange Pi, no FPGA
+    Pi.objects.create(port=21, switch=2, serial_no="opi")  # an Orange Pi, no FPGA
     assert c.get("/fpgas/tt.html").status_code == 404

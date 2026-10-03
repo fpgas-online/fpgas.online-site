@@ -9,8 +9,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -23,8 +22,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -37,8 +35,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -51,8 +48,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -65,8 +61,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -79,8 +74,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -93,8 +87,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -107,8 +100,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -121,8 +113,7 @@
    "serial_no": "10000000613a4524",
    "location": "TEMPORARY: until fleet sync",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "cable_color": ""
   }
  },
  {
@@ -135,8 +126,7 @@
    "serial_no": "10000000f77b8415",
    "location": "TEMPORARY: until fleet sync",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "cable_color": ""
   }
  },
  {
@@ -149,8 +139,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -163,8 +152,7 @@
    "serial_no": "10000000de0c73e5",
    "location": "TEMPORARY: until fleet sync",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "cable_color": ""
   }
  },
  {
@@ -177,8 +165,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -191,8 +178,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -205,8 +191,7 @@
    "serial_no": "10000000ce8e3593",
    "location": "TEMPORARY: until fleet sync",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "cable_color": ""
   }
  },
  {
@@ -219,8 +204,7 @@
    "serial_no": "",
    "location": "fpgas rack (Back Shed)",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -233,8 +217,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -247,8 +230,7 @@
    "serial_no": "02c000810b122044",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -261,8 +243,7 @@
    "serial_no": "02c00181e1ce7d46",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -275,8 +256,7 @@
    "serial_no": "02c00181bff6b799",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -289,8 +269,7 @@
    "serial_no": "02c0008131f46e48",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -303,8 +282,7 @@
    "serial_no": "02c000812eb7a34e",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -317,8 +295,7 @@
    "serial_no": "02c001811fe1451d",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -331,8 +308,7 @@
    "serial_no": "02c00081f5c0a610",
    "location": "TEMPORARY: until fleet sync",
    "model": "Xunlong Orange Pi PC",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -345,8 +321,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -359,8 +334,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -373,8 +347,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -387,8 +360,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -401,8 +373,7 @@
    "serial_no": "a01e40441f959c20",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "cable_color": ""
   }
  },
  {
@@ -415,8 +386,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -429,8 +399,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -443,8 +412,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -457,8 +425,7 @@
    "serial_no": "1000000085948b10",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+   "cable_color": ""
   }
  },
  {
@@ -471,8 +438,7 @@
    "serial_no": "1000000040f6bf6d",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+   "cable_color": ""
   }
  },
  {
@@ -485,8 +451,7 @@
    "serial_no": "100000007a4f3afc",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+   "cable_color": ""
   }
  },
  {
@@ -499,8 +464,7 @@
    "serial_no": "1000000062c15d4f",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 4 Model B Rev 1.5",
-   "cable_color": "",
-   "fpga_board": "TT FPGA emulation (iCE40UP5K)"
+   "cable_color": ""
   }
  },
  {
@@ -513,8 +477,7 @@
    "serial_no": "256307e8f7d0cc00",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -527,8 +490,7 @@
    "serial_no": "",
    "location": "fpgas rack (Back Shed)",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -541,8 +503,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -555,8 +516,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -569,8 +529,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -583,8 +542,7 @@
    "serial_no": "",
    "location": "fpgas rack (Back Shed)",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -597,8 +555,7 @@
    "serial_no": "55effc3376226b41",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "cable_color": ""
   }
  },
  {
@@ -611,8 +568,7 @@
    "serial_no": "117f731f100e80a7",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "cable_color": ""
   }
  },
  {
@@ -625,8 +581,7 @@
    "serial_no": "",
    "location": "TEMPORARY: until fleet sync",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -639,8 +594,7 @@
    "serial_no": "",
    "location": "fpgas rack (Back Shed)",
    "model": "",
-   "cable_color": "",
-   "fpga_board": ""
+   "cable_color": ""
   }
  },
  {
@@ -653,8 +607,7 @@
    "serial_no": "285df3f84af242d0",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "cable_color": ""
   }
  },
  {
@@ -667,8 +620,7 @@
    "serial_no": "0cd35697db04a4ab",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
-   "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "cable_color": ""
   }
  }
 ]

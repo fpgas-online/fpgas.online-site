@@ -54,19 +54,19 @@ def test_vlan_per_port_single_digit_port_pads_ssh_port():
 
 
 @pytest.mark.django_db
-def test_home_lists_every_board_with_stream_and_type(c):
-    Pi.objects.create(port=38, switch=2, fpga_board="Digilent Arty A7-35T")
-    Pi.objects.create(port=46, switch=2, fpga_board="Sqrl Acorn CLE-215+")
+def test_home_lists_every_board_with_its_stream(c):
+    # the board each names is what its Pi found: tests/test_board_labels.py
+    Pi.objects.create(port=38, switch=2)
+    Pi.objects.create(port=46, switch=2)
     html = c.get("/fpgas/").content.decode()
     assert "pi-sw2-p38" in html and "pi-sw2-p46" in html
-    assert "Digilent Arty A7-35T" in html and "Sqrl Acorn CLE-215+" in html
     assert "https://welland.fpgas.online/live/pi-sw2-p38.m3u8" in html
     assert 'href="pi38.html"' in html
 
 
 @pytest.mark.django_db
 def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
-    Pi.objects.create(port=42, switch=2, fpga_board="Digilent Arty A7-35T")
+    Pi.objects.create(port=42, switch=2)
     html = c.get("/fpgas/pi42.html").content.decode()
     assert "hostname=10.21.2.42" in html  # wssh iframe
     assert "-p 24222" in html  # direct ssh instructions
@@ -103,12 +103,6 @@ def test_welland_fixture_loads_from_the_installed_app():
     # known, until the fleet -> pibfpgas sync replaces this fixture: infra#47)
     assert sorted(pi.port for pi in pis) == list(range(1, 49))
     assert all(pi.switch == 2 for pi in pis)
-    by_board = {}
-    for pi in pis.exclude(fpga_board=""):
-        by_board.setdefault(pi.fpga_board.split()[0], []).append(pi.port)
-    assert sorted(by_board["Digilent"]) == [9, 10, 12, 15]
-    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 47, 48]
-    assert sorted(by_board["TT"]) == [33, 34, 35, 36]
     placeholders = pis.filter(location="TEMPORARY: until fleet sync")
     assert placeholders.count() == 48 - 14  # every row the 2026-08-31 fixture did not have
 

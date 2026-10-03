@@ -16,6 +16,8 @@ from html.parser import HTMLParser
 
 import pytest
 from django.test import Client
+from django.utils import timezone
+from fleet.models import BootEvent, Machine
 from pibfpgas.models import Pi
 from ttsite.models import Board
 
@@ -55,7 +57,13 @@ def tinytapeout():
 def test_welland_players_take_their_source_from_data_setup(welland, settings, path):
     settings.DOMAIN_NAME = "welland.fpgas.online"
     settings.PI_PW = "cGFzc3dvcmQ="  # the board page renders it into the wssh iframe
-    Pi.objects.create(port=21, switch=2, fpga_board="TT FPGA emulation (iCE40UP5K)")
+    Pi.objects.create(port=21, switch=2)
+    # the TT page needs a TT board found on port 21 this boot
+    m = Machine.objects.create(serial="tt", hostname="pi-sw2-p21", last_boot_id="b1",
+                               last_seen=timezone.now())
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-board-found",
+                             detail={"board": "tt", "variant": "tt-fpga", "where": "1-1.2"},
+                             ts=timezone.now())
     (setup,) = players(welland, path)
     assert setup["liveui"] is True
     assert setup["sources"] == [
