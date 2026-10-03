@@ -4,7 +4,7 @@
 from django.conf import settings
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
-from fleet.services import verified_serials
+from fleet.services import verified_hostnames, verified_serials
 from pibup.forms import UploadFileForm
 
 from .models import Pi
@@ -13,11 +13,15 @@ from .models import Pi
 def shown(pis):
     """The Pis to offer. With FPGAS_REQUIRE_VERIFIED, only those whose FPGA
     check passed this boot: the others still boot and take ssh, so someone
-    can log in and see what is wrong, but users are not sent to them."""
+    can log in and see what is wrong, but users are not sent to them. A row
+    is a verified Pi's by its serial, or by its hostname (the port it is on),
+    so a Pi on a port whose row has no serial yet still claims it."""
     if not settings.FPGAS_REQUIRE_VERIFIED:
         return list(pis)
     verified = verified_serials()
-    return [pi for pi in pis if pi.serial_no and pi.serial_no in verified]
+    hosts = verified_hostnames(verified)
+    return [pi for pi in pis
+            if (pi.serial_no and pi.serial_no in verified) or pi.hostname in hosts]
 
 
 def home(request):

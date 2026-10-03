@@ -132,3 +132,32 @@ def test_the_fleet_pages_show_the_check(c):
     assert "not started" in html
     assert 'class="badge verifying">verifying<' in c.get("/fleet/aaa/").content.decode()
     assert "not started" in c.get("/fleet/ccc/").content.decode()
+
+
+@pytest.mark.django_db
+def test_a_verified_pi_claims_its_ports_row_by_hostname(c, settings):
+    # a placeholder row (no serial yet) is a verified Pi's when the Pi registered
+    # with that port's hostname; a row on another port with a stale serial is not
+    settings.FPGAS_REQUIRE_VERIFIED = True
+    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
+    Pi.objects.create(port=37, switch=2, serial_no="moved", fpga_board="Digilent Arty A7-35T")
+    m = machine("moved")
+    m.hostname = "pi-sw2-p9"
+    m.save()
+    verified(m, "pass")
+    html = c.get("/fpgas/").content.decode()
+    assert "pi-sw2-p9" in html  # claimed by hostname
+    assert "pi-sw2-p37" in html  # still matched by its (stale) serial, as before
+    assert c.get("/fpgas/pi9.html").status_code == 200
+
+
+@pytest.mark.django_db
+def test_a_hostname_only_counts_for_a_pi_that_passed(c, settings):
+    settings.FPGAS_REQUIRE_VERIFIED = True
+    Pi.objects.create(port=9, switch=2, serial_no="", fpga_board="")
+    m = machine("failed")
+    m.hostname = "pi-sw2-p9"
+    m.save()
+    verified(m, "fail")
+    assert "pi-sw2-p9" not in c.get("/fpgas/").content.decode()
+    assert c.get("/fpgas/pi9.html").status_code == 404
