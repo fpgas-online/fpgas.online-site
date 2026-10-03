@@ -99,15 +99,34 @@ def test_welland_fixture_loads_from_the_installed_app():
     # (the infra role loads it exactly this way after a fresh converge)
     call_command("loaddata", "fpgas.online.json", verbosity=0)
     pis = Pi.objects.all()
-    assert pis.count() == 14
+    # one row per access port of s3300-1 (TEMPORARY placeholders where nothing is
+    # known, until the fleet -> pibfpgas sync replaces this fixture: infra#47)
+    assert sorted(pi.port for pi in pis) == list(range(1, 49))
     assert all(pi.switch == 2 for pi in pis)
-    assert all(pi.fpga_board for pi in pis)
     by_board = {}
-    for pi in pis:
+    for pi in pis.exclude(fpga_board=""):
         by_board.setdefault(pi.fpga_board.split()[0], []).append(pi.port)
-    assert sorted(by_board["Digilent"]) == [16, 37, 38, 42]
-    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 46, 47, 48]
+    assert sorted(by_board["Digilent"]) == [9, 10, 12, 15]
+    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 47, 48]
     assert sorted(by_board["TT"]) == [33, 34, 35, 36]
+    placeholders = pis.filter(location="TEMPORARY: until fleet sync")
+    assert placeholders.count() == 48 - 14  # every row the 2026-08-31 fixture did not have
+
+
+@pytest.mark.django_db
+def test_welland_acorn_rows_carry_the_pis_on_those_ports():
+    # s3300-1's FDB and the fleet page, 2026-10-03: the Pis moved; p46 has nothing
+    # attached (PoE searching, no MAC), so it has no Pi. With FPGAS_REQUIRE_VERIFIED
+    # (welland: site_require_fpga_verified) a row with no serial is not listed.
+    call_command("loaddata", "fpgas.online.json", verbosity=0)
+    rows = {pi.port: (pi.mac, pi.serial_no) for pi in Pi.objects.filter(port__in=(46, 47, 48))}
+    assert rows == {
+        46: ("", ""),
+        47: ("88:a2:9e:45:c6:87", "285df3f84af242d0"),
+        48: ("88:a2:9e:45:85:77", "0cd35697db04a4ab"),
+    }
+    serials = list(Pi.objects.exclude(serial_no="").values_list("serial_no", flat=True))
+    assert len(serials) == len(set(serials)), "one Pi on two ports"
 
 
 @pytest.mark.django_db

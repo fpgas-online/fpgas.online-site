@@ -4,7 +4,7 @@
 from django.conf import settings
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
-from fleet.services import verified_serials
+from fleet.services import board_claims
 from pibup.forms import UploadFileForm
 
 from .models import Pi
@@ -13,12 +13,15 @@ from .models import Pi
 def shown(pis):
     """The Pis to offer. With FPGAS_REQUIRE_VERIFIED, only those whose FPGA
     check passed this boot: the others still boot and take ssh, so someone
-    can log in and see what is wrong, but users are not sent to them."""
+    can log in and see what is wrong, but users are not sent to them. A row
+    is claimed by the newest Pi registered with its hostname (the port it is
+    on), or by its serial unless that Pi is registered on another port."""
     if not settings.FPGAS_REQUIRE_VERIFIED:
         return list(pis)
-    verified = verified_serials()
-    return [pi for pi in pis if pi.serial_no and pi.serial_no in verified]
-
+    hosts, serials = board_claims()
+    return [pi for pi in pis
+            if pi.hostname in hosts
+            or (pi.serial_no in serials and serials[pi.serial_no] in ("", pi.hostname))]
 
 def home(request):
 
@@ -53,4 +56,7 @@ def one(request, pino, template='fpga.html'):
 
 
 def tt(request):
+    # the TT board page is port 21's; a row there with no FPGA board is not one
+    if not Pi.objects.filter(port=21).exclude(fpga_board="").exists():
+        raise Http404("no TT board on port 21")
     return one(request, 21, 'tt.html')
