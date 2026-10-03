@@ -104,8 +104,9 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert 'src="/js/mediamtx-reader.js"' in html
     assert 'src="/js/whep-live.js"' in html
     assert "/static/" not in html
-    # /snmp/status and /snmp/toggle need the switch index as well as the port
-    assert 'PiStatus("42", 2)' in html
+    # /snmp/status and /snmp/toggle need the switch index as well as the port;
+    # the status log and ping go by the hostname
+    assert 'PiStatus("42", 2, "pi-sw2-p42")' in html
     # the upload form names the board by its hostname
     assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
 
@@ -118,7 +119,7 @@ def test_board_page_legacy_hostnames_keep_old_addresses(c):
     assert "-p 10922" in html
     assert 'data-whep-url="/cam/pi9/whep"' in html
     # legacy flat scheme: one switch, so only the port is sent
-    assert 'PiStatus("9", null)' in html
+    assert 'PiStatus("9", null, "pi9")' in html
 
 
 @pytest.mark.django_db

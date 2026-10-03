@@ -19,14 +19,17 @@ log = logging.getLogger(__name__)
 
 KINDS = ("registration", "status", "event")
 
-_HOSTNAME_RE = re.compile(r"^pi(?:-sw\d+-p)?(\d+)$")
+# A Pi's short hostname, in its one spelling (as pibfpgas.pis reads it):
+# pi-sw<s>-p<p>, or pi<p> at a flat site.
+_HOSTNAME_RE = re.compile(r"pi(?:-sw[1-9][0-9]*-p)?[1-9][0-9]*")
 
 
 def _widget_group(hostname):
-    """Channel group the board page for this Pi listens on (dcws.js
-    subscribes to pistat_pi<port>), or None for unparseable hostnames."""
-    m = _HOSTNAME_RE.match(hostname or "")
-    return f"pistat_pi{int(m.group(1))}" if m else None
+    """Channel group the board page for this Pi listens on: pistat_<its
+    short hostname> (dcws.js; the Pi's own pistat curls send there too), or
+    None for a hostname that names no Pi."""
+    short = (hostname or "").split(".")[0]
+    return f"pistat_{short}" if _HOSTNAME_RE.fullmatch(short) else None
 
 
 def _bridge(hostname, stage):

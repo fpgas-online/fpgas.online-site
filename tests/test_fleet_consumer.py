@@ -35,7 +35,7 @@ def test_dispatch_ignores_foreign_topics_and_garbage():
 # transaction private to the main thread's connection
 @pytest.mark.django_db(transaction=True)
 def test_events_bridge_into_the_board_page_channel_group():
-    # the board pages (dcws.js) subscribe to pistat_pi<port>; the bridge
+    # the board pages (dcws.js) subscribe to pistat_<hostname>; the bridge
     # keeps their status log working after the legacy curls are retired
     import asyncio
 
@@ -48,7 +48,7 @@ def test_events_bridge_into_the_board_page_channel_group():
     async def listen_and_fire():
         layer = get_channel_layer()
         ch = await layer.new_channel()
-        await layer.group_add("pistat_pi9", ch)   # DOC hostname pi-sw2-p9
+        await layer.group_add("pistat_pi-sw2-p9", ch)   # DOC's hostname
         # dispatch is sync (ORM); run it off-loop as any real caller would
         await sync_to_async(consumer.dispatch)(
             t + "event", b'{"stage": "ssh-up", "boot_id": "b"}')
@@ -57,3 +57,17 @@ def test_events_bridge_into_the_board_page_channel_group():
     msg = asyncio.run(listen_and_fire())
     assert msg["type"] == "stat.message" and msg["status"] == "ssh-up"
     assert msg["message"].startswith("piview: ")
+
+
+@pytest.mark.parametrize("hostname, group", [
+    ("pi-sw2-p9", "pistat_pi-sw2-p9"),
+    ("pi-sw1-p9", "pistat_pi-sw1-p9"),  # not the same group as switch 2's port 9
+    ("pi-sw2-p9.welland.fpgas.online", "pistat_pi-sw2-p9"),
+    ("pi9", "pistat_pi9"),
+    ("pi-sw2-p09", None),  # not the one spelling of that port
+    ("tweed", None),
+    ("", None),
+    (None, None),
+])
+def test_widget_group_is_the_short_hostname(hostname, group):
+    assert consumer._widget_group(hostname) == group

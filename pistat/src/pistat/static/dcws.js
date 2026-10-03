@@ -1,7 +1,11 @@
 // dcws.js
 // Django-Channels Web Socket
 
-function PiStatus(PiID, PiSwitch) {
+// PiID: the switch port (the page's element ids); PiSwitch: the switch, null
+// at a flat site; PiName: the Pi's hostname (pi-sw2-p46, or pi9), which names
+// its status log group -- what the Pi's own pistat curls (/pistat/stat/%l/)
+// and the fleet bridge send to -- and its ping.
+function PiStatus(PiID, PiSwitch, PiName) {
 
     // What /snmp/status and /snmp/toggle need to find the port: on the
     // per-port-VLAN scheme (welland) the switch index as well as the port;
@@ -53,11 +57,8 @@ function PiStatus(PiID, PiSwitch) {
 
     function pi_ping(){
 
-        fetch('/pistat/ping/pi'+PiID, {
+        fetch('/pistat/ping/'+PiName, {
           method: 'POST',
-          headers: { "Content-type": "application/json; charset=UTF-8" },
-          // the switch too: the server derives the Pi's address from both
-          body: poe_body()
           }
         )
           .then((response) => response.json())
@@ -101,7 +102,7 @@ function PiStatus(PiID, PiSwitch) {
             'WSS://'
             + window.location.host
             + '/ws/pistat/'
-            + 'pi'+PiID
+            + PiName
             + '/'
         );
         logSocket = socket;
