@@ -1,16 +1,394 @@
 [
  {
   "model": "pibfpgas.pi",
+  "pk": 15,
+  "fields": {
+   "port": 1,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 16,
+  "fields": {
+   "port": 2,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 17,
+  "fields": {
+   "port": 3,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 18,
+  "fields": {
+   "port": 4,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 19,
+  "fields": {
+   "port": 5,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 20,
+  "fields": {
+   "port": 6,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 21,
+  "fields": {
+   "port": 7,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 22,
+  "fields": {
+   "port": 8,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 23,
+  "fields": {
+   "port": 9,
+   "switch": 2,
+   "mac": "e4:5f:01:97:1f:7e",
+   "serial_no": "10000000613a4524",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 24,
+  "fields": {
+   "port": 10,
+   "switch": 2,
+   "mac": "e4:5f:01:8d:f7:17",
+   "serial_no": "10000000f77b8415",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 25,
+  "fields": {
+   "port": 11,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 26,
+  "fields": {
+   "port": 12,
+   "switch": 2,
+   "mac": "e4:5f:01:97:27:11",
+   "serial_no": "10000000de0c73e5",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 27,
+  "fields": {
+   "port": 13,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 28,
+  "fields": {
+   "port": 14,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 29,
+  "fields": {
+   "port": 15,
+   "switch": 2,
+   "mac": "e4:5f:01:96:f8:a5",
+   "serial_no": "10000000ce8e3593",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "cable_color": "",
+   "fpga_board": "Digilent Arty A7-35T"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
   "pk": 1,
   "fields": {
    "port": 16,
    "switch": 2,
-   "mac": "e4:5f:01:96:f8:a5",
-   "serial_no": "10000000ce8e3593",
+   "mac": "",
+   "serial_no": "",
    "location": "fpgas rack (Back Shed)",
-   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "model": "",
    "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 30,
+  "fields": {
+   "port": 17,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 31,
+  "fields": {
+   "port": 18,
+   "switch": 2,
+   "mac": "02:81:0b:12:20:44",
+   "serial_no": "02c000810b122044",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 32,
+  "fields": {
+   "port": 19,
+   "switch": 2,
+   "mac": "02:81:e1:ce:7d:46",
+   "serial_no": "02c00181e1ce7d46",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 33,
+  "fields": {
+   "port": 20,
+   "switch": 2,
+   "mac": "02:81:bf:f6:b7:99",
+   "serial_no": "02c00181bff6b799",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 34,
+  "fields": {
+   "port": 21,
+   "switch": 2,
+   "mac": "02:81:31:f4:6e:48",
+   "serial_no": "02c0008131f46e48",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 35,
+  "fields": {
+   "port": 22,
+   "switch": 2,
+   "mac": "02:81:2e:b7:a3:4e",
+   "serial_no": "02c000812eb7a34e",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 36,
+  "fields": {
+   "port": 23,
+   "switch": 2,
+   "mac": "02:81:1f:e1:45:1d",
+   "serial_no": "02c001811fe1451d",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 37,
+  "fields": {
+   "port": 24,
+   "switch": 2,
+   "mac": "02:81:f5:c0:a6:10",
+   "serial_no": "02c00081f5c0a610",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "Xunlong Orange Pi PC",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 38,
+  "fields": {
+   "port": 25,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 39,
+  "fields": {
+   "port": 26,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 40,
+  "fields": {
+   "port": 27,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 41,
+  "fields": {
+   "port": 28,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
   }
  },
  {
@@ -25,6 +403,48 @@
    "model": "Raspberry Pi 5 Model B Rev 1.1",
    "cable_color": "",
    "fpga_board": "Sqrl Acorn CLE-215+"
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 42,
+  "fields": {
+   "port": 30,
+   "switch": 2,
+   "mac": "98:fe:54:13:f5:9c",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 43,
+  "fields": {
+   "port": 31,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 44,
+  "fields": {
+   "port": 32,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
   }
  },
  {
@@ -89,12 +509,12 @@
   "fields": {
    "port": 37,
    "switch": 2,
-   "mac": "e4:5f:01:97:1f:7e",
-   "serial_no": "10000000613a4524",
+   "mac": "98:fe:54:13:f5:7d",
+   "serial_no": "256307e8f7d0cc00",
    "location": "fpgas rack (Back Shed)",
-   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "model": "Raspberry Pi 5 Model B Rev 1.1",
    "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "fpga_board": ""
   }
  },
  {
@@ -103,12 +523,54 @@
   "fields": {
    "port": 38,
    "switch": 2,
-   "mac": "e4:5f:01:8d:f7:17",
-   "serial_no": "10000000f77b8415",
+   "mac": "",
+   "serial_no": "",
    "location": "fpgas rack (Back Shed)",
-   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "model": "",
    "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 45,
+  "fields": {
+   "port": 39,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 46,
+  "fields": {
+   "port": 40,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
+  "pk": 47,
+  "fields": {
+   "port": 41,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
   }
  },
  {
@@ -117,12 +579,12 @@
   "fields": {
    "port": 42,
    "switch": 2,
-   "mac": "e4:5f:01:97:27:11",
-   "serial_no": "10000000de0c73e5",
+   "mac": "",
+   "serial_no": "",
    "location": "fpgas rack (Back Shed)",
-   "model": "Raspberry Pi 4 Model B Rev 1.5",
+   "model": "",
    "cable_color": "",
-   "fpga_board": "Digilent Arty A7-35T"
+   "fpga_board": ""
   }
  },
  {
@@ -155,6 +617,20 @@
  },
  {
   "model": "pibfpgas.pi",
+  "pk": 48,
+  "fields": {
+   "port": 45,
+   "switch": 2,
+   "mac": "",
+   "serial_no": "",
+   "location": "TEMPORARY: until fleet sync",
+   "model": "",
+   "cable_color": "",
+   "fpga_board": ""
+  }
+ },
+ {
+  "model": "pibfpgas.pi",
   "pk": 12,
   "fields": {
    "port": 46,
@@ -164,7 +640,7 @@
    "location": "fpgas rack (Back Shed)",
    "model": "",
    "cable_color": "",
-   "fpga_board": "Sqrl Acorn CLE-215+"
+   "fpga_board": ""
   }
  },
  {

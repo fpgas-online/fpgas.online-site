@@ -99,15 +99,18 @@ def test_welland_fixture_loads_from_the_installed_app():
     # (the infra role loads it exactly this way after a fresh converge)
     call_command("loaddata", "fpgas.online.json", verbosity=0)
     pis = Pi.objects.all()
-    assert pis.count() == 14
+    # one row per access port of s3300-1 (TEMPORARY placeholders where nothing is
+    # known, until the fleet -> pibfpgas sync replaces this fixture: infra#47)
+    assert sorted(pi.port for pi in pis) == list(range(1, 49))
     assert all(pi.switch == 2 for pi in pis)
-    assert all(pi.fpga_board for pi in pis)
     by_board = {}
-    for pi in pis:
+    for pi in pis.exclude(fpga_board=""):
         by_board.setdefault(pi.fpga_board.split()[0], []).append(pi.port)
-    assert sorted(by_board["Digilent"]) == [16, 37, 38, 42]
-    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 46, 47, 48]
+    assert sorted(by_board["Digilent"]) == [9, 10, 12, 15]
+    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 47, 48]
     assert sorted(by_board["TT"]) == [33, 34, 35, 36]
+    placeholders = pis.filter(location="TEMPORARY: until fleet sync")
+    assert placeholders.count() == 48 - 14  # every row the 2026-08-31 fixture did not have
 
 
 @pytest.mark.django_db
