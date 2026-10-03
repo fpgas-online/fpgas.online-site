@@ -113,7 +113,8 @@ def test_welland_fixture_loads_from_the_installed_app():
 @pytest.mark.django_db
 def test_welland_acorn_rows_carry_the_pis_on_those_ports():
     # s3300-1's FDB and the fleet page, 2026-10-03: the Pis moved; p46 has nothing
-    # attached (PoE searching, no MAC), so it has no Pi and the board list hides it.
+    # attached (PoE searching, no MAC), so it has no Pi. With FPGAS_REQUIRE_VERIFIED
+    # (welland: site_require_fpga_verified) a row with no serial is not listed.
     call_command("loaddata", "fpgas.online.json", verbosity=0)
     rows = {pi.port: (pi.mac, pi.serial_no) for pi in Pi.objects.filter(port__in=(46, 47, 48))}
     assert rows == {
@@ -121,6 +122,8 @@ def test_welland_acorn_rows_carry_the_pis_on_those_ports():
         47: ("88:a2:9e:45:c6:87", "285df3f84af242d0"),
         48: ("88:a2:9e:45:85:77", "0cd35697db04a4ab"),
     }
+    serials = list(Pi.objects.exclude(serial_no="").values_list("serial_no", flat=True))
+    assert len(serials) == len(set(serials)), "one Pi on two ports"
 
 
 @pytest.mark.django_db
