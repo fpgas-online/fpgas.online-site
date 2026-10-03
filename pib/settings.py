@@ -299,13 +299,6 @@ def _build_logging(level, request_level):
 # Overridable in local_settings.py.
 FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
 
-# Offer a Pi on the /fpgas/ pages only when its FPGA check (fpgas-verify's
-# `fpga-verified` boot event, recorded by the fleet app) passed in the boot
-# it is running now. Off by default: a site without the fleet broker, or
-# whose Pis do not run fpgas-verify, would otherwise show no boards at all.
-# fpgas.online-infra turns it on in local_settings.py where both run.
-FPGAS_REQUIRE_VERIFIED = False
-
 try:
     from pib.local_settings import *  # noqa: E402, F403
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings

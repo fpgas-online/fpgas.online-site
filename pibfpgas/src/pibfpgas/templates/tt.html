@@ -114,10 +114,6 @@
       <input id="usb_off" type="submit" value="Usb Power Off" >
       <input id="usb_on" type="submit" value="Usb Power On" >
           </td>
-
-    <td>
-      Pi patch cable color: {{pi.location}} {{pi.cable_color}} <br>
-    </td>
 	 </tr>
 
       <input id="blink_leds" type="hidden" value="Blink LEDs" >
@@ -126,7 +122,7 @@
       <input id="check_wire" type="hidden" value="Check Wire" >
 
 <script src="https://f4pga-examples.readthedocs.io/en/latest/_static/javascripts/f4pga.js"></script>
-<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }})</script>
+<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }}, "{{pi.hostname}}")</script>
 <script src="/demos.js"></script>
 
 

@@ -5,9 +5,9 @@ import subprocess
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from pibfpgas.models import Pi
+from pibfpgas.pis import offered_pi
 
 
 def humanize(m):
@@ -61,12 +61,14 @@ def status(request, pi_name, status):
 @csrf_exempt
 def ping(request, pi_name):
 
-    # pi_name should be "pi{pi_no}"; the Pi row knows its real address
-    # (10.21.<switch>.<port> on VLAN-per-port sites); fall back to the
-    # legacy flat scheme when no row exists
-    port = int(pi_name[2:])
-    pi = Pi.objects.filter(port=port).first()
-    pi_ip = pi.ip if pi else f"10.21.0.{100 + port}"
+    # pi_name is the Pi's hostname (pi-sw2-p46, or pi9 at a flat site), which
+    # is also its status log's group; its address derives from it. Anyone can
+    # call this, so it only pings a Pi the board pages offer, never an
+    # arbitrary address.
+    pi = offered_pi(pi_name)
+    if pi is None:
+        raise Http404("no Pi of that name has checked in and passed its FPGA check this boot")
+    pi_ip = pi.ip
 
     cmd = ["ping",
             "-c", "3",

@@ -1,16 +1,18 @@
-"""Pi model network identity and the welland /fpgas/ board pages.
+"""A Pi's network identity, from its registered hostname, and the /fpgas/
+board pages.
 
-Two addressing schemes exist. Welland rows set ``switch`` and follow the
-VLAN-per-port scheme (hostname pi-sw<s>-p<p>, ip 10.21.<s>.<p>, gateway ssh
-forward <s><pp>22, HLS stream pi-sw<s>-p<p>.m3u8). PS1 rows leave ``switch``
-NULL and keep the legacy flat scheme (pi<p>, 10.21.0.<100+p>, <100+p>22,
-stream pi<p>.m3u8). Nothing stores an IP: identity derives from (switch, port).
+Two addressing schemes exist. Welland's Pis register pi-sw<s>-p<p>, the
+VLAN-per-port scheme (ip 10.21.<s>.<p>, gateway ssh forward <s><pp>22, HLS
+stream pi-sw<s>-p<p>.m3u8). PS1's register pi<p>, the legacy flat scheme
+(10.21.0.<100+p>, <100+p>22, stream pi<p>.m3u8). Nothing is stored: identity
+derives from the hostname.
 """
 
 import pytest
-from django.core.management import call_command
 from django.test import Client
-from pibfpgas.models import Pi
+from pibfpgas.pis import Pi
+
+from tests.fleet_pis import verified_pi
 
 
 @pytest.fixture
@@ -25,9 +27,9 @@ def c(site_settings):
     return Client(HTTP_HOST="welland.fpgas.online")
 
 
-@pytest.mark.django_db
 def test_legacy_scheme_derives_flat_addresses():
-    pi = Pi.objects.create(port=9)
+    pi = Pi.from_hostname("pi9")
+    assert (pi.switch, pi.port) == (None, 9)
     assert pi.hostname == "pi9"
     assert pi.ip == "10.21.0.109"
     assert pi.ssh_port == 10922
@@ -35,9 +37,9 @@ def test_legacy_scheme_derives_flat_addresses():
     assert pi.whep_url == "/cam/pi9/whep"
 
 
-@pytest.mark.django_db
 def test_vlan_per_port_scheme_derives_from_switch_and_port():
-    pi = Pi.objects.create(port=34, switch=2)
+    pi = Pi.from_hostname("pi-sw2-p34")
+    assert (pi.switch, pi.port) == (2, 34)
     assert pi.hostname == "pi-sw2-p34"
     assert pi.ip == "10.21.2.34"
     assert pi.ssh_port == 23422
@@ -46,28 +48,52 @@ def test_vlan_per_port_scheme_derives_from_switch_and_port():
     assert pi.whep_url == "/cam/pi-sw2-p34/whep"
 
 
-@pytest.mark.django_db
 def test_vlan_per_port_single_digit_port_pads_ssh_port():
-    pi = Pi.objects.create(port=3, switch=2)
     # gateway dnat table: 20322 -> 10.21.2.3:22
-    assert pi.ssh_port == 20322
+    assert Pi.from_hostname("pi-sw2-p3").ssh_port == 20322
+
+
+@pytest.mark.parametrize("hostname", [
+    "", "tweed", "pi", "pi-sw2", "pi-sw2-p", "opi21", "pi9x",
+    # only the one spelling of each port: no alias for another Pi's page
+    "pi-sw2-p046", "pi-sw02-p46", "pi09", "pi-sw2-p46\n", "pi9\n", "PI9", "pi-sw2-p０",
+])
+def test_a_hostname_that_names_no_port_is_no_pi(hostname):
+    assert Pi.from_hostname(hostname) is None
 
 
 @pytest.mark.django_db
-def test_home_lists_every_board_with_stream_and_type(c):
-    Pi.objects.create(port=38, switch=2, fpga_board="Digilent Arty A7-35T")
-    Pi.objects.create(port=46, switch=2, fpga_board="Sqrl Acorn CLE-215+")
+def test_an_alias_of_a_port_is_not_listed_twice(c):
+    verified_pi("pi-sw2-p46", serial="real")
+    verified_pi("pi-sw2-p046", serial="alias")
+    assert c.get("/fpgas/").content.decode().count("<h1>pi-sw2-p46</h1>") == 1
+
+
+@pytest.mark.django_db
+def test_home_lists_every_board_with_its_stream(c):
+    # the board each names is what its Pi found: tests/test_board_labels.py
+    verified_pi("pi-sw2-p38")
+    verified_pi("pi-sw2-p46")
     html = c.get("/fpgas/").content.decode()
     assert "pi-sw2-p38" in html and "pi-sw2-p46" in html
-    assert "Digilent Arty A7-35T" in html and "Sqrl Acorn CLE-215+" in html
     assert "https://welland.fpgas.online/live/pi-sw2-p38.m3u8" in html
-    assert 'href="pi38.html"' in html
+    assert 'href="pi-sw2-p38.html"' in html
+
+
+@pytest.mark.django_db
+def test_home_lists_by_switch_then_port(c):
+    for host in ("pi-sw2-p9", "pi-sw1-p17", "pi-sw2-p46", "pi-sw1-p10"):
+        verified_pi(host)
+    html = c.get("/fpgas/").content.decode()
+    order = [html.index(f"<h1>{host}</h1>") for host in
+             ("pi-sw1-p10", "pi-sw1-p17", "pi-sw2-p9", "pi-sw2-p46")]
+    assert order == sorted(order)
 
 
 @pytest.mark.django_db
 def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
-    Pi.objects.create(port=42, switch=2, fpga_board="Digilent Arty A7-35T")
-    html = c.get("/fpgas/pi42.html").content.decode()
+    verified_pi("pi-sw2-p42")
+    html = c.get("/fpgas/pi-sw2-p42.html").content.decode()
     assert "hostname=10.21.2.42" in html  # wssh iframe
     assert "-p 24222" in html  # direct ssh instructions
     assert "https://welland.fpgas.online/live/pi-sw2-p42.m3u8" in html
@@ -78,59 +104,25 @@ def test_board_page_uses_derived_ip_ssh_port_and_stream(c):
     assert 'src="/js/mediamtx-reader.js"' in html
     assert 'src="/js/whep-live.js"' in html
     assert "/static/" not in html
-    # /snmp/status and /snmp/toggle need the switch index as well as the port
-    assert 'PiStatus("42", 2)' in html
+    # /snmp/status and /snmp/toggle need the switch index as well as the port;
+    # the status log and ping go by the hostname
+    assert 'PiStatus("42", 2, "pi-sw2-p42")' in html
+    # the upload form names the board by its hostname
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
 
 
 @pytest.mark.django_db
-def test_board_page_legacy_rows_keep_old_addresses(c):
-    Pi.objects.create(port=9)
+def test_board_page_legacy_hostnames_keep_old_addresses(c):
+    verified_pi("pi9")
     html = c.get("/fpgas/pi9.html").content.decode()
     assert "hostname=10.21.0.109" in html
     assert "-p 10922" in html
     assert 'data-whep-url="/cam/pi9/whep"' in html
     # legacy flat scheme: one switch, so only the port is sent
-    assert 'PiStatus("9", null)' in html
+    assert 'PiStatus("9", null, "pi9")' in html
 
 
 @pytest.mark.django_db
-def test_welland_fixture_loads_from_the_installed_app():
-    # loaddata by bare name proves the fixture ships inside the app package
-    # (the infra role loads it exactly this way after a fresh converge)
-    call_command("loaddata", "fpgas.online.json", verbosity=0)
-    pis = Pi.objects.all()
-    # one row per access port of s3300-1 (TEMPORARY placeholders where nothing is
-    # known, until the fleet -> pibfpgas sync replaces this fixture: infra#47)
-    assert sorted(pi.port for pi in pis) == list(range(1, 49))
-    assert all(pi.switch == 2 for pi in pis)
-    by_board = {}
-    for pi in pis.exclude(fpga_board=""):
-        by_board.setdefault(pi.fpga_board.split()[0], []).append(pi.port)
-    assert sorted(by_board["Digilent"]) == [9, 10, 12, 15]
-    assert sorted(by_board["Sqrl"]) == [29, 43, 44, 47, 48]
-    assert sorted(by_board["TT"]) == [33, 34, 35, 36]
-    placeholders = pis.filter(location="TEMPORARY: until fleet sync")
-    assert placeholders.count() == 48 - 14  # every row the 2026-08-31 fixture did not have
-
-
-@pytest.mark.django_db
-def test_welland_acorn_rows_carry_the_pis_on_those_ports():
-    # s3300-1's FDB and the fleet page, 2026-10-03: the Pis moved; p46 has nothing
-    # attached (PoE searching, no MAC), so it has no Pi. With FPGAS_REQUIRE_VERIFIED
-    # (welland: site_require_fpga_verified) a row with no serial is not listed.
-    call_command("loaddata", "fpgas.online.json", verbosity=0)
-    rows = {pi.port: (pi.mac, pi.serial_no) for pi in Pi.objects.filter(port__in=(46, 47, 48))}
-    assert rows == {
-        46: ("", ""),
-        47: ("88:a2:9e:45:c6:87", "285df3f84af242d0"),
-        48: ("88:a2:9e:45:85:77", "0cd35697db04a4ab"),
-    }
-    serials = list(Pi.objects.exclude(serial_no="").values_list("serial_no", flat=True))
-    assert len(serials) == len(set(serials)), "one Pi on two ports"
-
-
-@pytest.mark.django_db
-def test_ps1_fixture_loads_and_stays_on_legacy_scheme():
-    call_command("loaddata", "ps1.fpgas.online.json", verbosity=0)
-    assert Pi.objects.count() > 0
-    assert all(pi.switch is None for pi in Pi.objects.all())
+def test_the_old_port_only_page_names_are_gone(c):
+    verified_pi("pi-sw2-p42")
+    assert c.get("/fpgas/pi42.html").status_code == 404

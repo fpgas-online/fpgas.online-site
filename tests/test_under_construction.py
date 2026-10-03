@@ -164,7 +164,7 @@ def test_banner_also_covers_the_tinytapeout_host(site_settings):
 def test_bare_fragments_are_left_alone(c):
     # pibup's templates are bare forms with no <html>/<body>, so there is no
     # sane place to put a banner. Accepted: they are transient upload pages.
-    r = c.get("/pibup/upload?pino=9")
+    r = c.get("/pibup/upload?host=pi9")
 
     assert r.status_code == 200
     assert BANNER_TEXT not in r.content.decode()

@@ -72,10 +72,10 @@
 <table>
   <tr>
     <td colspan=2>
-      <h1>Accessing {{pi.hostname}}{% if pi.fpga_board %} &mdash; {{pi.fpga_board}}{% endif %}</h1>
+      <h1>Accessing {{pi.hostname}}{% if pi.boards %} &mdash; {{pi.boards}}{% endif %}</h1>
     </td>
     <td>
-{% include "upload.html" %}
+{% include "upload.html" with host=pi.hostname %}
     </td>
   </tr><tr>
   <td colspan=3>
@@ -133,8 +133,6 @@
 	      <input id="status{{pi.port}}" type="submit" value="Check PoE" >
       </div>
 
-      Pi patch cable color: {{pi.location}} {{pi.cable_color}} <br>
-
     </td>
   </tr><tr>
     <td colspan=3><h1>Accessing directly</h1></td>
@@ -169,7 +167,7 @@
 </table>
 
 <script src="https://f4pga-examples.readthedocs.io/en/latest/_static/javascripts/f4pga.js"></script>
-<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }})</script>
+<script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }}, "{{pi.hostname}}")</script>
 <script src="/demos.js"></script>
 
 

@@ -16,8 +16,9 @@ from html.parser import HTMLParser
 
 import pytest
 from django.test import Client
-from pibfpgas.models import Pi
 from ttsite.models import Board
+
+from tests.fleet_pis import verified_pi
 
 
 class Players(HTMLParser):
@@ -51,11 +52,12 @@ def tinytapeout():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("path", ["/fpgas/pi21.html", "/fpgas/tt.html", "/fpgas/"])
+@pytest.mark.parametrize("path", ["/fpgas/pi-sw2-p21.html", "/fpgas/tt.html", "/fpgas/"])
 def test_welland_players_take_their_source_from_data_setup(welland, settings, path):
     settings.DOMAIN_NAME = "welland.fpgas.online"
     settings.PI_PW = "cGFzc3dvcmQ="  # the board page renders it into the wssh iframe
-    Pi.objects.create(port=21, switch=2, fpga_board="TT FPGA emulation (iCE40UP5K)")
+    # the TT page needs a TT board found on port 21 this boot
+    verified_pi("pi-sw2-p21", ("tt", "tt-fpga"))
     (setup,) = players(welland, path)
     assert setup["liveui"] is True
     assert setup["sources"] == [

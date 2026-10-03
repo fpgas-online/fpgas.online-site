@@ -15,6 +15,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const DCWS = process.env.DCWS_JS || join(here, "..", "..", "pistat", "src", "pistat", "static", "dcws.js");
 const PI = 33;
+const PI_NAME = `pi-sw2-p${PI}`;
 
 class FakeWebSocket {
     static CONNECTING = 0;
@@ -62,7 +63,7 @@ class FakeWebSocket {
 }
 
 function loadPage() {
-    const page = { sockets: [], timers: [], now: 0, nextTimer: 1, elements: new Map() };
+    const page = { sockets: [], timers: [], now: 0, nextTimer: 1, elements: new Map(), fetches: [] };
 
     page.setTimeout = (fn, ms = 0) => {
         const id = page.nextTimer++;
@@ -112,21 +113,26 @@ function loadPage() {
         WebSocket,
         setTimeout: page.setTimeout,
         clearTimeout: page.clearTimeout,
-        fetch: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ state: "on" }) }),
+        fetch: (url, init) => {
+            page.fetches.push({ url, body: init?.body });
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ state: "on" }) });
+        },
         console: { log() {}, error() {} },
         JSON,
         Math,
         Date,
     });
     vm.runInContext(readFileSync(DCWS, "utf8"), context, { filename: DCWS });
-    context.PiStatus(PI, 2);
+    context.PiStatus(PI, 2, PI_NAME);
     return page;
 }
 
 test("connects on load and asks for the PoE status", () => {
     const page = loadPage();
     assert.equal(page.sockets.length, 1);
-    assert.equal(page.sockets[0].url, `WSS://example.test/ws/pistat/pi${PI}/`);
+    // the status log's group is the Pi's hostname: what the Pi's own pistat
+    // curls (/pistat/stat/%l/...) and the fleet bridge send to
+    assert.equal(page.sockets[0].url, `WSS://example.test/ws/pistat/${PI_NAME}/`);
     page.sockets[0].open();
     assert.match(page.log(), /socket connected/);
     assert.deepEqual(page.sockets[0].sent, [`checking status: ${PI}`]);
@@ -239,4 +245,10 @@ test("a message typed while disconnected is sent once the socket is back", () =>
     page.sockets[1].open();
     assert.ok(page.sockets[1].sent.includes("hello"), JSON.stringify(page.sockets[1].sent));
     assert.deepEqual(page.sockets[0].dropped, []);
+});
+
+test("ping asks for the Pi by its hostname", () => {
+    const page = loadPage();
+    page.click("pi-ping");
+    assert.deepEqual(page.fetches.map((f) => f.url), [`/pistat/ping/${PI_NAME}`]);
 });

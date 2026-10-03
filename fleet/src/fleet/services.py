@@ -5,6 +5,7 @@ semantics. `fingerprint` must stay byte-identical to the Pi agent's
 implementation: canonical JSON (sorted keys, compact separators) → SHA-256.
 """
 
+import datetime
 import hashlib
 import json
 import logging
@@ -16,6 +17,10 @@ from django.utils.dateparse import parse_datetime
 from .models import BootEvent, Machine
 
 log = logging.getLogger(__name__)
+
+# How recently a machine's status beat must have come for the /fpgas/ pages
+# to offer it: three of the fleet agent's 60 s beats.
+CHECKED_IN_WITHIN = datetime.timedelta(minutes=3)
 
 
 def fingerprint(doc):
@@ -105,26 +110,62 @@ def verified_serials():
             if state == "pass"}
 
 
-def board_claims():
-    """Who may claim a board row, for FPGAS_REQUIRE_VERIFIED.
-
-    Returns (hosts, serials): `hosts` are the hostnames (the short name,
-    pi-sw<s>-p<p> at a VLAN-per-port site, so a port) whose most recently
-    seen machine passed its FPGA check this boot; `serials` maps each machine
-    that passed to its short hostname ("" when it registered none). A machine
-    that left a port keeps its last result, so only the newest machine on a
-    hostname speaks for it."""
-    states = fpga_states()
-    newest = {}
-    serials = {}
+def machine_hosts():
+    """{hostname: serial} of the machine most recently seen with each
+    registered hostname (the short name: pi-sw<s>-p<p> at a VLAN-per-port
+    site, so a port). A machine that left a port keeps its last
+    registration, so only the newest machine on a hostname speaks for it; a
+    machine that registered no hostname is on no port."""
+    seen_on = {}
     for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
         host = hostname.split(".")[0]
-        if states.get(serial) == "pass":
-            serials[serial] = host
-        if host and (host not in newest or seen > newest[host][0]):
-            newest[host] = (seen, serial)
-    hosts = {host for host, (_, serial) in newest.items() if states.get(serial) == "pass"}
-    return hosts, serials
+        if host and (host not in seen_on or seen > seen_on[host][0]):
+            seen_on[host] = (seen, serial)
+    return {host: serial for host, (_, serial) in seen_on.items()}
+
+
+def checked_in():
+    """The serials of the machines that are online and whose last status
+    beat (the Pi's fleet agent sends one every 60 s) came within
+    CHECKED_IN_WITHIN: a Pi that died without its last will being heard
+    stays `online`, but stops beating."""
+    since = timezone.now() - CHECKED_IN_WITHIN
+    return set(Machine.objects.filter(online=True, last_seen__gte=since)
+               .values_list("serial", flat=True))
+
+
+def offered_hosts():
+    """{hostname: serial} of the machines the /fpgas/ pages offer: the newest
+    machine on each hostname (machine_hosts), when it has checked in
+    recently (checked_in) and its FPGA check passed in the boot it is
+    running now (fpga_states)."""
+    states = fpga_states()
+    live = checked_in()
+    return {host: serial for host, serial in machine_hosts().items()
+            if serial in live and states.get(serial) == "pass"}
+
+
+def found_boards():
+    """{serial: [{"board", "variant", "where"}, ...]}: the boards each machine's
+    FPGA check found in the boot it is running now (`fpga-board-found`, one
+    per board, before any test), in the order they were found. A board seen
+    again in the same place (the check run again) is the newest sighting. A
+    machine that found none this boot is absent: an earlier boot's boards may
+    have been unplugged since.
+
+    The broker is open on the site LAN, so a detail that does not name a
+    board as a string is left out rather than breaking every page that asks."""
+    boards = {}
+    events = BootEvent.objects.filter(
+        stage="fpga-board-found", boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "detail").order_by("id")
+    for serial, detail in events:
+        if not isinstance(detail, dict) or not isinstance(detail.get("board"), str) \
+                or not detail["board"]:
+            continue
+        board = {key: str(detail.get(key, "")) for key in ("board", "variant", "where")}
+        boards.setdefault(serial, {})[board["where"]] = board
+    return {serial: list(places.values()) for serial, places in boards.items()}
 
 
 def boot_event(serial, payload):
