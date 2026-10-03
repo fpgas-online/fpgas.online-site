@@ -120,9 +120,16 @@ pi-sw2-p46's event on 2026-10-03 (deployed version):
 
 ## What the site reads
 
+The `/fpgas/` pages come from fleet registration alone: no table of Pis or
+boards is kept. A Pi is listed when its registered hostname names a port
+(`pi-sw<s>-p<p>`, or `pi<p>` at a flat site), it is the newest machine on
+that hostname, it is online with a status beat in the last 3 minutes, and
+its FPGA check passed in the boot it is running now.
+
 | Site code | Reads | Uses it for |
 | --- | --- | --- |
-| `fleet/services.py` `fpga_states()`, `board_claims()` | `fpga-verifying`, `fpga-verified` `result`, current boot only | Which ports `/fpgas/` lists, with `FPGAS_REQUIRE_VERIFIED` |
+| `fleet/services.py` `machine_hosts()`, `checked_in()` | the registration's hostname; the status beat's `online` and arrival time | Which machine is on each port, and whether it is there now |
+| `fleet/services.py` `fpga_states()`, `offered_hosts()` | `fpga-verifying`, `fpga-verified` `result`, current boot only | Which Pis `/fpgas/` lists and serves pages and uploads for |
 | `fleet/services.py` `found_boards()` | `fpga-board-found` `board`, `variant`, `where`, current boot only | The board name on `/fpgas/` and each board page |
 | `fleet/hwid.py` `fpga_boards()` | `fpga-board-identified` with `schema` `fpga-identity/1` | rpi-hwid label documents |
 | `fleet/consumer.py` `_bridge()` | the stage name of every event | A `piview: <stage>` line in the board page's status box |

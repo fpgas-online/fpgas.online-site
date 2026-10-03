@@ -5,6 +5,7 @@ semantics. `fingerprint` must stay byte-identical to the Pi agent's
 implementation: canonical JSON (sorted keys, compact separators) → SHA-256.
 """
 
+import datetime
 import hashlib
 import json
 import logging
@@ -16,6 +17,10 @@ from django.utils.dateparse import parse_datetime
 from .models import BootEvent, Machine
 
 log = logging.getLogger(__name__)
+
+# How recently a machine's status beat must have come for the /fpgas/ pages
+# to offer it: three of the fleet agent's 60 s beats.
+CHECKED_IN_WITHIN = datetime.timedelta(minutes=3)
 
 
 def fingerprint(doc):
@@ -106,34 +111,38 @@ def verified_serials():
 
 
 def machine_hosts():
-    """Which machine is on which hostname (the short name, pi-sw<s>-p<p> at a
-    VLAN-per-port site, so a port).
-
-    Returns (newest, hosts): `newest` maps each hostname to the serial of the
-    machine most recently seen with it; `hosts` maps every machine's serial
-    to its short hostname ("" when it registered none). A machine that left a
-    port keeps its last registration, so only the newest machine on a
-    hostname speaks for it."""
+    """{hostname: serial} of the machine most recently seen with each
+    registered hostname (the short name: pi-sw<s>-p<p> at a VLAN-per-port
+    site, so a port). A machine that left a port keeps its last
+    registration, so only the newest machine on a hostname speaks for it; a
+    machine that registered no hostname is on no port."""
     seen_on = {}
-    hosts = {}
     for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
         host = hostname.split(".")[0]
-        hosts[serial] = host
         if host and (host not in seen_on or seen > seen_on[host][0]):
             seen_on[host] = (seen, serial)
-    return {host: serial for host, (_, serial) in seen_on.items()}, hosts
+    return {host: serial for host, (_, serial) in seen_on.items()}
 
 
-def board_claims():
-    """Who may claim a board row, for FPGAS_REQUIRE_VERIFIED.
+def checked_in():
+    """The serials of the machines that are online and whose last status
+    beat (the Pi's fleet agent sends one every 60 s) came within
+    CHECKED_IN_WITHIN: a Pi that died without its last will being heard
+    stays `online`, but stops beating."""
+    since = timezone.now() - CHECKED_IN_WITHIN
+    return set(Machine.objects.filter(online=True, last_seen__gte=since)
+               .values_list("serial", flat=True))
 
-    Returns (hosts, serials): `hosts` are the hostnames whose newest machine
-    (machine_hosts) passed its FPGA check this boot; `serials` maps each
-    machine that passed to its short hostname ("" when it registered none)."""
+
+def offered_hosts():
+    """{hostname: serial} of the machines the /fpgas/ pages offer: the newest
+    machine on each hostname (machine_hosts), when it has checked in
+    recently (checked_in) and its FPGA check passed in the boot it is
+    running now (fpga_states)."""
     states = fpga_states()
-    newest, hosts = machine_hosts()
-    return ({host for host, serial in newest.items() if states.get(serial) == "pass"},
-            {serial: host for serial, host in hosts.items() if states.get(serial) == "pass"})
+    live = checked_in()
+    return {host: serial for host, serial in machine_hosts().items()
+            if serial in live and states.get(serial) == "pass"}
 
 
 def found_boards():

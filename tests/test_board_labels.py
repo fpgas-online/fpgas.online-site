@@ -9,15 +9,16 @@ from django.test import Client
 from django.utils import timezone
 from fleet.models import BootEvent, Machine
 from fleet.services import found_boards
-from pibfpgas.models import Pi
-from pibfpgas.views import board_title
+from pibfpgas.pis import board_title
+
+from tests.fleet_pis import verified_pi
 
 T0 = timezone.now()
 
 
 def machine(serial, hostname="", boot_id="b2", minutes=0):
-    return Machine.objects.create(serial=serial, site="welland", hostname=hostname,
-                                  last_seen=T0 + datetime.timedelta(minutes=minutes),
+    return Machine.objects.create(serial=serial, site="welland", hostname=hostname, online=True,
+                                  last_seen=timezone.now() + datetime.timedelta(minutes=minutes),
                                   last_boot_id=boot_id)
 
 
@@ -84,10 +85,8 @@ def test_found_boards_ignore_a_detail_that_is_not_a_board():
 
 @pytest.mark.django_db
 def test_the_list_names_the_board_each_port_found(c):
-    Pi.objects.create(port=46, switch=2)
-    Pi.objects.create(port=47, switch=2)
-    found(machine("p46", "pi-sw2-p46"), "acorn", "cle-215+", where="0001:01:00.0")
-    machine("p47", "pi-sw2-p47")  # registered, found nothing this boot
+    verified_pi("pi-sw2-p46", ("acorn", "cle-215+"))
+    verified_pi("pi-sw2-p47")  # passed, but found nothing this boot
     html = c.get("/fpgas/").content.decode()
     assert "pi-sw2-p46</h1>Acorn (cle-215+)" in html
     assert "pi-sw2-p47</h1></td>" in html
@@ -95,48 +94,31 @@ def test_the_list_names_the_board_each_port_found(c):
 
 @pytest.mark.django_db
 def test_the_label_follows_the_board_to_its_new_port(c):
-    # the row still holds the serial of the Pi that moved away: the newest Pi
-    # registered with this port's hostname speaks for it
-    Pi.objects.create(port=46, switch=2, serial_no="moved")
-    found(machine("moved", "pi-sw2-p47"), "acorn", "cle-215+")
-    found(machine("here", "pi-sw2-p46"), "arty", "a7-35")
+    # the Pi that moved away still holds its old hostname's registration; the
+    # newest Pi registered with a hostname speaks for that port
+    old = verified_pi("pi-sw2-p46", ("acorn", "cle-215+"), serial="moved")
+    Machine.objects.filter(pk=old.pk).update(last_seen=timezone.now() - datetime.timedelta(minutes=1))
+    verified_pi("pi-sw2-p46", ("arty", "a7-35"), serial="here")
     html = c.get("/fpgas/").content.decode()
     assert "Arty A7 (a7-35)" in html and "Acorn" not in html
 
 
 @pytest.mark.django_db
-def test_a_serial_with_no_hostname_still_names_its_row(c):
-    Pi.objects.create(port=38, switch=2, serial_no="old-agent")
-    found(machine("old-agent"), "arty", "a7-35")
-    assert "Arty A7 (a7-35)" in c.get("/fpgas/").content.decode()
-
-
-@pytest.mark.django_db
-def test_the_board_page_names_the_board(c, settings):
-    settings.FPGAS_REQUIRE_VERIFIED = True
-    Pi.objects.create(port=46, switch=2)
-    m = machine("p46", "pi-sw2-p46")
-    found(m, "acorn", "cle-215+", where="0001:01:00.0")
-    passed(m)
-    html = c.get("/fpgas/pi46.html").content.decode()
+def test_the_board_page_names_the_board(c):
+    verified_pi("pi-sw2-p46", ("acorn", "cle-215+"))
+    html = c.get("/fpgas/pi-sw2-p46.html").content.decode()
     assert "Accessing pi-sw2-p46 &mdash; Acorn (cle-215+)</h1>" in html
 
 
 @pytest.mark.django_db
 def test_two_boards_on_one_pi_are_both_named(c):
-    Pi.objects.create(port=9, switch=2)
-    m = machine("two", "pi-sw2-p9")
-    found(m, "arty", "a7-35", where="1-1.4")
-    found(m, "tt", "tt-fpga", where="1-1.2")
+    verified_pi("pi-sw2-p9", ("arty", "a7-35"), ("tt", "tt-fpga"))
     assert "Arty A7 (a7-35), TT FPGA (tt-fpga)" in c.get("/fpgas/").content.decode()
 
 
 @pytest.mark.django_db
 def test_the_tt_page_needs_a_tt_board_found_on_port_21(c):
-    Pi.objects.create(port=21, switch=2)
-    m = machine("opi", "pi-sw2-p21")
+    verified_pi("pi-sw2-p21", ("arty", "a7-35"))
     assert c.get("/fpgas/tt.html").status_code == 404
-    found(m, "arty", "a7-35")
-    assert c.get("/fpgas/tt.html").status_code == 404
-    found(m, "tt", "tt-fpga", where="1-1.2")
+    verified_pi("pi-sw1-p21", ("tt", "tt-fpga"))
     assert c.get("/fpgas/tt.html").status_code == 200

@@ -75,7 +75,7 @@
       <h1>Accessing {{pi.hostname}}{% if pi.boards %} &mdash; {{pi.boards}}{% endif %}</h1>
     </td>
     <td>
-{% include "upload.html" %}
+{% include "upload.html" with host=pi.hostname %}
     </td>
   </tr><tr>
   <td colspan=3>
@@ -132,8 +132,6 @@
         <input id="log-submit{{pi.port}}" type="button" value="Send">
 	      <input id="status{{pi.port}}" type="submit" value="Check PoE" >
       </div>
-
-      Pi patch cable color: {{pi.location}} {{pi.cable_color}} <br>
 
     </td>
   </tr><tr>
