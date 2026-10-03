@@ -159,8 +159,8 @@
   "fields": {
    "port": 46,
    "switch": 2,
-   "mac": "88:a2:9e:45:85:77",
-   "serial_no": "0cd35697db04a4ab",
+   "mac": "",
+   "serial_no": "",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
    "cable_color": "",
@@ -173,8 +173,8 @@
   "fields": {
    "port": 47,
    "switch": 2,
-   "mac": "98:fe:54:13:f5:75",
-   "serial_no": "c36b093f773d46b8",
+   "mac": "88:a2:9e:45:c6:87",
+   "serial_no": "285df3f84af242d0",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
    "cable_color": "",
@@ -187,8 +187,8 @@
   "fields": {
    "port": 48,
    "switch": 2,
-   "mac": "88:a2:9e:45:c6:87",
-   "serial_no": "285df3f84af242d0",
+   "mac": "88:a2:9e:45:85:77",
+   "serial_no": "0cd35697db04a4ab",
    "location": "fpgas rack (Back Shed)",
    "model": "Raspberry Pi 5 Model B Rev 1.1",
    "cable_color": "",
