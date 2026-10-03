@@ -56,7 +56,8 @@ function PiStatus(PiID, PiSwitch) {
         fetch('/pistat/ping/pi'+PiID, {
           method: 'POST',
           headers: { "Content-type": "application/json; charset=UTF-8" },
-          body: JSON.stringify({ port: PiID })
+          // the switch too: the server derives the Pi's address from both
+          body: poe_body()
           }
         )
           .then((response) => response.json())
