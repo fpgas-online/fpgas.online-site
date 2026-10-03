@@ -105,26 +105,58 @@ def verified_serials():
             if state == "pass"}
 
 
+def machine_hosts():
+    """Which machine is on which hostname (the short name, pi-sw<s>-p<p> at a
+    VLAN-per-port site, so a port).
+
+    Returns (newest, hosts): `newest` maps each hostname to the serial of the
+    machine most recently seen with it; `hosts` maps every machine's serial
+    to its short hostname ("" when it registered none). A machine that left a
+    port keeps its last registration, so only the newest machine on a
+    hostname speaks for it."""
+    seen_on = {}
+    hosts = {}
+    for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
+        host = hostname.split(".")[0]
+        hosts[serial] = host
+        if host and (host not in seen_on or seen > seen_on[host][0]):
+            seen_on[host] = (seen, serial)
+    return {host: serial for host, (_, serial) in seen_on.items()}, hosts
+
+
 def board_claims():
     """Who may claim a board row, for FPGAS_REQUIRE_VERIFIED.
 
-    Returns (hosts, serials): `hosts` are the hostnames (the short name,
-    pi-sw<s>-p<p> at a VLAN-per-port site, so a port) whose most recently
-    seen machine passed its FPGA check this boot; `serials` maps each machine
-    that passed to its short hostname ("" when it registered none). A machine
-    that left a port keeps its last result, so only the newest machine on a
-    hostname speaks for it."""
+    Returns (hosts, serials): `hosts` are the hostnames whose newest machine
+    (machine_hosts) passed its FPGA check this boot; `serials` maps each
+    machine that passed to its short hostname ("" when it registered none)."""
     states = fpga_states()
-    newest = {}
-    serials = {}
-    for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
-        host = hostname.split(".")[0]
-        if states.get(serial) == "pass":
-            serials[serial] = host
-        if host and (host not in newest or seen > newest[host][0]):
-            newest[host] = (seen, serial)
-    hosts = {host for host, (_, serial) in newest.items() if states.get(serial) == "pass"}
-    return hosts, serials
+    newest, hosts = machine_hosts()
+    return ({host for host, serial in newest.items() if states.get(serial) == "pass"},
+            {serial: host for serial, host in hosts.items() if states.get(serial) == "pass"})
+
+
+def found_boards():
+    """{serial: [{"board", "variant", "where"}, ...]}: the boards each machine's
+    FPGA check found in the boot it is running now (`fpga-board-found`, one
+    per board, before any test), in the order they were found. A board seen
+    again in the same place (the check run again) is the newest sighting. A
+    machine that found none this boot is absent: an earlier boot's boards may
+    have been unplugged since.
+
+    The broker is open on the site LAN, so a detail that does not name a
+    board as a string is left out rather than breaking every page that asks."""
+    boards = {}
+    events = BootEvent.objects.filter(
+        stage="fpga-board-found", boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "detail").order_by("id")
+    for serial, detail in events:
+        if not isinstance(detail, dict) or not isinstance(detail.get("board"), str) \
+                or not detail["board"]:
+            continue
+        board = {key: str(detail.get(key, "")) for key in ("board", "variant", "where")}
+        boards.setdefault(serial, {})[board["where"]] = board
+    return {serial: list(places.values()) for serial, places in boards.items()}
 
 
 def boot_event(serial, payload):
