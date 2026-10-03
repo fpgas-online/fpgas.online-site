@@ -53,9 +53,20 @@ def test_vlan_per_port_single_digit_port_pads_ssh_port():
     assert Pi.from_hostname("pi-sw2-p3").ssh_port == 20322
 
 
-@pytest.mark.parametrize("hostname", ["", "tweed", "pi", "pi-sw2", "pi-sw2-p", "opi21", "pi9x"])
+@pytest.mark.parametrize("hostname", [
+    "", "tweed", "pi", "pi-sw2", "pi-sw2-p", "opi21", "pi9x",
+    # only the one spelling of each port: no alias for another Pi's page
+    "pi-sw2-p046", "pi-sw02-p46", "pi09", "pi-sw2-p46\n", "pi9\n", "PI9", "pi-sw2-p０",
+])
 def test_a_hostname_that_names_no_port_is_no_pi(hostname):
     assert Pi.from_hostname(hostname) is None
+
+
+@pytest.mark.django_db
+def test_an_alias_of_a_port_is_not_listed_twice(c):
+    verified_pi("pi-sw2-p46", serial="real")
+    verified_pi("pi-sw2-p046", serial="alias")
+    assert c.get("/fpgas/").content.decode().count("<h1>pi-sw2-p46</h1>") == 1
 
 
 @pytest.mark.django_db

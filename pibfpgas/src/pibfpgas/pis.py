@@ -13,7 +13,12 @@ from dataclasses import dataclass
 
 from fleet.services import found_boards, offered_hosts
 
-_HOSTNAME = re.compile(r"^pi(?:-sw(?P<switch>\d+)-p(?P<port>\d+)|(?P<flat>\d+))$")
+# ASCII digits, no leading zero, matched whole (fullmatch: `$` would let a
+# trailing newline through): each port has exactly one spelling, so no
+# registration can alias another Pi's page.
+_NUMBER = r"[1-9][0-9]*"
+_HOSTNAME = re.compile(
+    rf"pi(?:-sw(?P<switch>{_NUMBER})-p(?P<port>{_NUMBER})|(?P<flat>{_NUMBER}))")
 
 # fpgas-verify's board keys (fpga-board-found "board") as people know them;
 # the same titles as its own status table (fpgas.online-test-designs
@@ -46,7 +51,7 @@ class Pi:
     def from_hostname(cls, hostname, found=()):
         """The Pi a registered hostname names, or None for one that names
         no port."""
-        m = _HOSTNAME.match(hostname)
+        m = _HOSTNAME.fullmatch(hostname)
         if m is None:
             return None
         if m["flat"] is not None:
