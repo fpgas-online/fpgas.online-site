@@ -17,6 +17,8 @@ from tests.fleet_pis import machine, verified_detail, verified_pi, verifying
 # fpga-verified as three Welland Pis sent it on 2026-10-04 (fpgas-verify 0.0.post1013), copied from the public
 # /fleet/<serial>/ pages: the two Acorn hosts, which passed, and a Tiny Tapeout FPGA host, which failed.
 REAL = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-welland-2026-10-04.json").read_text())
+# The three Tiny Tapeout FPGA hosts' first passing events (2026-10-05, from the public /fleet/ pages), by Pi serial.
+REAL_TT = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-tt-fpga-2026-10-05.json").read_text())
 
 
 @pytest.fixture
@@ -174,6 +176,23 @@ def test_the_acorn_hosts_read_as_before_from_their_real_events(c):
                                                              ("pi-sw2-p47", "Acorn (cle-215+)")]
     assert "pi-sw2-p46</h1>Acorn (cle-215+)</td>" in c.get("/fpgas/").content.decode()
     assert "Accessing pi-sw2-p47 &mdash; Acorn (cle-215+)</h1>" in c.get("/fpgas/pi-sw2-p47.html").content.decode()
+
+
+@pytest.mark.django_db
+def test_real_passing_tiny_tapeout_fpga_hosts_are_listed_as_tt_fpga_with_their_identity(c):
+    """The boot check that writes nothing to the board and names it (fpgas-online-verify 0.0.post1094)."""
+    for i, (serial, detail) in enumerate(sorted(REAL_TT.items())):
+        m = machine(serial, f"pi-sw9-p{i + 1}")  # a place for the test: the event does not say where a Pi sits
+        BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen, detail=detail)
+    assert [(pi.hostname, pi.boards) for pi in listed()] == [(f"pi-sw9-p{i}", "TT FPGA") for i in (1, 2, 3)]
+    boards = verified_boards()
+    assert sorted(b["identity"]["usb_serial"] for (b,) in boards.values()) == [
+        "4df39a7a6856f86f", "8c46329b33590ecb", "a2961e5cac65b25f"]  # fmt: skip
+    assert {(b["identity"]["mcu"], b["identity"]["chip"], b["identity"]["sdk"]) for (b,) in boards.values()} == {
+        ("RP2350", "fpga", "3.1.0")}  # fmt: skip
+    html = c.get("/fpgas/").content.decode()
+    assert html.count("</h1>TT FPGA</td>") == 3
+    assert "Accessing pi-sw9-p1 &mdash; TT FPGA</h1>" in c.get("/fpgas/pi-sw9-p1.html").content.decode()
 
 
 @pytest.mark.django_db
