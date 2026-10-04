@@ -176,9 +176,12 @@ def verified_boards():
     """{serial: [{"board", "variant", "result", "identity"}, ...]}: the boards
     each machine's FPGA check reported in the `fpga-verified` event of the
     boot it is running now, in the order the check lists them. `board` is the
-    board's kind (`board<i>_identity_kind`, else the name in `board<i>` up to
-    any "@"), `variant` is "" when none was decided, and `identity` holds the
-    `board<i>_identity_*` fields. A machine whose check is running again, or
+    name in `board<i>` up to any "@" (fpgas-verify's board module: "acorn",
+    "tt", ...; two boards of one kind are "arty@<where>"), `variant` is ""
+    when none was decided, and `identity` holds the `board<i>_identity_*`
+    fields. The identity's own `kind` is not used for `board`: it is rpi-hwid's
+    name for the design found ("pcileech" on an Acorn card), not which board
+    module checked it. A machine whose check is running again, or
     whose event names no board, is absent.
 
     This, not `fpga-board-found`, says what a Pi carries: it is the one event
@@ -208,7 +211,7 @@ def verified_boards():
             prefix = f"board{index}_identity_"
             identity = {key[len(prefix):]: str(value) for key, value in detail.items()
                         if key.startswith(prefix)}
-            boards.append({"board": identity.get("kind") or name.split("@")[0],
+            boards.append({"board": name.split("@")[0],
                            "variant": "" if variant == "-" else variant,
                            "result": result, "identity": identity})
         if boards:
