@@ -192,6 +192,16 @@ def test_a_board_that_does_not_answer_is_logged_with_its_traceback(c, board, fak
     assert "10.21.2.42" in record.getMessage()
 
 
+@pytest.mark.parametrize("boom", UNREACHABLE)
+def test_the_ssh_client_is_closed_when_the_board_does_not_answer(c, board, fake_ssh, boom):
+    # a failed connect can leave paramiko's transport thread and socket alive
+    fake_ssh.connect_error = boom
+
+    upload(c)
+
+    assert fake_ssh.closed == 1
+
+
 # -- the transfer died partway ----------------------------------------------
 
 def test_a_transfer_that_dies_partway_says_the_copy_is_incomplete(c, board, fake_ssh):

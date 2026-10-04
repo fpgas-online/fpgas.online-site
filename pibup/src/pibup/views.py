@@ -136,14 +136,6 @@ def handle_uploaded_file(f, pi):
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    try:
-        client.connect(ip, username='pi', password=password, timeout=CONNECT_TIMEOUT)
-    except (paramiko.SSHException, OSError) as e:
-        # refused, unroutable, timed out, half-booted sshd, password not yet
-        # accepted: from here they are all "the board is not there".
-        log.exception("%s (%s): ssh connect failed", host, ip)
-        raise BoardUnreachable(f"{host} did not answer, so nothing was uploaded. {RETRY_HINT}") from e
-
     file_name=f.name
     total = f.size
 
@@ -152,21 +144,33 @@ def handle_uploaded_file(f, pi):
     opened = False
     written = 0
 
+    # one finally for connect and transfer: a connect that fails partway
+    # (rejected login, bad host key) leaves paramiko's transport thread and
+    # socket alive until the client is closed.
     try:
-        sftp = client.open_sftp()
-        with sftp.open(f"Uploads/{file_name}", "wb+") as destination:
-            opened = True
-            for chunk in f.chunks():
-                destination.write(chunk)
-                written += len(chunk)
-    except (paramiko.SSHException, OSError) as e:
-        log.exception("%s (%s): upload of %s failed after %d of %d bytes", host, ip, file_name, written, total)
-        if opened:
-            detail = (f"the transfer stopped after {written} of {total} bytes, so the copy in "
-                      f"Uploads/{file_name} on the board is incomplete and must not be loaded.")
-        else:
-            detail = f"Uploads/{file_name} could not be opened, so nothing was written to the board."
-        raise TransferFailed(f"{host} answered, but {detail} {RETRY_HINT}") from e
+        try:
+            client.connect(ip, username='pi', password=password, timeout=CONNECT_TIMEOUT)
+        except (paramiko.SSHException, OSError) as e:
+            # refused, unroutable, timed out, half-booted sshd, password not yet
+            # accepted: from here they are all "the board is not there".
+            log.exception("%s (%s): ssh connect failed", host, ip)
+            raise BoardUnreachable(f"{host} did not answer, so nothing was uploaded. {RETRY_HINT}") from e
+
+        try:
+            sftp = client.open_sftp()
+            with sftp.open(f"Uploads/{file_name}", "wb+") as destination:
+                opened = True
+                for chunk in f.chunks():
+                    destination.write(chunk)
+                    written += len(chunk)
+        except (paramiko.SSHException, OSError) as e:
+            log.exception("%s (%s): upload of %s failed after %d of %d bytes", host, ip, file_name, written, total)
+            if opened:
+                detail = (f"the transfer stopped after {written} of {total} bytes, so the copy in "
+                          f"Uploads/{file_name} on the board is incomplete and must not be loaded.")
+            else:
+                detail = f"Uploads/{file_name} could not be opened, so nothing was written to the board."
+            raise TransferFailed(f"{host} answered, but {detail} {RETRY_HINT}") from e
     finally:
         client.close()
 
