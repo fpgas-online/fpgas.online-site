@@ -326,6 +326,22 @@ def test_only_the_one_spelling_of_a_ports_name_names_it(switch_calls, hostname):
     assert switch_calls == []
 
 
+@pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
+def test_a_policy_that_cannot_answer_is_not_a_yes(switch_calls, monkeypatch, path):
+    """The registry cannot be read (a locked database, say): an error, loud
+    in the log, and nothing sent to the switch."""
+    verified_pi("pi-sw2-p46")
+
+    def locked(switch, port):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr("pibfpgas.poe.registered_on", locked)
+    client = Client(HTTP_HOST=WELLAND, raise_request_exception=False)
+    r = client.post(path, data=json.dumps({"port": 46, "switch": 2}), content_type="application/json")
+    assert r.status_code == 500
+    assert switch_calls == []
+
+
 # --- a registration nobody checked -------------------------------------------
 #
 # The registry holds what boards say about themselves, and the broker takes
