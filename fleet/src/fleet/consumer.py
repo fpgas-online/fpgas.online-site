@@ -12,6 +12,7 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 
 from . import services
 
@@ -47,36 +48,75 @@ def _bridge(hostname, stage):
         log.exception("widget bridge failed for %s (%s)", hostname, stage)
 
 
-def dispatch(topic, payload):
-    """Route one message. Returns the handler that ran, or "ignored"."""
+def port_prefix_enabled():
+    """Whether `port/<port>/` topics are believed: the broker only stamps
+    them once its per-port listeners are in place, and until then any Pi can
+    publish one itself, so with this off (the default) such a topic is as
+    foreign as any other and is ignored."""
+    return bool(settings.FLEET_MQTT.get("port_prefix", False))
+
+
+def _split(topic):
+    """(port, serial, kind) of a fleet topic, or None for a foreign one.
+
+    The broker's per-port listeners stamp a Pi's topics with
+    port/<port>/ (mosquitto mount_point), so `port/pi-sw2-p9/fpgas/<site>/pi/
+    <serial>/<kind>` is whatever the Pi on that port sent as
+    `fpgas/<site>/pi/<serial>/<kind>`; port is then the stamped port and the
+    Pi had no say in it. An unstamped topic gives port None. A stamp that
+    is no port's hostname gives (False, ...): refused, not ignored. Stamps
+    are only read when port_prefix_enabled()."""
     parts = topic.split("/")
+    port = None
+    if parts[0] == "port" and len(parts) > 1 and port_prefix_enabled():
+        port, parts = parts[1], parts[2:]
     if len(parts) != 5 or parts[0] != "fpgas" or parts[2] != "pi":
+        return None
+    if port is not None and not _is_port(port):
+        port = False
+    return port, parts[3], parts[4]
+
+
+def _is_port(name):
+    return _HOSTNAME_RE.fullmatch(name) is not None
+
+
+def dispatch(topic, payload):
+    """Route one message. Returns the handler that ran, "rejected" for a
+    registration or topic stamp that is refused (logged; a refused status or
+    event is logged by fleet.services and returns as it always did), or
+    "ignored"."""
+    split = _split(topic)
+    if split is None:
         return "ignored"
-    _, _site, _, serial, kind = parts
+    port, serial, kind = split
+    if port is False:
+        log.warning("%r rejected: the port prefix is no port's hostname", topic)
+        return "rejected"
     if kind not in KINDS:
         return "ignored"
     try:
         doc = json.loads(payload)
     except (ValueError, UnicodeDecodeError):
-        log.warning("malformed JSON on %s ignored", topic)
+        log.warning("malformed JSON on %r ignored", topic)
         return "ignored"
     if not isinstance(doc, dict):
-        log.warning("non-object payload on %s ignored", topic)
+        log.warning("non-object payload on %r ignored", topic)
         return "ignored"
     if kind == "registration":
         if doc.get("machine", {}).get("serial") != serial:
-            log.warning("registration serial mismatch on %s ignored", topic)
+            log.warning("registration serial mismatch on %r ignored", topic)
             return "ignored"
-        services.register_document(doc)
-        return "registration"
+        machine, _ = services.register_document(doc, port)
+        return "registration" if machine is not None else "rejected"
     if kind == "status":
-        machine = services.status(serial, doc)
+        machine = services.status(serial, doc, port)
         if machine is not None:
             stage = "online" if machine.online \
                 else f"offline ({doc.get('reason', 'unknown')})"
             _bridge(machine.hostname, stage)
         return "status"
-    event = services.boot_event(serial, doc)
+    event = services.boot_event(serial, doc, port)
     if event is not None:
         _bridge(event.machine.hostname, event.stage)
     return "event"

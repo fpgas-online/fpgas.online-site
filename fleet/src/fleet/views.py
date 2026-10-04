@@ -1,11 +1,11 @@
 import re
 
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404, HttpResponse
+from django.shortcuts import render
 
 from . import hwid
 from .models import Machine
-from .services import fpga_states
+from .services import fpga_states, offered_hosts
 
 
 def machine_list(request):
@@ -19,22 +19,52 @@ def machine_list(request):
             "model": doc.get("machine", {}).get("model", ""),
             "fpga_kinds": sorted(b.get("kind", "?")
                                  for b in doc.get("fpga", {}).get("boards", [])),
-            "fpga_check": states.get(m.serial, ""),
+            "fpga_check": states.get(m.pk, ""),
         })
     return render(request, "fleet/list.html", {"rows": rows})
 
 
+def _sightings(serial):
+    """Every machine row for this serial: one per port it registered from,
+    and the one with no port if it registered without a port stamp."""
+    rows = list(Machine.objects.filter(serial=serial).order_by("verified_port"))
+    if not rows:
+        raise Http404("no such machine")
+    return rows
+
+
+def _default_row(rows):
+    """The row to show when none is asked for: the one the /fpgas/ pages
+    offer, else the newest registered from a port, else the one with no
+    port."""
+    offered = set(offered_hosts().values())
+    for pool in ([r for r in rows if r.pk in offered],
+                 [r for r in rows if r.verified_port], rows):
+        if pool:
+            return max(pool, key=lambda r: r.last_seen)
+
+
 def machine_detail(request, serial):
-    machine = get_object_or_404(Machine, serial=serial)
+    rows = _sightings(serial)
+    port = request.GET.get("port")  # "" names the row with no port stamp
+    machine = _default_row(rows) if port is None else next(
+        (r for r in rows if r.verified_port == port), None)
+    if machine is None:
+        raise Http404("this serial did not register from that port")
     snapshots = machine.snapshots.order_by("-first_seen")
     events = machine.events.filter(boot_id=machine.last_boot_id) \
         if machine.last_boot_id else machine.events.all()
+    states = fpga_states()
     return render(request, "fleet/detail.html", {
         "machine": machine,
         "snapshots": snapshots,
         "events": events,
-        "fpga_check": fpga_states().get(machine.serial, ""),
+        "fpga_check": states.get(machine.pk, ""),
         "labels": labels_context(machine),
+        "sightings": [{"machine": r, "check": states.get(r.pk, ""),
+                       "shown": r.pk == machine.pk} for r in rows],
+        "also_claimed_from": [r.verified_port or "no port stamp"
+                              for r in rows if r.pk != machine.pk],
     })
 
 
@@ -74,8 +104,22 @@ FALLBACK_NAME = "rpi-hwid"
 def label_input(request, serial):
     """rpi-hwid's label-input document for this Pi, as rpi-hwid writes it,
     named as rpi-hwid names a host's file. Offered complete or not: it is
-    what the Pi sent, to compare with what rpi-hwid makes on the Pi."""
-    machine = get_object_or_404(Machine, serial=serial)
+    what the Pi sent, to compare with what rpi-hwid makes on the Pi.
+
+    A serial seen from more than one port has a document per port, and none
+    of them is the serial's: ?port=<port> picks one (?port= the one with no
+    port stamp), and without it a serial with more than one is refused."""
+    rows = _sightings(serial)
+    port = request.GET.get("port")
+    if port is None and len(rows) > 1:
+        return HttpResponse(
+            f"{serial} registered from more than one port; add ?port= one of: "
+            + ", ".join(r.verified_port or "(empty: no port stamp)" for r in rows) + "\n",
+            status=409, content_type="text/plain; charset=utf-8")
+    machine = rows[0] if port is None else next(
+        (r for r in rows if r.verified_port == port), None)
+    if machine is None:
+        raise Http404("this serial did not register from that port")
     built = hwid.build(machine)
     try:
         text = hwid.dumps(built.document)

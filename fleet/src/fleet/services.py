@@ -28,17 +28,34 @@ def fingerprint(doc):
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def register_document(doc):
+def register_document(doc, port=None):
     """Ingest a registration document. Returns (machine, changed) where
     changed means the machine's latest snapshot moved to a different
-    fingerprint (a flap back to a previously seen document reuses its row)."""
+    fingerprint (a flap back to a previously seen document reuses its row).
+    A registration that is refused returns (None, False) and is logged.
+
+    A machine is a row per (port, serial): `port` is the port the broker's
+    per-port listener stamped on the topic (the short hostname, already
+    validated), or None for a message with no stamp, which is the row with
+    no port. So what a Pi says about a serial can only ever write the rows
+    of its own port, never the row another port's Pi registered, and a
+    forged claim to a serial is a row of its own with its own history. A
+    stamped registration must name its own port's hostname, or it is
+    refused; it never adopts the unstamped row of that serial."""
     now = timezone.now()
+    serial = doc["machine"]["serial"]
     connection = doc.get("connection", {})
+    hostname = connection.get("hostname", "")
+    if port is not None and (not isinstance(hostname, str)
+                             or hostname.split(".")[0] != port):
+        log.warning("registration for %r from port %s dropped: it names"
+                    " host %r", serial, port, hostname)
+        return None, False
     machine, _ = Machine.objects.update_or_create(
-        serial=doc["machine"]["serial"],
+        serial=serial, verified_port=port or "",
         defaults={
             "site": connection.get("site", ""),
-            "hostname": connection.get("hostname", ""),
+            "hostname": hostname,
             "last_seen": now,
         })
     snapshot, created = machine.snapshots.get_or_create(
@@ -53,11 +70,21 @@ def register_document(doc):
     return machine, changed
 
 
-def status(serial, payload):
-    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice)."""
-    machine = Machine.objects.filter(serial=serial).first()
+def _machine_for(serial, port, what):
+    """The machine a status or event is about, or None (logged): the row of
+    this serial registered from the same port, or from none for an
+    unstamped message. A stamped beat reaches nothing of any other port."""
+    machine = Machine.objects.filter(serial=serial, verified_port=port or "").first()
     if machine is None:
-        log.warning("status for unknown machine %s dropped", serial)
+        log.warning("%s for unknown machine %r%s dropped", what, serial,
+                    f" on port {port}" if port else "")
+    return machine
+
+
+def status(serial, payload, port=None):
+    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice)."""
+    machine = _machine_for(serial, port, "status")
+    if machine is None:
         return None
     machine.online = bool(payload.get("online"))
     machine.last_seen = timezone.now()
@@ -76,7 +103,7 @@ FPGA_STAGES = ("fpga-verifying", "fpga-verified")
 
 
 def fpga_states():
-    """{serial: state} of each machine's FPGA boot check in the boot it is
+    """{machine id: state} of each machine's FPGA boot check in the boot it is
     running now: "verifying" from `fpga-verifying` until an `fpga-verified`
     follows, then that event's detail["result"] ("pass", "fail",
     "missing", ...). A machine whose check has not started this boot (or
@@ -91,62 +118,63 @@ def fpga_states():
     states = {}
     events = BootEvent.objects.filter(
         stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
-        .exclude(boot_id="").values_list("machine__serial", "stage", "detail") \
+        .exclude(boot_id="").values_list("machine_id", "stage", "detail") \
         .order_by("id")
-    for serial, stage, detail in events:
+    for machine_id, stage, detail in events:
         if stage == "fpga-verifying":
-            states[serial] = "verifying"
+            states[machine_id] = "verifying"
         elif isinstance(detail, dict) and detail.get("result"):
-            states[serial] = str(detail["result"])
+            states[machine_id] = str(detail["result"])
         else:
-            states[serial] = "unknown"
+            states[machine_id] = "unknown"
     return states
 
 
-def verified_serials():
-    """The serials of the machines whose FPGA check passed in the boot they
-    are running now, and that are not being checked again."""
-    return {serial for serial, state in fpga_states().items()
-            if state == "pass"}
-
-
 def machine_hosts():
-    """{hostname: serial} of the machine most recently seen with each
+    """{hostname: machine id} of the machine most recently seen with each
     registered hostname (the short name: pi-sw<s>-p<p> at a VLAN-per-port
     site, so a port). A machine that left a port keeps its last
-    registration, so only the newest machine on a hostname speaks for it; a
-    machine that registered no hostname is on no port."""
+    registration, so only the newest machine on a hostname speaks for it. A
+    machine registered from a stamped port (verified_port) outranks any that
+    only claimed the hostname, whenever that claim was heard, and speaks
+    only for its own port: a row stamped with one port that names another
+    hostname cannot exist, and is skipped if it does. A machine that
+    registered no hostname is on no port."""
     seen_on = {}
-    for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
+    for pk, hostname, seen, port in Machine.objects.values_list(
+            "pk", "hostname", "last_seen", "verified_port"):
         host = hostname.split(".")[0]
-        if host and (host not in seen_on or seen > seen_on[host][0]):
-            seen_on[host] = (seen, serial)
-    return {host: serial for host, (_, serial) in seen_on.items()}
+        if port and port != host:
+            continue
+        rank = (bool(port), seen)
+        if host and (host not in seen_on or rank > seen_on[host][0]):
+            seen_on[host] = (rank, pk)
+    return {host: pk for host, (_, pk) in seen_on.items()}
 
 
 def checked_in():
-    """The serials of the machines that are online and whose last status
+    """The ids of the machines that are online and whose last status
     beat (the Pi's fleet agent sends one every 60 s) came within
     CHECKED_IN_WITHIN: a Pi that died without its last will being heard
     stays `online`, but stops beating."""
     since = timezone.now() - CHECKED_IN_WITHIN
     return set(Machine.objects.filter(online=True, last_seen__gte=since)
-               .values_list("serial", flat=True))
+               .values_list("pk", flat=True))
 
 
 def offered_hosts():
-    """{hostname: serial} of the machines the /fpgas/ pages offer: the newest
+    """{hostname: machine id} of the machines the /fpgas/ pages offer: the newest
     machine on each hostname (machine_hosts), when it has checked in
     recently (checked_in) and its FPGA check passed in the boot it is
     running now (fpga_states)."""
     states = fpga_states()
     live = checked_in()
-    return {host: serial for host, serial in machine_hosts().items()
-            if serial in live and states.get(serial) == "pass"}
+    return {host: pk for host, pk in machine_hosts().items()
+            if pk in live and states.get(pk) == "pass"}
 
 
 def found_boards():
-    """{serial: [{"board", "variant", "where"}, ...]}: the boards each machine's
+    """{machine id: [{"board", "variant", "where"}, ...]}: the boards each machine's
     FPGA check found in the boot it is running now (`fpga-board-found`, one
     per board, before any test), in the order they were found. A board seen
     again in the same place (the check run again) is the newest sighting. A
@@ -158,21 +186,20 @@ def found_boards():
     boards = {}
     events = BootEvent.objects.filter(
         stage="fpga-board-found", boot_id=F("machine__last_boot_id")) \
-        .exclude(boot_id="").values_list("machine__serial", "detail").order_by("id")
-    for serial, detail in events:
+        .exclude(boot_id="").values_list("machine_id", "detail").order_by("id")
+    for machine_id, detail in events:
         if not isinstance(detail, dict) or not isinstance(detail.get("board"), str) \
                 or not detail["board"]:
             continue
         board = {key: str(detail.get(key, "")) for key in ("board", "variant", "where")}
-        boards.setdefault(serial, {})[board["where"]] = board
-    return {serial: list(places.values()) for serial, places in boards.items()}
+        boards.setdefault(machine_id, {})[board["where"]] = board
+    return {pk: list(places.values()) for pk, places in boards.items()}
 
 
-def boot_event(serial, payload):
+def boot_event(serial, payload, port=None):
     """Record one boot-stage event ({"stage","boot_id","ts","detail"})."""
-    machine = Machine.objects.filter(serial=serial).first()
+    machine = _machine_for(serial, port, "boot event")
     if machine is None:
-        log.warning("boot event for unknown machine %s dropped", serial)
         return None
     ts = parse_datetime(payload.get("ts") or "") or timezone.now()
     return BootEvent.objects.create(

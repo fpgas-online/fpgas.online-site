@@ -8,9 +8,9 @@ import pytest
 from django.test import Client
 from django.utils import timezone
 from fleet.models import BootEvent, Machine
-from fleet.services import CHECKED_IN_WITHIN, checked_in, fpga_states, verified_serials
+from fleet.services import CHECKED_IN_WITHIN, checked_in, fpga_states
 
-from tests.fleet_pis import T0, machine, registered, verified, verifying
+from tests.fleet_pis import T0, by_serial, machine, registered, verified, verified_serials, verifying
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def test_a_pi_that_passed_but_stopped_checking_in_is_not_offered(c):
     late = timezone.now() - CHECKED_IN_WITHIN - datetime.timedelta(seconds=5)
     Machine.objects.filter(serial="silent").update(last_seen=late)  # died, last will unheard
     Machine.objects.filter(serial="offline").update(online=False)  # its last will said so
-    assert checked_in() == {"beating"}
+    assert by_serial(checked_in()) == {"beating"}
     html = c.get("/fpgas/").content.decode()
     assert "pi-sw2-p40" in html
     assert "pi-sw2-p38" not in html and "pi-sw2-p39" not in html
@@ -97,7 +97,7 @@ def test_the_check_is_verifying_until_its_result_follows():
     m = machine("started-last-boot")
     verifying(m, boot_id="b1")
     machine("not-started")
-    assert fpga_states() == {"checking": "verifying", "checked": "fail", "rechecking": "verifying"}
+    assert by_serial(fpga_states()) == {"checking": "verifying", "checked": "fail", "rechecking": "verifying"}
     assert verified_serials() == set()  # a Pi being checked is not offered
 
 
@@ -107,7 +107,7 @@ def test_the_newest_event_by_arrival_wins_not_by_the_pis_clock():
     m = machine("clock-behind")
     verifying(m, minutes=60)  # stamped by a clock that later stepped back
     verified(m, "pass", minutes=0)
-    assert fpga_states() == {"clock-behind": "pass"}
+    assert by_serial(fpga_states()) == {"clock-behind": "pass"}
     assert verified_serials() == {"clock-behind"}
 
 

@@ -99,8 +99,8 @@ def offered():
     someone can log in and see what is wrong, but users are not sent to
     them."""
     found = found_boards()
-    pis = (Pi.from_hostname(host, found.get(serial, ()))
-           for host, serial in offered_hosts().items())
+    pis = (Pi.from_hostname(host, found.get(pk, ()))
+           for host, pk in offered_hosts().items())
     return sorted((pi for pi in pis if pi is not None),
                   key=lambda pi: (pi.switch or 0, pi.port))
 

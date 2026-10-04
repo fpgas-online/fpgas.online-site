@@ -11,7 +11,7 @@ from fleet.models import BootEvent, Machine
 from fleet.services import found_boards
 from pibfpgas.pis import board_title
 
-from tests.fleet_pis import verified_pi
+from tests.fleet_pis import by_serial, verified_pi
 
 T0 = timezone.now()
 
@@ -60,7 +60,7 @@ def test_found_boards_are_this_boots_only():
     found(m, "arty", "a7-35")
     found(machine("last-boot", boot_id="b9"), "arty", "a7-35", boot_id="b8")
     machine("none")
-    assert found_boards() == {"now": [{"board": "arty", "variant": "a7-35", "where": "1-1.4"}]}
+    assert by_serial(found_boards()) == {"now": [{"board": "arty", "variant": "a7-35", "where": "1-1.4"}]}
 
 
 @pytest.mark.django_db
@@ -69,7 +69,7 @@ def test_found_boards_one_per_place_newest_first_found_order_kept():
     found(m, "arty", "a7-35", where="1-1.4")
     found(m, "tt", "tt-fpga", where="1-1.2")
     found(m, "arty", "a7-100", where="1-1.4")  # the check ran again this boot
-    assert found_boards() == {"two": [{"board": "arty", "variant": "a7-100", "where": "1-1.4"},
+    assert by_serial(found_boards()) == {"two": [{"board": "arty", "variant": "a7-100", "where": "1-1.4"},
                                       {"board": "tt", "variant": "tt-fpga", "where": "1-1.2"}]}
 
 
@@ -80,7 +80,7 @@ def test_found_boards_ignore_a_detail_that_is_not_a_board():
     for detail in ("acorn", {"variant": "x"}, {"board": 7}, {"board": ""}):
         BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-board-found",
                                  detail=detail, ts=T0)
-    assert found_boards() == {}
+    assert by_serial(found_boards()) == {}
 
 
 @pytest.mark.django_db
