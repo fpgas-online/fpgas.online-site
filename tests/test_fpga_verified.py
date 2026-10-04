@@ -10,26 +10,7 @@ from django.utils import timezone
 from fleet.models import BootEvent, Machine
 from fleet.services import CHECKED_IN_WITHIN, checked_in, fpga_states, verified_serials
 
-T0 = timezone.now()
-
-
-def machine(serial, hostname="", boot_id="b2"):
-    # online, its status beat just in: last_seen is stamped now, not at T0,
-    # which a long test run leaves minutes behind
-    return Machine.objects.create(serial=serial, site="welland", hostname=hostname,
-                                  last_seen=timezone.now(), online=True, last_boot_id=boot_id)
-
-
-def verifying(m, boot_id="b2", minutes=0):
-    BootEvent.objects.create(machine=m, boot_id=boot_id, stage="fpga-verifying",
-                             detail={"started_at": "2026-09-27T06:00:00+00:00"},
-                             ts=T0 + datetime.timedelta(minutes=minutes))
-
-
-def verified(m, result, boot_id="b2", minutes=0):
-    BootEvent.objects.create(machine=m, boot_id=boot_id, stage="fpga-verified",
-                             detail={"result": result, "mode": "all-boards"},
-                             ts=T0 + datetime.timedelta(minutes=minutes))
+from tests.fleet_pis import T0, machine, registered, verified, verifying
 
 
 @pytest.fixture
@@ -143,15 +124,6 @@ def test_the_fleet_pages_show_the_check(c):
     assert "not started" in html
     assert 'class="badge verifying">verifying<' in c.get("/fleet/aaa/").content.decode()
     assert "not started" in c.get("/fleet/ccc/").content.decode()
-
-
-
-def registered(serial, hostname, result, minutes=0):
-    m = machine(serial, hostname)
-    m.last_seen = timezone.now() - datetime.timedelta(minutes=2) + datetime.timedelta(minutes=minutes)
-    m.save()
-    verified(m, result)
-    return m
 
 
 @pytest.mark.django_db

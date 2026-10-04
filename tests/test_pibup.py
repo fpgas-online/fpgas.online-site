@@ -2,36 +2,71 @@
 
 ``fpga.html`` includes ``upload.html``: a multipart form that POSTs to
 ``/pibup/upload?host=<hostname>``. The view takes only a Pi the board pages
-offer (registered with that hostname, checked in, FPGA check passed), opens an SFTP session to it as ``pi`` with the shared password from
+offer (registered with that hostname, checked in, FPGA check passed), opens
+an SFTP session to it as ``pi`` with the shared password from
 ``settings.PI_PW`` (base64, like everywhere else on the site) and writes the
 file into ``~/Uploads`` on the Pi. paramiko is faked here: nothing in this
 file touches the network.
+
+The failure tests are the ones production asked for. A board that has just
+been PoE reset is gone for about two minutes, and every upload aimed at it in
+that window used to end in Django's "Server Error (500)" page.
 """
 
 import base64
 import io
+import logging
+import socket
 
+import paramiko
 import pibup.views
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 
-from tests.fleet_pis import verified_pi
+from tests.fleet_pis import registered, verified_pi
 
 PI_PASSWORD = "raspberry"
 
+# Four 64 KiB chunks, so f.chunks() hands the view more than one write and a
+# transfer can plausibly die partway through.
+BITSTREAM = b"\x00\x09\x0f\xf0" * 64 * 1024
+
 
 class _FakeSFTPFile(io.BytesIO):
+    """A file on the board. ``fail_after`` makes the write blow up partway,
+    with ``fail_with``."""
+
+    fail_after = None
+    fail_with = None
+
+    def write(self, data):
+        written = super().write(data)
+        if self.fail_after is not None and self.tell() > self.fail_after:
+            raise self.fail_with
+        return written
+
     def __exit__(self, *exc):
         # keep the buffer readable after the ``with`` block closes it
         return False
 
 
 class FakeSSHClient:
-    """Stands in for paramiko.SSHClient; records connect() and SFTP writes."""
+    """Stands in for paramiko.SSHClient; records connect() and SFTP writes.
+
+    The class attributes let a test say how the board misbehaves:
+    ``connect_error`` is raised out of connect(), ``open_error`` out of the
+    SFTP open(), and ``fail_write_after`` kills the transfer with
+    ``write_error`` once that many bytes have landed.
+    """
 
     connects = []
     files = {}
+    connect_error = None
+    open_error = None
+    fail_write_after = None
+    write_error = None
+    closed = 0
 
     def load_system_host_keys(self):
         pass
@@ -41,44 +76,242 @@ class FakeSSHClient:
 
     def connect(self, hostname, **kwargs):
         self.connects.append((hostname, kwargs))
+        if self.connect_error is not None:
+            raise self.connect_error
 
     def open_sftp(self):
         return self
 
     def open(self, path, mode="r"):
-        return self.files.setdefault(path, _FakeSFTPFile())
+        if self.open_error is not None:
+            raise self.open_error
+        f = self.files.setdefault(path, _FakeSFTPFile())
+        f.fail_after = self.fail_write_after
+        f.fail_with = self.write_error
+        return f
 
     def close(self):
-        pass
+        type(self).closed += 1
 
 
 @pytest.fixture
 def fake_ssh(monkeypatch):
     FakeSSHClient.connects = []
     FakeSSHClient.files = {}
+    FakeSSHClient.connect_error = None
+    FakeSSHClient.open_error = None
+    FakeSSHClient.fail_write_after = None
+    FakeSSHClient.write_error = OSError("Failure")  # what paramiko raises for a dead channel
+    FakeSSHClient.closed = 0
     monkeypatch.setattr(pibup.views.paramiko, "SSHClient", FakeSSHClient)
     return FakeSSHClient
 
 
 @pytest.fixture
-def c(settings):
+def c(settings, tmp_path):
     settings.PI_PW = base64.b64encode(PI_PASSWORD.encode()).decode()
     settings.DOMAIN_NAME = "welland.fpgas.online"
+    # a real bitstream is megabytes, so Django spools it to a temporary file
+    # and f.chunks() hands the view one 64 KiB block at a time. Force that
+    # here too: a transfer can only die partway if there is a partway.
+    settings.FILE_UPLOAD_MAX_MEMORY_SIZE = 0
+    settings.FILE_UPLOAD_TEMP_DIR = str(tmp_path)
     return Client(HTTP_HOST="welland.fpgas.online")
 
 
-@pytest.mark.django_db
-def test_upload_lands_in_uploads_on_the_board(c, fake_ssh):
-    verified_pi("pi-sw2-p42")
-    bitstream = SimpleUploadedFile("blinky.bit", b"\x00\x09\x0f\xf0" * 100)
+HOST = "pi-sw2-p42"
 
-    r = c.post("/pibup/upload?host=pi-sw2-p42", {"file": bitstream})
+
+@pytest.fixture
+def board(db):
+    # a Pi the board pages offer: registered as HOST, checked in, FPGA check passed
+    return verified_pi(HOST)
+
+
+def upload(c, host=HOST, name="blinky.bit", content=BITSTREAM):
+    return c.post(f"/pibup/upload?host={host}", {"file": SimpleUploadedFile(name, content)})
+
+
+# -- the happy path ---------------------------------------------------------
+
+def test_upload_lands_in_uploads_on_the_board(c, board, fake_ssh):
+    r = upload(c)
 
     assert r.status_code == 302
     assert r["Location"] == "success?host=pi-sw2-p42"
-    assert fake_ssh.connects == [("10.21.2.42", {"username": "pi", "password": PI_PASSWORD})]
-    assert fake_ssh.files["Uploads/blinky.bit"].getvalue() == b"\x00\x09\x0f\xf0" * 100
+    assert fake_ssh.connects == [
+        ("10.21.2.42", {"username": "pi", "password": PI_PASSWORD, "timeout": pibup.views.CONNECT_TIMEOUT})
+    ]
+    assert fake_ssh.files["Uploads/blinky.bit"].getvalue() == BITSTREAM
     assert "uploaded to pi-sw2-p42" in c.get("/pibup/" + r["Location"]).content.decode()
+
+
+def test_connect_cannot_wait_forever_on_a_dead_board(c, board, fake_ssh):
+    # a gunicorn worker is blocked for the whole of this; keep it short
+    assert 0 < pibup.views.CONNECT_TIMEOUT <= 30
+
+
+# -- the board is not answering ---------------------------------------------
+
+UNREACHABLE = [
+    pytest.param(
+        paramiko.ssh_exception.NoValidConnectionsError(
+            {("10.21.2.42", 22): ConnectionRefusedError(111, "Connection refused")}),
+        id="connection-refused"),
+    pytest.param(socket.timeout("timed out"), id="timeout"),
+    pytest.param(OSError(113, "No route to host"), id="no-route-to-host"),
+    pytest.param(paramiko.SSHException("Error reading SSH protocol banner"), id="half-booted-sshd"),
+]
+
+# The board answered and turned the login down: not "nobody home".
+LOGIN_REFUSED = pytest.param(paramiko.AuthenticationException("Authentication failed."), id="auth-failure")
+
+CONNECT_FAILED = [*UNREACHABLE, LOGIN_REFUSED]
+
+
+@pytest.mark.parametrize("boom", UNREACHABLE)
+def test_a_board_that_does_not_answer_gets_a_readable_page(c, board, fake_ssh, boom):
+    fake_ssh.connect_error = boom
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 did not answer" in html
+    assert "nothing was uploaded" in html
+    assert "two minutes" in html
+    assert "Reset" in html
+    assert "try again" in html
+    # and the form is still there to try again with
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
+    assert 'name="file"' in html
+
+
+def test_a_board_that_refuses_the_login_is_not_called_unreachable(c, board, fake_ssh):
+    fake_ssh.connect_error = paramiko.AuthenticationException("Authentication failed.")
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered, but refused our login" in html
+    assert "nothing was uploaded" in html
+    assert "did not answer" not in html
+    # waiting out a reboot will not fix a rejected login
+    assert "two minutes" not in html
+    assert "Reset" not in html
+    # nothing of the password, plain or as the setting holds it
+    assert PI_PASSWORD not in html
+    assert base64.b64encode(PI_PASSWORD.encode()).decode() not in html
+    # and the form is still there
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
+    assert 'name="file"' in html
+
+
+@pytest.mark.parametrize("boom", CONNECT_FAILED)
+def test_a_board_that_does_not_answer_is_logged_with_its_traceback(c, board, fake_ssh, boom, caplog):
+    fake_ssh.connect_error = boom
+
+    with caplog.at_level(logging.ERROR, logger="pibup.views"):
+        upload(c)
+
+    record, = [r for r in caplog.records if r.name == "pibup.views"]
+    assert record.levelno == logging.ERROR
+    assert record.exc_info is not None
+    assert "10.21.2.42" in record.getMessage()
+
+
+@pytest.mark.parametrize("boom", CONNECT_FAILED)
+def test_the_ssh_client_is_closed_when_the_board_does_not_answer(c, board, fake_ssh, boom):
+    # a failed connect can leave paramiko's transport thread and socket alive
+    fake_ssh.connect_error = boom
+
+    upload(c)
+
+    assert fake_ssh.closed == 1
+
+
+# -- the transfer died partway ----------------------------------------------
+
+def test_a_transfer_that_dies_partway_says_the_copy_is_incomplete(c, board, fake_ssh):
+    fake_ssh.fail_write_after = 64 * 1024  # one chunk lands, then the board goes
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered" in html
+    assert "incomplete" in html
+    assert f"{64 * 1024} of {len(BITSTREAM)} bytes" in html
+    assert "try again" in html
+    # a partial file really is sitting on the board
+    assert 0 < len(fake_ssh.files["Uploads/blinky.bit"].getvalue()) < len(BITSTREAM)
+
+
+def test_a_connection_that_drops_mid_transfer_says_the_copy_is_incomplete(c, board, fake_ssh):
+    # paramiko's SFTP raises EOFError, which is no OSError, when the server goes away
+    fake_ssh.fail_write_after = 64 * 1024
+    fake_ssh.write_error = EOFError()
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered" in html
+    assert "incomplete" in html
+    assert f"{64 * 1024} of {len(BITSTREAM)} bytes" in html
+    assert fake_ssh.closed == 1
+
+
+def test_a_connection_that_drops_before_the_file_opens_says_nothing_landed(c, board, fake_ssh):
+    fake_ssh.open_error = EOFError()
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    assert "nothing was written" in r.content.decode()
+    assert fake_ssh.closed == 1
+
+
+def test_a_missing_uploads_directory_says_nothing_landed(c, board, fake_ssh):
+    fake_ssh.open_error = FileNotFoundError(2, "No such file")
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered" in html
+    assert "nothing was written" in html
+    assert "incomplete" not in html
+
+
+def test_a_failed_transfer_is_logged_with_its_traceback(c, board, fake_ssh, caplog):
+    fake_ssh.fail_write_after = 64 * 1024
+
+    with caplog.at_level(logging.ERROR, logger="pibup.views"):
+        upload(c)
+
+    record, = [r for r in caplog.records if r.name == "pibup.views"]
+    assert record.exc_info is not None
+    assert "blinky.bit" in record.getMessage()
+
+
+def test_the_ssh_connection_is_closed_even_when_the_transfer_fails(c, board, fake_ssh):
+    fake_ssh.fail_write_after = 64 * 1024
+
+    upload(c)
+
+    assert fake_ssh.closed == 1
+
+
+# -- which board ------------------------------------------------------------
+
+# Names of no Pi that registered with that name, checked in and passed this
+# boot. Pi hostnames or not, they are all the same 404: a bare port number
+# (what ?pino= used to carry), another machine, an address, one port spelled
+# a second way.
+NOT_OFFERED = ["pi-sw2-p99", "pi42", "pi9999999999999999999999",
+               "42", "tweed", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
 
 
 @pytest.mark.django_db
@@ -92,11 +325,125 @@ def test_upload_to_a_pi_that_is_not_offered_is_404(c, fake_ssh, host):
     assert fake_ssh.connects == []
 
 
-@pytest.mark.django_db
-def test_get_renders_the_bare_form(c):
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_upload_to_any_name_that_is_not_offered_is_404(c, board, fake_ssh, host):
+    r = upload(c, host=host)
+
+    assert r.status_code == 404
+    assert fake_ssh.connects == []
+
+
+def test_upload_with_an_empty_host_is_400(c, board, fake_ssh):
+    r = upload(c, host="")
+
+    assert r.status_code == 400
+    assert fake_ssh.connects == []
+
+
+@pytest.mark.parametrize("page", ["upload", "success"])
+def test_a_pi_whose_fpga_check_failed_is_404(c, board, fake_ssh, page):
+    # registered and checking in, but its FPGA check failed this boot: the
+    # board pages do not offer it, so neither does the upload box
+    registered("failed", "pi-sw2-p7", "fail")
+
+    assert c.get(f"/pibup/{page}?host=pi-sw2-p7").status_code == 404
+    if page == "upload":
+        assert upload(c, host="pi-sw2-p7").status_code == 404
+    assert fake_ssh.connects == []
+
+
+def test_get_renders_the_bare_form(c, board):
     r = c.get("/pibup/upload?host=pi-sw2-p42")
 
     assert r.status_code == 200
     html = r.content.decode()
     assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
     assert 'name="file"' in html
+
+
+# -- ?host= is a link, not a promise ----------------------------------------
+
+def test_the_upload_page_needs_a_host(c, db):
+    # GET /pibup/upload with no query string: a broken link, not a broken
+    # server. It answered 500 in production.
+    r = c.get("/pibup/upload")
+
+    assert r.status_code == 400
+
+
+def test_the_success_page_needs_a_host(c, db):
+    r = c.get("/pibup/success")
+
+    assert r.status_code == 400
+
+
+def test_an_empty_host_is_a_400(c, board):
+    r = c.get("/pibup/upload?host=")
+
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_the_upload_page_for_a_board_that_is_not_ours_is_a_404(c, board, host):
+    r = c.get(f"/pibup/upload?host={host}")
+
+    assert r.status_code == 404
+
+
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_the_success_page_for_a_board_that_is_not_ours_is_a_404(c, board, host):
+    r = c.get(f"/pibup/success?host={host}")
+
+    assert r.status_code == 404
+
+
+def test_the_success_page_names_the_board(c, board):
+    r = c.get("/pibup/success?host=pi-sw2-p42")
+
+    assert r.status_code == 200
+    assert "uploaded to pi-sw2-p42" in r.content.decode()
+
+
+def test_a_port_on_two_switches_is_not_guessed_at(c, board, fake_ssh):
+    # welland numbers ports per switch, so pi-sw1-p42 and pi-sw2-p42 can both
+    # exist. A bare port number could not tell them apart; the hostname names
+    # the switch, so the file goes to the board asked for and only to it.
+    verified_pi("pi-sw1-p42")
+
+    r = upload(c)
+
+    assert r.status_code == 302
+    assert [ip for ip, _ in fake_ssh.connects] == ["10.21.2.42"]
+
+    r = upload(c, host="pi-sw1-p42")
+
+    assert r.status_code == 302
+    assert [ip for ip, _ in fake_ssh.connects] == ["10.21.2.42", "10.21.1.42"]
+
+
+# -- the site itself is broken ----------------------------------------------
+
+UNSET = object()
+
+
+@pytest.mark.parametrize("pi_pw", [
+    pytest.param(UNSET, id="unset"),
+    pytest.param(None, id="None"),
+    pytest.param(42, id="not-a-string"),
+    pytest.param("not base64!!", id="not-base64"),
+])
+def test_a_site_with_no_usable_pi_password_says_so(c, board, fake_ssh, settings, pi_pw):
+    # welland's gunicorn has been deployed without a setting before now. That
+    # is our fault, and it is a 503, not a 500 and not the board's fault.
+    if pi_pw is UNSET:
+        del settings.PI_PW
+    else:
+        settings.PI_PW = pi_pw
+
+    r = upload(c)
+
+    assert r.status_code == 503
+    html = r.content.decode()
+    assert "did not answer" not in html
+    assert "our fault" in html
+    assert fake_ssh.connects == []
