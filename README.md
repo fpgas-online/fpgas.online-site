@@ -18,6 +18,8 @@ This is the web frontend that lets users interact with remote FPGA boards. It pr
 
 The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package provides the `snmp_switch` Django app for PoE switch control (installed as a dependency).
 
+The PoE endpoints (`/snmp/status`, `/snmp/toggle`) need no login, so they act only on a port with a board the site offers: on the welland and ps1 sites a Pi the `/fpgas/` pages list at that moment, on the Tiny Tapeout site a board whose page shows the power-cycle button (`pibfpgas/poe.py`, named by `SNMP_SWITCH_PORT_POLICY` in `pib/settings.py`). Any other port (an uplink, a trunk, a service port, a board that is registered but not listed) is refused with a 403, and a port can be power-cycled once per `SNMP_SWITCH_TOGGLE_INTERVAL` seconds (429 otherwise). The time of each port's last power cycle is kept in redis, so that every gunicorn worker sees the same limit.
+
 ## Hosts
 
 The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.
@@ -58,7 +60,7 @@ Note: The `pistat` app's `ping` view still assumes the legacy `pi<N>` numbering 
 
 - Django 4.2+
 - Django Channels with Daphne (ASGI, WebSocket support)
-- Redis (channel layer backend)
+- Redis (channel layer backend; PoE power-cycle rate limit)
 - nginx (reverse proxy)
 - gunicorn + uvicorn (WSGI/ASGI workers)
 

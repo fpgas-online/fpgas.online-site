@@ -13,3 +13,6 @@ class PibfpgasConfig(AppConfig):
     # `pibfpgas/src/pibfpgas`. Without this, AppConfig.path resolves to the
     # top-level dir and template/fixture discovery silently finds nothing.
     path = os.path.dirname(os.path.abspath(__file__))
+
+    def ready(self):
+        from . import checks  # noqa: F401  (registers the deploy-time checks)
