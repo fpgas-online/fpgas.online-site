@@ -128,7 +128,7 @@ its FPGA check passed in the boot it is running now.
 
 | Site code | Reads | Uses it for |
 | --- | --- | --- |
-| `fleet/services.py` `machine_hosts()`, `checked_in()` | the registration's hostname; the status beat's `online` and arrival time | Which machine is on each port, and whether it is there now |
+| `fleet/services.py` `machine_hosts()`, `checked_in()` | the registration's hostname (and the stamped port, when there is one); the status beat's `online` and arrival time | Which machine is on each port, and whether it is there now |
 | `fleet/services.py` `fpga_states()`, `offered_hosts()` | `fpga-verifying`, `fpga-verified` `result`, current boot only | Which Pis `/fpgas/` lists and serves pages and uploads for |
 | `fleet/services.py` `found_boards()` | `fpga-board-found` `board`, `variant`, `where`, current boot only | The board name on `/fpgas/` and each board page |
 | `fleet/hwid.py` `fpga_boards()` | `fpga-board-identified` with `schema` `fpga-identity/1` | rpi-hwid label documents |
@@ -150,32 +150,52 @@ a message to the port it came from, the gateway gives each fleet port its
 own broker listener that puts `port/<port>/` in front of every topic its Pi
 publishes, whatever the Pi says. A Pi on `pi-sw2-p47` that publishes
 `fpgas/<site>/pi/<serial>/event` reaches the site as
-`port/pi-sw2-p47/fpgas/<site>/pi/<serial>/event`. The site's `fleet_consumer`
-subscribes to both forms and, for a stamped message, takes the port from the
-stamp:
+`port/pi-sw2-p47/fpgas/<site>/pi/<serial>/event`.
+
+The site reads that form only when `FLEET_MQTT["port_prefix"]` is on (it is
+off by default). While it is off, a `port/...` topic is ignored like any
+foreign topic, because until the per-port listeners exist any Pi could
+publish one itself. Turn it on in the same deploy as those listeners.
+
+With it on, the `fleet_consumer` subscribes to both forms. A machine is then
+one record per port and serial, so a Pi can only ever write the records of
+the port it is on:
 
 - A stamp that is not a port's hostname is refused and logged.
-- A registration must name the stamped port's own hostname. Any other is
-  refused and logged, and nothing it says is stored.
-- A status beat or event reaches only the machine that registered from the
-  same stamped port. Any other (a serial that is not that machine, or one
-  that never registered) is dropped and logged. A beat that arrives before
-  its registration is dropped, as ever.
-- A machine moves to a new port when it registers there, as it always has,
-  unless it is still online on its old port. Until it has gone quiet there
-  (its last will, or no beat for 3 minutes), a stamped registration for its
-  serial from another port is refused, so a Pi cannot unlist another port's
-  board by registering that board's serial.
-- Once a machine has registered from a stamped port, unstamped messages
-  cannot touch it, and a machine placed on a hostname by a stamped
-  registration outranks any machine that only claimed the hostname. The
-  detail page shows the stamped port.
+- A stamped registration must name the stamped port's own hostname (the
+  short name, so the full host name is fine). Any other is refused and
+  logged, and nothing it says is stored.
+- A stamped registration makes or updates the record for that port and
+  serial. It never touches the record of the same serial from another port,
+  or the one registered without a stamp. The record has its own snapshots,
+  events, labels and history, so a forged claim to a serial never becomes
+  the real board's registration.
+- A stamped beat or event reaches only the record for that port and serial.
+  If there is none, it is dropped and logged. A beat that arrives before its
+  registration is dropped, as ever.
+- An unstamped message reaches only the record with no stamp, as always.
+  Stamped records outrank unstamped ones on a hostname, and a stamped
+  record can only speak for the hostname of its own port.
+- A board that moves to another port registers there and gets a new
+  record, listed as soon as its check passes. The old record stays as
+  history and stops being listed when its beats stop.
+- When more than one port (or none) has registered a serial, `/fleet/<serial>/`
+  says so and lists each; `?port=<port>` picks one, and an empty `?port=`
+  picks the unstamped one. The rpi-hwid.json download needs `?port=` when
+  there is more than one.
 
-The unstamped form is still accepted for machines never stamped, so the
-site can be deployed before the gateway change and nothing differs until
-stamped messages arrive. A later change will stop accepting it. A Pi can
-still lie about the board on its own port, because it has root there; it
-cannot show, hide or mislabel any other port.
+What a Pi can still do: lie about the board on its own port, since it has
+root there: register any serial there, or register as the newest machine on
+its own port's hostname. Its claims to other ports' serials become records
+on its own port and nothing else. Until unstamped messages stop being
+accepted (a later change), a Pi that publishes the old form can still
+register hostnames no stamped record holds.
+
+Open item for the gateway change: the Pi's agent publishes its registration
+once per boot, so a board that is already running when the per-port
+listeners start has no stamped record until it registers again. That change
+must either make the agent publish its registration again on reconnect or
+power-cycle the fleet.
 
 ## Sources
 
