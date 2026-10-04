@@ -9,6 +9,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 
 from django.db.models import F
 from django.utils import timezone
@@ -166,6 +167,53 @@ def found_boards():
         board = {key: str(detail.get(key, "")) for key in ("board", "variant", "where")}
         boards.setdefault(serial, {})[board["where"]] = board
     return {serial: list(places.values()) for serial, places in boards.items()}
+
+
+_BOARD_KEY = re.compile(r"board(0|[1-9][0-9]*)")
+
+
+def verified_boards():
+    """{serial: [{"board", "variant", "result", "identity"}, ...]}: the boards
+    each machine's FPGA check reported in the `fpga-verified` event of the
+    boot it is running now, in the order the check lists them. `board` is the
+    board's kind (`board<i>_identity_kind`, else the name in `board<i>` up to
+    any "@"), `variant` is "" when none was decided, and `identity` holds the
+    `board<i>_identity_*` fields. A machine whose check is running again, or
+    whose event names no board, is absent.
+
+    This, not `fpga-board-found`, says what a Pi carries: it is the one event
+    always sent (a broker that does not answer stops the progress events),
+    and the variant of a board that is only identified during its check (a
+    Tiny Tapeout board) is not known when `fpga-board-found` goes out.
+
+    The broker is open on the site LAN, so an entry that is not
+    "<board> <variant> <result>" is left out rather than breaking every page
+    that asks."""
+    newest = {}
+    events = BootEvent.objects.filter(
+        stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "stage", "detail").order_by("id")
+    for serial, stage, detail in events:
+        newest[serial] = detail if stage == "fpga-verified" else None
+    out = {}
+    for serial, detail in newest.items():
+        if not isinstance(detail, dict):
+            continue
+        boards = []
+        for index in sorted(int(m[1]) for key in detail if (m := _BOARD_KEY.fullmatch(key))):
+            words = detail[f"board{index}"].split() if isinstance(detail[f"board{index}"], str) else []
+            if len(words) != 3:
+                continue
+            name, variant, result = words
+            prefix = f"board{index}_identity_"
+            identity = {key[len(prefix):]: str(value) for key, value in detail.items()
+                        if key.startswith(prefix)}
+            boards.append({"board": identity.get("kind") or name.split("@")[0],
+                           "variant": "" if variant == "-" else variant,
+                           "result": result, "identity": identity})
+        if boards:
+            out[serial] = boards
+    return out
 
 
 def boot_event(serial, payload):

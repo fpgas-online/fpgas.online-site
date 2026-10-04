@@ -5,13 +5,20 @@ A Pi's identity is its registered hostname, and everything else derives from
 it. ``pi-sw<s>-p<p>`` is the VLAN-per-port scheme (welland: 10.21.<s>.<p>,
 gateway ssh forward <s><pp>22); ``pi<p>`` is the legacy flat scheme (PS1:
 10.21.0.<100+p>, forward <100+p>22). What is on it is what its FPGA check
-found this boot (fleet.services.found_boards).
+reported this boot (fleet.services.verified_boards).
+
+A Tiny Tapeout board is shown here only when it is an FPGA board; an ASIC
+board is on tinytapeout.fpgas.online alone
+(docs/superpowers/specs/2026-10-04-tinytapeout-listing-design.md).
 """
 
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from fleet.services import found_boards, offered_hosts
+from fleet.services import offered_hosts, verified_boards
+
+log = logging.getLogger(__name__)
 
 # ASCII digits, no leading zero, matched whole (fullmatch: `$` would let a
 # trailing newline through): each port has exactly one spelling, so no
@@ -20,23 +27,42 @@ _NUMBER = r"[1-9][0-9]*"
 _HOSTNAME = re.compile(
     rf"pi(?:-sw(?P<switch>{_NUMBER})-p(?P<port>{_NUMBER})|(?P<flat>{_NUMBER}))")
 
-# fpgas-verify's board keys (fpga-board-found "board") as people know them;
+# fpgas-verify's board kinds (fpga-verified "board<i>") as people know them;
 # the same titles as its own status table (fpgas.online-test-designs
 # scripts/collect_verify_status.py BOARD_TITLES).
 BOARD_TITLES = {
     "acorn": "Acorn",
     "arty": "Arty A7",
     "netv2": "NeTV2",
-    "tt": "TT FPGA",
     "fomu": "Fomu EVT",
 }
 
 
+# A Tiny Tapeout board is named by what it is, which is its variant.
+TT_TITLES = {
+    "tt-fpga": "TT FPGA",
+    "tt-asic": "TT ASIC",
+}
+
+# The Tiny Tapeout variants this site's own list shows. An allow-list: an
+# ASIC board, one that was not identified, and anything unexpected are not
+# shown.
+TT_SHOWN_HERE = ("tt-fpga",)
+
+
+def shown_here(board):
+    """Whether this site's own pages show a board a Pi reported."""
+    return board["board"] != "tt" or board.get("variant") in TT_SHOWN_HERE
+
+
 def board_title(board):
-    """A found board as people read it: its title and, when one was read,
-    its variant ("Acorn (cle-215+)"). A board this site has no title for
-    keeps the key the Pi sent."""
-    title = BOARD_TITLES.get(board["board"], board["board"])
+    """A reported board as people read it: its title and, when one was read,
+    its variant ("Acorn (cle-215+)"). A Tiny Tapeout board's title says its
+    variant already. A board this site has no title for keeps the kind the
+    Pi sent."""
+    if board["board"] == "tt" and board.get("variant") in TT_TITLES:
+        return TT_TITLES[board["variant"]]
+    title = BOARD_TITLES.get(board["board"], "Tiny Tapeout" if board["board"] == "tt" else board["board"])
     variant = board.get("variant")
     return f"{title} ({variant})" if variant and variant != "-" else title
 
@@ -45,7 +71,7 @@ def board_title(board):
 class Pi:
     port: int
     switch: int | None = None  # None: the legacy flat scheme
-    found: tuple = ()  # the boards its FPGA check found this boot
+    found: tuple = ()  # the boards its FPGA check reported this boot
 
     @classmethod
     def from_hostname(cls, hostname, found=()):
@@ -98,7 +124,7 @@ def offered():
     (fleet.services.offered_hosts). The others still boot and take ssh, so
     someone can log in and see what is wrong, but users are not sent to
     them."""
-    found = found_boards()
+    found = verified_boards()
     pis = (Pi.from_hostname(host, found.get(serial, ()))
            for host, serial in offered_hosts().items())
     return sorted((pi for pi in pis if pi is not None),
@@ -106,5 +132,28 @@ def offered():
 
 
 def offered_pi(hostname):
-    """The offered Pi with this hostname, or None."""
+    """The offered Pi with this hostname, or None. What ping and upload go
+    by: they serve every offered Pi, whatever boards it carries."""
     return next((pi for pi in offered() if pi.hostname == hostname), None)
+
+
+def listed():
+    """The offered Pis this site's own pages show, each with only the boards
+    shown here (shown_here). A Pi that reported boards and has none left is
+    not listed; one that reported none is listed as it always was."""
+    pis = []
+    for pi in offered():
+        shown = tuple(board for board in pi.found if shown_here(board))
+        hidden = [board for board in pi.found if not shown_here(board)]
+        for board in hidden:
+            if board.get("variant") not in TT_TITLES:
+                log.warning("%s reports a Tiny Tapeout board with variant %r: shown on no site",
+                            pi.hostname, board.get("variant"))
+        if shown or not pi.found:
+            pis.append(replace(pi, found=shown))
+    return pis
+
+
+def listed_pi(hostname):
+    """The listed Pi with this hostname, or None."""
+    return next((pi for pi in listed() if pi.hostname == hostname), None)
