@@ -126,3 +126,24 @@ def test_board_page_legacy_hostnames_keep_old_addresses(c):
 def test_the_old_port_only_page_names_are_gone(c):
     verified_pi("pi-sw2-p42")
     assert c.get("/fpgas/pi42.html").status_code == 404
+
+
+@pytest.mark.django_db
+def test_the_board_page_states_the_ssh_password_next_to_the_command(c):
+    # The Pis' sshd may show no banner (fpgas-online/fpgas.online-infra#215),
+    # so the page must not send the visitor to one for the password.
+    verified_pi("pi-sw2-p46")
+    html = c.get("/fpgas/pi-sw2-p46.html").content.decode()
+    assert "login banner" not in html
+    assert 'password: <code id="ssh-password">password</code>' in html  # PI_PW decoded
+    assert "ssh -p 24622 pi@welland.fpgas.online" in html
+    # the line the e2e suite parses for user, host and port is unchanged
+    assert "user: pi, host: welland.fpgas.online, port 24622," in html
+
+
+@pytest.mark.django_db
+def test_a_pi_password_that_is_not_base64_fails_the_board_page_loudly(c, site_settings):
+    site_settings.PI_PW = "not base64!"
+    verified_pi("pi-sw2-p46")
+    with pytest.raises(ValueError):
+        c.get("/fpgas/pi-sw2-p46.html")
