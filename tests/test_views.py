@@ -189,10 +189,14 @@ def test_board_page_data_attributes(c, boards, settings):
     assert "ttsite/board.js" in html
 
 
-def test_power_button_only_on_switch_one(c, boards):
-    """A switch-2 board does not offer the button (and /snmp/toggle refuses its port: tests/test_poe_policy.py)."""
+def test_power_button_on_every_board_the_site_shows(c, boards):
+    """On either switch; a board that is disabled or has no port has none.
+    /snmp/toggle accepts exactly the same boards: tests/test_poe_policy.py."""
     assert 'id="tt-power"' in c.get("/board/tt06/").content.decode()
-    assert 'id="tt-power"' not in c.get("/board/tt07/").content.decode()
+    tt07 = c.get("/board/tt07/").content.decode()  # on the second switch
+    assert 'id="tt-power"' in tt07 and 'data-switch="2"' in tt07 and 'data-port="7"' in tt07
+    assert 'id="tt-power"' not in c.get("/board/tt03/").content.decode()  # disabled
+    assert 'id="tt-power"' not in c.get("/board/kianv-1/").content.decode()  # no port
 
 
 def test_board_links_reject_dangerous_schemes(c, boards):
