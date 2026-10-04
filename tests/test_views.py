@@ -190,7 +190,7 @@ def test_board_page_data_attributes(c, boards, settings):
 
 
 def test_power_button_only_on_switch_one(c, boards):
-    """/snmp/toggle only knows switch 1, so a switch-2 board must not offer the button."""
+    """A switch-2 board does not offer the button (and /snmp/toggle refuses its port: tests/test_poe_policy.py)."""
     assert 'id="tt-power"' in c.get("/board/tt06/").content.decode()
     assert 'id="tt-power"' not in c.get("/board/tt07/").content.decode()
 

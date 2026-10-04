@@ -7,7 +7,7 @@
 {% block content %}
 <div id="ttsite-board"
      data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
-     data-port="{{ board.port|default_if_none:'' }}"
+     data-port="{{ board.port|default_if_none:'' }}" data-switch="{{ board.switch }}"
      data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
      {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
