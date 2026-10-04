@@ -69,8 +69,10 @@ An `fpga-verified` from pi-sw2-p46 on 2026-10-03, as stored (shortened):
 
 ## Boards found on welland
 
-Every Pi with a board sends `fpga-board-found` each boot, so this is the one
-event that names the board for every board type. Only the Acorn sends
+Every Pi with a board sends `fpga-board-found` each boot, naming the board
+for every board type. (The board pages take the name from `fpga-verified`
+instead, which is sent even when the progress events are lost: see "What the
+site reads".) Only the Acorn sends
 `fpga-board-identified` in the deployed version. Each host's newest boot, on
 2026-10-03:
 
@@ -130,7 +132,8 @@ its FPGA check passed in the boot it is running now.
 | --- | --- | --- |
 | `fleet/services.py` `machine_hosts()`, `checked_in()` | the registration's hostname; the status beat's `online` and arrival time | Which machine is on each port, and whether it is there now |
 | `fleet/services.py` `fpga_states()`, `offered_hosts()` | `fpga-verifying`, `fpga-verified` `result`, current boot only | Which Pis `/fpgas/` lists and serves pages and uploads for |
-| `fleet/services.py` `found_boards()` | `fpga-board-found` `board`, `variant`, `where`, current boot only | The board name on `/fpgas/` and each board page |
+| `fleet/services.py` `verified_boards()` | `fpga-verified` `board<i>` and `board<i>_identity_*`, current boot only | The board name on `/fpgas/` and each board page, and which boards are shown: a Tiny Tapeout board only when its variant is `tt-fpga` (`pibfpgas/pis.py` `listed()`) |
+| `fleet/services.py` `found_boards()` | `fpga-board-found` `board`, `variant`, `where`, current boot only | Nothing on the board pages any more; the events are still stored and shown on `/fleet/<serial>/` |
 | `fleet/hwid.py` `fpga_boards()` | `fpga-board-identified` with `schema` `fpga-identity/1` | rpi-hwid label documents |
 | `fleet/consumer.py` `_bridge()` | the stage name of every event | A `piview: <stage>` line in that Pi's status log (group `pistat_<hostname>`) |
 | `/fleet/<serial>/` page | every event of the current boot | Shown raw, for debugging |

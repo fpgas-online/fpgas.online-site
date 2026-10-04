@@ -10,16 +10,32 @@ from fleet.models import BootEvent, Machine
 
 
 def verified_pi(hostname, *boards, serial=None, boot_id="b1"):
-    """`boards` are (board, variant) pairs, as fpga-board-found sends them."""
+    """`boards` are (board, variant) pairs (or with an identity dict third): sent as fpga-board-found
+    events and in the fpga-verified event, as a real check does."""
     now = timezone.now()
     m = Machine.objects.create(serial=serial or hostname, site="welland", hostname=hostname,
                                last_seen=now, online=True, last_boot_id=boot_id)
-    for i, (board, variant) in enumerate(boards):
+    for i, (board, variant, *_identity) in enumerate(boards):
         BootEvent.objects.create(machine=m, boot_id=boot_id, stage="fpga-board-found", ts=now,
                                  detail={"board": board, "variant": variant, "where": f"1-1.{i + 2}"})
     BootEvent.objects.create(machine=m, boot_id=boot_id, stage="fpga-verified", ts=now,
-                             detail={"result": "pass", "mode": "auto"})
+                             detail={"result": "pass", "mode": "auto", **verified_detail(boards)})
     return m
+
+
+def verified_detail(boards, result="pass", kind=True):
+    """The per-board part of an fpga-verified event, as fpgas-verify sends it (runner.details()): `board<i>` is
+    "<board> <variant> <result>", and the identity's fields follow as `board<i>_identity_*`: `board`, `kind`
+    (not sent by fpgas-verify before 0.0.post1013: pass kind=False) and `variant`, then whatever the board read.
+    `boards` are (board, variant) or (board, variant, {identity field: value}) tuples."""
+    detail = {}
+    for i, (board, variant, *identity) in enumerate(boards):
+        detail[f"board{i}"] = f"{board} {variant or '-'} {result}"
+        fields = {"board": board, **({"kind": board} if kind else {}), **({"variant": variant} if variant else {}),
+                  **(identity[0] if identity else {})}
+        for key, value in fields.items():
+            detail[f"board{i}_identity_{key}"] = value
+    return detail
 
 
 T0 = timezone.now()

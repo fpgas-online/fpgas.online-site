@@ -1,6 +1,7 @@
 """The board named on /fpgas/ and on each board page is the one the Pi on that
-port found this boot: fpgas-verify's `fpga-board-found` events (board,
-variant, where), never a hand-typed label (docs/verify-events.md)."""
+port reported this boot: the boards in fpgas-verify's `fpga-verified` event,
+never a hand-typed label (docs/verify-events.md). `fpga-board-found` is still
+stored, for the /fleet/ pages."""
 
 import datetime
 import pathlib
@@ -44,7 +45,9 @@ def c(settings):
     ("acorn", "cle-215+", "Acorn (cle-215+)"),
     ("arty", "a7-35", "Arty A7 (a7-35)"),
     ("netv2", "a7-35", "NeTV2 (a7-35)"),
-    ("tt", "tt-fpga", "TT FPGA (tt-fpga)"),
+    ("tt", "tt-fpga", "TT FPGA"),  # a Tiny Tapeout board is titled by its variant
+    ("tt", "tt-asic", "TT ASIC"),
+    ("tt", "", "Tiny Tapeout"),
     ("fomu", "evt", "Fomu EVT (evt)"),
     ("acorn", "-", "Acorn"),  # "-": read, and no variant
     ("acorn", "", "Acorn"),
@@ -114,7 +117,7 @@ def test_the_board_page_names_the_board(c):
 @pytest.mark.django_db
 def test_two_boards_on_one_pi_are_both_named(c):
     verified_pi("pi-sw2-p9", ("arty", "a7-35"), ("tt", "tt-fpga"))
-    assert "Arty A7 (a7-35), TT FPGA (tt-fpga)" in c.get("/fpgas/").content.decode()
+    assert "Arty A7 (a7-35), TT FPGA" in c.get("/fpgas/").content.decode()
 
 
 @pytest.mark.django_db

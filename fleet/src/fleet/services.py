@@ -9,6 +9,7 @@ import datetime
 import hashlib
 import json
 import logging
+import re
 
 from django.db.models import F
 from django.utils import timezone
@@ -166,6 +167,87 @@ def found_boards():
         board = {key: str(detail.get(key, "")) for key in ("board", "variant", "where")}
         boards.setdefault(serial, {})[board["where"]] = board
     return {serial: list(places.values()) for serial, places in boards.items()}
+
+
+# `board<i>` in an fpga-verified detail. At most three digits: the broker is
+# open, and int() of a key with thousands of digits raises.
+_BOARD_KEY = re.compile(r"board(0|[1-9][0-9]{0,2})")
+# No Pi carries more boards than this; further entries are not read.
+MAX_BOARDS = 16
+# A `board<i>` entry that is not "<board> <variant> <result>". It is kept, so
+# that a Pi whose report cannot be read is not mistaken for one that
+# reported no board.
+UNREADABLE = {"board": "", "variant": "", "result": "", "identity": {}}
+
+
+def _reported_boards(detail):
+    """The boards in one fpga-verified detail, in the check's order."""
+    boards = []
+    indices = sorted(int(m[1]) for key in detail if isinstance(key, str) and (m := _BOARD_KEY.fullmatch(key)))
+    for index in indices[:MAX_BOARDS]:
+        entry = detail[f"board{index}"]
+        words = entry.split() if isinstance(entry, str) else []
+        if len(words) != 3:
+            boards.append(dict(UNREADABLE))
+            continue
+        name, variant, result = words
+        prefix = f"board{index}_identity_"
+        identity = {key[len(prefix):]: str(value) for key, value in detail.items()
+                    if isinstance(key, str) and key.startswith(prefix)}
+        boards.append({"board": name, "variant": "" if variant == "-" else variant,
+                       "result": result, "identity": identity})
+    return boards
+
+
+def fpga_reports():
+    """{serial: (state, boards)} of each machine's FPGA boot check in the boot
+    it is running now, from one read of its events: `state` as fpga_states()
+    gives it, and `boards` the boards its `fpga-verified` event reported
+    ([] while the check is running again, or when it named none).
+
+    Each board is {"board", "variant", "result", "identity"}: `board` is the
+    name in `board<i>` (fpgas-verify's board module: "acorn", "tt", ...),
+    `variant` is "" when none was decided, and `identity` holds the
+    `board<i>_identity_*` fields. The identity's own `kind` is not used for
+    `board`: it is rpi-hwid's name for the design found ("pcileech" on an
+    Acorn card), not which module checked it. An entry that is not
+    "<board> <variant> <result>" is UNREADABLE.
+
+    This, not `fpga-board-found`, says what a Pi carries: it is the one event
+    always sent (a broker that does not answer stops the progress events),
+    and the variant of a board that is only identified during its check (a
+    Tiny Tapeout board) is not known when `fpga-board-found` goes out.
+
+    State and boards come from the same event, so a check that starts again
+    between two reads cannot leave a Pi "passed" with no boards."""
+    reports = {}
+    events = BootEvent.objects.filter(
+        stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
+        .exclude(boot_id="").values_list("machine__serial", "stage", "detail").order_by("id")
+    for serial, stage, detail in events:
+        if stage == "fpga-verifying":
+            reports[serial] = ("verifying", [])
+        elif isinstance(detail, dict) and detail.get("result"):
+            reports[serial] = (str(detail["result"]), _reported_boards(detail))
+        else:
+            reports[serial] = ("unknown", [])
+    return reports
+
+
+def verified_boards():
+    """{serial: boards} of the machines whose `fpga-verified` event of this
+    boot reported boards (fpga_reports)."""
+    return {serial: boards for serial, (_, boards) in fpga_reports().items() if boards}
+
+
+def offered_boards():
+    """{hostname: boards} of the machines the /fpgas/ pages offer
+    (offered_hosts), each with the boards its check reported, from the same
+    read of the events that says it passed."""
+    reports = fpga_reports()
+    live = checked_in()
+    return {host: reports[serial][1] for host, serial in machine_hosts().items()
+            if serial in live and reports.get(serial, ("", []))[0] == "pass"}
 
 
 def boot_event(serial, payload):
