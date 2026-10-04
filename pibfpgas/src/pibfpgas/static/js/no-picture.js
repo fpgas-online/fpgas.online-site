@@ -4,23 +4,25 @@
  * "No camera picture from this board right now" in place of a player that
  * would spin for ever, and the player back as soon as there is a picture.
  *
- * A Pi publishes no stream when it has no camera, and for a couple of minutes
- * after every restart while it has one; either way its playlist
- * (/live/<host>.m3u8) is 404 and its video.js player never gets a frame. For
+ * A Pi with no camera publishes no stream, so its playlist (/live/<host>.m3u8)
+ * is 404 and its video.js player never gets a frame; so is a camera's once its
+ * stream has been gone long enough for the server to remove the playlist (a
+ * Pi that only restarts keeps answering 200 with its last playlist). For
  * every video.js player with data-setup='{"sources": [...]}' this asks for
  * the playlist once. On a 404 the player is hidden and a static box of its
  * size stands in its place. While the box is shown the playlist is asked for
  * again every POLL_MS, only while the page is visible, and at once when the
  * page's "reset video player" button is pressed; when it answers 2xx the box
  * goes, the player is shown again and video.js is given its source again.
- * Any other answer (a server error, no answer) changes nothing: the player
- * stays as it is, or the box stays and the polling goes on.
+ * Any other answer (a server error, no answer within FETCH_MS) changes
+ * nothing: the player stays as it is, or the box stays and the polling goes
+ * on.
  *
  * Why the playlist and not the fleet registry: a registration's
  * peripherals.cameras lists CSI sensors only, but a Pi also streams from a
- * USB HDMI grabber (the NeTV2 boards; fpgas.online-cam gst-libcam.sh), and a
- * Pi with a camera has no stream while it restarts. The playlist is what the
- * player itself would play.
+ * USB HDMI grabber (the NeTV2 boards; fpgas.online-cam gst-libcam.sh), and
+ * the registry does not say whether a stream is being published. The
+ * playlist is what the player itself would play.
  *
  * The player is hidden, never disposed of: its element, its id and video.js's
  * structure (wrapper <div id="video-player<N>"> around <video
@@ -42,9 +44,12 @@
 (function () {
   const MESSAGE = "No camera picture from this board right now";
   const POLL_MS = 15000;
+  // a question that gets no answer in this time counts as no answer, so one
+  // stalled request cannot stop the polling
+  const FETCH_MS = 10000;
   const HIDDEN = "no-picture-hidden";
   const BOX_STYLE = "box-sizing: border-box; display: flex; align-items: center; justify-content: center; " +
-    "background: #222; color: #ddd; font: 16px sans-serif; text-align: center; padding: 8px;";
+    "background: #222; color: #ddd; font: 16px sans-serif; text-align: center; padding: 8px; overflow: hidden;";
 
   const boards = [];
 
@@ -65,18 +70,30 @@
     return document.visibilityState === "hidden";
   }
 
-  // The player's own size: the <video>'s width and height attributes (which
-  // video.js drops from its wrapper, so from the player once it is set up),
-  // then the inline style (the board page's "width: 100%; height: 100%"),
-  // which wins.
+  // A length in px from an attribute or a measurement, or null.
+  function px(value) {
+    const n = Number(value);
+    return n > 0 ? `${Math.round(n)}px` : null;
+  }
+
+  // The player's own size, taken while it is still shown: the <video>'s width
+  // and height attributes, else the size video.js's player has on the page
+  // (video.js drops the attributes from its wrapper), else 16:9 at that
+  // width, which is how video.js sizes a player given a width only (the TT
+  // board page) -- a bare <video> not yet set up is not measured, as the
+  // browser's own default height for it is not the player's. The inline
+  // style (the board page's "width: 100%; height: 100%") comes last and wins.
   function box(el, player) {
-    const width = el.getAttribute("width") || (player && player.width());
-    const height = el.getAttribute("height") || (player && player.height());
+    const rect = player && el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
+    const width = px(el.getAttribute("width")) || px(rect.width) || "100%";
+    const height = px(el.getAttribute("height")) || px(rect.height);
+    const size = height ? `width: ${width}; height: ${height};` : `width: ${width}; aspect-ratio: 16 / 9;`;
     const div = document.createElement("div");
     div.className = "no-picture";
+    // a polite live region: read out when it appears; it takes no focus
+    div.setAttribute("role", "status");
     div.textContent = MESSAGE;
-    div.style.cssText = `${BOX_STYLE} width: ${width}px; height: ${height}px; ${el.getAttribute("style") || ""}`
-      .trimEnd();
+    div.style.cssText = `${BOX_STYLE} ${size} ${el.getAttribute("style") || ""}`.trimEnd();
     return div;
   }
 
@@ -117,12 +134,26 @@
     ask() {
       if (this.asking) return;
       this.asking = true;
-      fetch(this.sources[0].src, { cache: "no-store" })
+      const abort = typeof AbortController !== "undefined" ? new AbortController() : null;
+      let done = false;
+      const finish = (status) => {
+        if (done) return;
+        done = true;
+        clearTimeout(limit);
+        this.asking = false;
+        this.answered(status);
+      };
+      // aborting rejects the fetch; finishing here as well covers a browser
+      // without AbortController
+      const limit = setTimeout(() => {
+        if (abort) abort.abort();
+        finish(null);
+      }, FETCH_MS);
+      // HEAD: only the status is wanted, not a playlist that can be tens of
+      // kB; nginx answers HEAD for a file under `alias` with GET's status
+      fetch(this.sources[0].src, { method: "HEAD", cache: "no-store", signal: abort ? abort.signal : undefined })
         .then((response) => response.status, () => null)
-        .then((status) => {
-          this.asking = false;
-          this.answered(status);
-        });
+        .then(finish);
     }
 
     answered(status) {

@@ -75,6 +75,15 @@ class Element {
         return name in this.attrs ? this.attrs[name] : null;
     }
 
+    setAttribute(name, value) {
+        this.attrs[name] = String(value);
+    }
+
+    // what the page lays out: set by the test for video.js's wrapper
+    getBoundingClientRect() {
+        return this.rect || { width: 0, height: 0 };
+    }
+
     addEventListener(name, fn) {
         (this.listeners[name] ||= []).push(fn);
     }
@@ -111,11 +120,13 @@ class Element {
 }
 
 // A page with one board player in a table cell, as the templates write it.
-// `answers` are the playlist's answers in turn (a status, or "network-error");
-// the last one repeats.
+// `answers` are the playlist's answers in turn (a status, "network-error", or
+// "hang": no answer until the request is aborted); the last one repeats.
+// `height: null` is the TT board page's player, given a width only; `rendered`
+// is the size video.js's player has on the page once set up.
 function loadPage({ answers, videojsReady = false, style = null, boardPage = false, whepLive = false,
-                    readyState = "interactive" }) {
-    const page = { observers: [], timers: [], now: 0, nextTimer: 1, fetches: [], visibility: "visible" };
+                    readyState = "interactive", height = "200", rendered = { width: 320, height: 200 } }) {
+    const page = { observers: [], timers: [], now: 0, nextTimer: 1, fetches: [], visibility: "visible", hung: 0 };
     const doc = { readyState, listeners: {} };
     const head = new Element(page, "head");
     const body = new Element(page, "body");
@@ -127,9 +138,10 @@ function loadPage({ answers, videojsReady = false, style = null, boardPage = fal
         }));
     }
     const attrs = {
-        id: "video-player1", class: "video-js", width: "320", height: "200",
+        id: "video-player1", class: "video-js", width: "320",
         "data-setup": JSON.stringify({ liveui: true, sources: SOURCES }),
     };
+    if (height !== null) attrs.height = height;
     if (style) attrs.style = style;
     const video = cell.appendChild(new Element(page, "video", attrs));
     const reset = boardPage ? body.appendChild(new Element(page, "input", { id: "refresh-video-player1" })) : null;
@@ -161,6 +173,7 @@ function loadPage({ answers, videojsReady = false, style = null, boardPage = fal
     const setUp = () => {
         const { width, height, ...kept } = video.attrs;
         wrapper = new Element(page, "div", kept);
+        wrapper.rect = rendered;
         cell.insertBefore(wrapper, video);
         video.remove();
         video.attrs = { ...kept, id: `${kept.id}_html5_api`, class: "vjs-tech" };
@@ -184,6 +197,12 @@ function loadPage({ answers, videojsReady = false, style = null, boardPage = fal
         page.fetches.push({ url, options });
         const answer = answers.length > 1 ? answers.shift() : answers[0];
         if (answer === "network-error") return Promise.reject(new TypeError("Failed to fetch"));
+        if (answer === "hang") {
+            page.hung += 1;
+            return new Promise((_, reject) => {
+                options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+            });
+        }
         return Promise.resolve({ status: answer, ok: answer >= 200 && answer < 300 });
     };
     const setTimeout = (fn, ms = 0) => {
@@ -208,7 +227,8 @@ function loadPage({ answers, videojsReady = false, style = null, boardPage = fal
     }
 
     const context = vm.createContext({
-        document: doc, fetch, setTimeout, clearTimeout, MutationObserver, JSON, Promise, Array, console,
+        document: doc, fetch, setTimeout, clearTimeout, MutationObserver, AbortController, JSON, Promise, Array,
+        Number, Math, console,
     });
     context.window = context;
     context.videojs = videojs;
@@ -261,6 +281,7 @@ test("a board whose playlist is 404 shows the static box and hides the player", 
     await settle();
     assert.deepEqual(t.page.fetches.map((f) => f.url), [STREAM]);
     assert.equal(t.page.fetches[0].options.cache, "no-store");
+    assert.equal(t.page.fetches[0].options.method, "HEAD", "the status only, not the playlist");
     const [box] = boxes(t);
     assert.equal(box.textContent, MESSAGE);
     assert.equal(t.cell.children.indexOf(box), t.cell.children.indexOf(t.video) - 1, "in the player's place");
@@ -282,6 +303,57 @@ test("a player video.js has already set up is hidden, not disposed of, and keeps
     assert.equal(t.video.parentNode, t.wrapper());
     // the size from the player: video.js dropped the wrapper's width and height
     assert.match(boxes(t)[0].style.cssText, /width: 320px; height: 200px;$/);
+});
+
+test("the box is a polite live region that takes no focus", async () => {
+    const t = loadPage({ answers: [404] });
+    await settle();
+    const [box] = boxes(t);
+    assert.equal(box.getAttribute("role"), "status");
+    assert.equal(box.getAttribute("tabindex"), null);
+});
+
+test("the TT board page's player, given a width only, gets a 16:9 box before video.js sets it up", async () => {
+    const t = loadPage({ answers: [404], height: null });
+    await settle();
+    const css = boxes(t)[0].style.cssText;
+    assert.match(css, /width: 320px; aspect-ratio: 16 \/ 9;$/);
+    assert.doesNotMatch(css, /height: (0|null|undefined)px/);
+});
+
+test("the TT board page's player, once set up, gets a box of the size it has on the page", async () => {
+    const t = loadPage({ answers: [404], height: null, videojsReady: true, rendered: { width: 320, height: 180 } });
+    await settle();
+    assert.match(boxes(t)[0].style.cssText, /width: 320px; height: 180px;$/);
+});
+
+test("a player with no size on the page yet still gets a box with a height", async () => {
+    const t = loadPage({ answers: [404], height: null, videojsReady: true, rendered: { width: 0, height: 0 } });
+    await settle();
+    assert.match(boxes(t)[0].style.cssText, /width: 100%; aspect-ratio: 16 \/ 9;$/);
+});
+
+test("a question that gets no answer is given up after 10 s, and the polling goes on", async () => {
+    const t = loadPage({ answers: [404, "hang", 200], videojsReady: true });
+    await settle();
+    await t.advance(POLL_MS);
+    assert.equal(t.page.hung, 1);
+    assert.equal(boxes(t).length, 1);
+    await t.advance(10000);
+    assert.equal(t.page.timers.length, 1, "the next poll, and no time limit left over");
+    assert.equal(boxes(t).length, 1);
+    await t.advance(POLL_MS);
+    assert.equal(t.page.fetches.length, 3);
+    assert.equal(boxes(t).length, 0);
+});
+
+test("a question at load that gets no answer leaves the player as it was", async () => {
+    const t = loadPage({ answers: ["hang"], videojsReady: true });
+    await settle();
+    await t.advance(10000);
+    assert.equal(boxes(t).length, 0);
+    assert.ok(!hidden(t.wrapper()));
+    assert.equal(t.page.timers.length, 0);
 });
 
 test("a <video> hidden before video.js sets it up stays hidden: video.js copies its class to the wrapper", async () => {
