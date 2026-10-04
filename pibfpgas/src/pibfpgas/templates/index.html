@@ -52,8 +52,8 @@ table.button {
 {% for pi in pis %}
 
 <table style="width: 220px; float: left;">
- <tr><td><h1>{{pi.hostname}}</h1>{% if pi.fpga_board %}{{pi.fpga_board}}{% endif %}</td></tr>
- <tr><td><a href="pi{{pi.port}}.html">Use this FPGA</a></td></tr>
+ <tr><td><h1>{{pi.hostname}}</h1>{{pi.boards}}</td></tr>
+ <tr><td><a href="{{pi.hostname}}.html">Use this FPGA</a></td></tr>
  <tr>
   <td>
     <video
@@ -63,12 +63,8 @@ table.button {
       autoplay muted
       controls
       preload="auto"
-      data-setup="{}"
+      data-setup='{"liveui": true, "sources": [{"src": "https://{{ domain_name }}{{pi.stream_url}}", "type": "application/x-mpegURL"}]}'
     >
-      <source
-          src="https://{{ domain_name }}{{pi.stream_url}}"
-          type='application/x-mpegURL'
-      />
     </video>
   </td>
  </tr>

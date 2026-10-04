@@ -1,0 +1,24 @@
+{% extends "fleet/base.html" %}
+{% block title %}Fleet machines — fpgas.online{% endblock %}
+{% block content %}
+<h1>Fleet machines</h1>
+<table>
+  <tr><th>Hostname</th><th>Site</th><th>Serial</th><th>Model</th>
+      <th>FPGA boards</th><th>Status</th><th>FPGA check</th><th>Last seen</th></tr>
+  {% for row in rows %}
+  <tr>
+    <td><a href="/fleet/{{ row.machine.serial }}/">{{ row.machine.hostname|default:row.machine.serial }}</a></td>
+    <td>{{ row.machine.site }}</td>
+    <td>{{ row.machine.serial }}</td>
+    <td>{{ row.model }}</td>
+    <td>{{ row.fpga_kinds|join:", " }}</td>
+    <td><span class="badge {% if row.machine.online %}online{% else %}offline{% endif %}">
+      {% if row.machine.online %}online{% else %}offline{% endif %}</span></td>
+    <td>{% include "fleet/fpga_check.html" with state=row.fpga_check %}</td>
+    <td>{{ row.machine.last_seen|date:"c" }}</td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="8">No machines have registered yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

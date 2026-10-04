@@ -1,0 +1,232 @@
+"""The site's label input for a Pi against the one rpi-hwid makes on that Pi,
+compared as the label contract says (§15, §25): label_input.comparable().
+
+The Pi side is pi-sw2-p48 as rpi-hwid's own tests have it:
+- data/pi-sw2-p48-pi-facts.json is the Pi part of rpi-hwid's ACORN_HOST
+  fixture (tests/conftest.py, rpi-hwid origin/main 0393d6c);
+- data/identity-v1-acorn-p48.json is the contract's golden fpgas-verify
+  identity document (§11), byte for byte rpi-hwid's copy.
+Its FPGA list is built by rpi-hwid's own code, as `rpi-hwid labels
+--this-host` does: fpgas-verify's reading put on the board found on PCIe.
+
+The site side is what that Pi sends: a registration, and the pi-identified
+and fpga-board-identified events, written as fpgas-verify writes details
+(flat strings, label contract §2 and §13).
+"""
+
+import copy
+import json
+import pathlib
+
+import pytest
+from django.utils import timezone
+from fleet.models import BootEvent, Machine
+from fleet.services import register_document, status
+from rpi_hwid import fpga, label_input
+from rpi_hwid.probe import nominal_memory
+
+from fleet import hwid
+
+DATA = pathlib.Path(__file__).parent / "data"
+PI_FACTS = json.loads((DATA / "pi-sw2-p48-pi-facts.json").read_text())
+IDENTITY_TEXT = (DATA / "identity-v1-acorn-p48.json").read_text()
+HOST = "pi-sw2-p48"
+# The fixture has no MemTotal; a Pi 5 2 GB's, so both sides say "2 GB".
+MEM_TOTAL_KB = 2003128
+
+# What pi-identified carries: every Summary field rpi-hwid reads on the Pi.
+PI_IDENTIFIED_FIELDS = tuple(hwid.PI_FIELDS)
+
+
+def flat(value):
+    """One value as a fleet-event detail string (label contract §2, §13)."""
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return str(value)
+
+
+# A second board, of a kind that gets no label but is in the document
+# (label contract §33), with a field read as none: null in fpgas-verify's
+# identity document, "-" in its event (§34).
+PCILEECH = {"board": "pcileech", "kind": "pcileech", "dna": "0x00112233445566ff",
+            "idcode": "0x13631093", "serial": None, "flash_uid": None}
+
+
+def identity(*extra):
+    doc = json.loads(IDENTITY_TEXT)
+    doc["boards"] += extra
+    return doc
+
+
+def pi_side(*extra):
+    """The label input `rpi-hwid labels --this-host` builds on p48, with
+    fpgas-verify having identified the `extra` boards as well."""
+    summary = copy.deepcopy(PI_FACTS)
+    summary["memory"] = nominal_memory(MEM_TOTAL_KB)
+    read, why = fpga.identity_parse(json.dumps(identity(*extra)))
+    assert why is None
+    # what sysfs shows: the Acorn on PCIe
+    boards = [{"kind": "acorn", "slot": read[0]["bdf"]}]
+    assert fpga.merge_identity(boards, read) == []
+    summary["fpga"] = fpga.fpga_summary(boards)
+    return label_input.build(HOST, summary, dict.fromkeys(summary, "rpi-hwid"))
+
+
+@pytest.fixture
+def machine():
+    register_document({
+        "schema": 1,
+        "machine": {"serial": PI_FACTS["serial"], "model": PI_FACTS["model"],
+                    "revision_code": PI_FACTS["revision"], "mem_total_kb": MEM_TOTAL_KB,
+                    "macs": {"eth0": PI_FACTS["macs"][0]["mac"]}},
+        "connection": {"site": "welland", "hostname": HOST},
+        "peripherals": {"usb": [], "pcie": [], "hats": [], "cameras": []},
+    })
+    status(PI_FACTS["serial"], {"online": True, "boot_id": "b1", "uptime_s": 60})
+    return Machine.objects.get()
+
+
+def send(machine, stage, detail):
+    BootEvent.objects.create(machine=machine, boot_id="b1", stage=stage, detail=detail,
+                             ts=timezone.now())
+
+
+def pi_identified():
+    detail = {"schema": "pi-identity/1", "reader": "rpi-hwid"}
+    detail.update((k, flat(PI_FACTS[k])) for k in PI_IDENTIFIED_FIELDS if k in PI_FACTS)
+    return detail
+
+
+def fpga_board_identified(board=None):
+    """One board's event, as fpgas-verify sends it: the p48 Acorn's by default."""
+    if board is None:
+        (board,) = json.loads(IDENTITY_TEXT)["boards"]
+    detail = {"schema": "fpga-identity/1"}
+    detail.update((k, flat(v)) for k, v in board.items())
+    return detail
+
+
+@pytest.mark.django_db
+def test_a_board_without_a_label_and_a_field_read_as_none_still_agree(machine):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified(PCILEECH))
+    built = hwid.build(machine)
+    assert built.notes == []
+    assert [b["kind"] for b in built.document["summary"]["fpga"]] == ["acorn", "pcileech"]
+    assert label_input.comparable(built.document) == label_input.comparable(pi_side(PCILEECH))
+
+
+@pytest.mark.django_db
+def test_the_site_and_the_pi_agree_on_p48(machine):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    built = hwid.build(machine)
+    assert built.notes == []
+    assert label_input.comparable(built.document) == label_input.comparable(pi_side())
+    assert not any(label_input.missing(built.document).values())
+
+
+@pytest.mark.django_db
+def test_the_comparison_leaves_out_only_what_is_measured_or_provenance(machine):
+    # a different voltage, current and MAC signal, and the site's own
+    # sources: still the same document
+    facts = pi_identified() | {"ext5v_v": "5.11", "max_current_ma": "5000",
+                               "macs": flat([{"kind": "eth", "mac": PI_FACTS["macs"][0]["mac"],
+                                              "signal": "carrier"}])}
+    send(machine, "pi-identified", facts)
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    site = hwid.build(machine).document
+    assert label_input.dumps(site) != label_input.dumps(pi_side())
+    assert label_input.comparable(site) == label_input.comparable(pi_side())
+
+
+@pytest.mark.django_db
+def test_a_different_fact_is_a_difference(machine):
+    send(machine, "pi-identified", pi_identified() | {"power_class": "usbc-supply"})
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    assert label_input.comparable(hwid.build(machine).document) != \
+        label_input.comparable(pi_side())
+
+
+@pytest.mark.django_db
+def test_without_the_events_the_site_cannot_match(machine):
+    built = hwid.build(machine)
+    assert label_input.comparable(built.document) != label_input.comparable(pi_side())
+    assert any(label_input.missing(built.document).values())
+
+
+# A Tiny Tapeout board fpgas-verify identified with no ROM answer: shuttle,
+# repo and commit read as none ("-" in the event, null in its identity).
+TT = {"board": "tt", "kind": "tt", "usb_serial": "e6614c311b6b8a2e", "mcu": "RP2350",
+      "chip": "fpga", "shuttle": None, "repo": None, "commit": None, "demoboard": "TT06+",
+      "demoboard_version": "v2.0.1", "sdk": "2.0.1"}
+# The record rpi-hwid's this_host makes of it: TinyTapeoutBoard's fields,
+# each one that is not None (this_host.identity_tinytapeout).
+TT_RECORD = {k: v for k, v in TT.items() if k in label_input.TT_FIELDS and v is not None}
+
+
+def pi_side_tt():
+    """p48's label input with that TT board on its USB, as `rpi-hwid labels
+    --this-host` builds it."""
+    doc = pi_side()
+    doc["summary"]["tinytapeout"] = [TT_RECORD]
+    return label_input.load(label_input.dumps(doc))
+
+
+@pytest.mark.django_db
+def test_a_tt_field_read_as_none_is_left_out_as_on_the_pi(machine):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified(TT))
+    built = hwid.build(machine)
+    assert built.notes == []
+    (tt,) = built.document["summary"]["tinytapeout"]
+    assert tt == TT_RECORD and "shuttle" not in tt
+    assert label_input.comparable(built.document) == label_input.comparable(pi_side_tt())
+
+
+@pytest.mark.django_db
+def test_rpi_hwid_refuses_a_label_with_a_fact_missing(machine):
+    # The page lists only labels with a field missing; rpi-hwid itself still
+    # refuses to make any label that has one (a partial label is never made).
+    from rpi_hwid import labels
+    send(machine, "pi-identified", pi_identified())
+    acorn = {k: v for k, v in json.loads(IDENTITY_TEXT)["boards"][0].items() if k != "dna"}
+    send(machine, "fpga-board-identified", fpga_board_identified(acorn))
+    document = hwid.build(machine).document
+    assert "dna" in label_input.missing(document)["fpga[0]"]
+    with pytest.raises(labels.MissingFieldsError, match=r"fpga\[0\] label needs .*dna"):
+        labels.render_sheet([document])
+
+
+# The detail page: complete is every label with nothing missing, not a
+# `missing` with no keys -- rpi-hwid lists each label it can make, with [].
+
+COMPLETE = "Everything rpi-hwid needs for this Pi's labels is here."
+INCOMPLETE = "Not enough for full labels yet."
+
+
+@pytest.mark.django_db
+def test_the_page_says_a_complete_pi_is_complete(machine, client):
+    send(machine, "pi-identified", pi_identified())
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    missing = label_input.missing(hwid.build(machine).document)
+    assert missing and not any(missing.values())    # labels, each with nothing missing
+    page = client.get(f"/fleet/{machine.serial}/").content.decode()
+    assert COMPLETE in page and INCOMPLETE not in page
+
+
+@pytest.mark.django_db
+def test_the_page_says_an_incomplete_pi_is_incomplete(machine, client):
+    send(machine, "pi-identified", {k: v for k, v in pi_identified().items() if k != "header"})
+    send(machine, "fpga-board-identified", fpga_board_identified())
+    page = client.get(f"/fleet/{machine.serial}/").content.decode()
+    assert INCOMPLETE in page and COMPLETE not in page
+    assert '<td>board</td><td class="missing">header</td>' in page
+    # a label with nothing missing is not listed as needing something
+    assert "<td>fpga[0]</td>" not in page

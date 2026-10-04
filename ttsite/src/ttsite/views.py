@@ -50,7 +50,9 @@ def board(request, slug):
         commander_version=commander_version,
         commander_dir=commander_dir,
         shuttle_url=f"https://tinytapeout.com/chips/{b.shuttle}/" if b.shuttle else "",
-        pistat_groups=[b.hostname, f"pi{b.port}"] if b.live else [],
+        # the Pi's status log group is its hostname: its own pistat curls
+        # (/pistat/stat/%l/) and the fleet bridge both send there
+        pistat_groups=[b.hostname] if b.live else [],
         # /snmp/toggle drives the first switch only, so hide the button elsewhere
         can_power_cycle=b.live and b.switch == 1,
     )

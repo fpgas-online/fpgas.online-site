@@ -64,7 +64,7 @@ def test_board_page_live(c, boards, settings):
     assert "/live/pi-sw1-p6.m3u8" in html
     assert "tt-commander/0.1.0/tt-commander-embed.js" in html
     assert "/ws/board/tt06/serial" in html
-    assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
+    assert 'data-pistat-groups="pi-sw1-p6"' in html
     assert "tinytapeout.com/chips/tt06/" in html
 
 
@@ -184,7 +184,7 @@ def test_board_page_data_attributes(c, boards, settings):
     assert 'data-slug="tt06"' in html and 'data-kind="asic"' in html and 'data-port="6"' in html
     assert 'data-ws-path="/ws/board/tt06/serial"' in html
     assert 'data-status-url="/board/tt06/status.json"' in html
-    assert 'data-pistat-groups="pi-sw1-p6 pi6"' in html
+    assert 'data-pistat-groups="pi-sw1-p6"' in html
     assert "Power-cycle board" in html
     assert "ttsite/board.js" in html
 

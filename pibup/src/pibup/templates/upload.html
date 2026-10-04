@@ -1,7 +1,7 @@
 {% if error %}
 <p class="upload-error" role="alert" style="color: #a00;"><strong>Upload failed.</strong> {{ error }}</p>
 {% endif %}
-<form id="upform" method="post" enctype="multipart/form-data" action="/pibup/upload?pino={{pino}}">
+<form id="upform" method="post" enctype="multipart/form-data" action="/pibup/upload?host={{host|urlencode}}">
   {% csrf_token %}
   {{form}}
   <input type=submit value="upload">

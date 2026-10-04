@@ -2,13 +2,14 @@
 
 import base64
 import logging
+from urllib.parse import urlencode
 
 import paramiko
 from django.conf import settings
 from django.core.exceptions import BadRequest
-from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
-from pibfpgas.models import Pi
+from django.http import Http404, HttpResponseRedirect
+from django.shortcuts import render
+from pibfpgas.pis import Pi, offered_pi
 
 from .forms import UploadFileForm
 
@@ -55,35 +56,38 @@ class SiteMisconfigured(UploadError):
 
 
 def board_from_request(request):
-    """The port number and the board named by ``?pino=``.
+    """The Pi named by ``?host=``: the board's registered hostname
+    (pi-sw2-p42, or pi9 at a flat site).
 
-    A link with no ``pino``, or one carrying something that is not a switch
-    port number, is a broken link rather than a broken server: 400. A port
-    number with no board behind it is a 404, from get_object_or_404. Either
-    way the visitor never meets Django's 500 page, which is what
-    ``request.GET['pino']`` gave them.
+    A link with no ``host``, or one carrying something that is not a Pi
+    hostname, is a broken link rather than a broken server: 400. A Pi
+    hostname the board pages do not offer (nothing registered with that name,
+    or it has not checked in and passed its FPGA check this boot) is a 404.
+    Either way the visitor never meets Django's 500 page, which is what
+    ``request.GET['host']`` gave them.
+
+    A hostname names its switch as well as its port, and only the newest
+    machine registered on a hostname is offered, so a request never names two
+    boards and there is nothing to guess at.
     """
 
-    pino = request.GET.get("pino")
-    if pino is None or not (pino.isascii() and pino.isdigit()) or not 0 < int(pino) < 10000:
-        log.warning("upload request with no usable pino: %s", request.get_full_path())
-        raise BadRequest("this page needs ?pino=<switch port>, naming the board to upload to")
+    host = request.GET.get("host")
+    if host is None or Pi.from_hostname(host) is None:
+        log.warning("upload request with no usable host: %s", request.get_full_path())
+        raise BadRequest("this page needs ?host=<Pi hostname>, naming the board to upload to")
 
-    try:
-        return pino, get_object_or_404(Pi, port=pino)
-    except Pi.MultipleObjectsReturned:
-        # welland numbers its ports per switch, so a bare port number can name
-        # two boards. Guessing would upload to whichever the database listed
-        # first, which is worse than saying we cannot tell.
-        log.warning("pino %s names a board on more than one switch", pino)
-        raise BadRequest(f"port {pino} is on more than one switch, so this page cannot tell which board you mean")
+    # only to a Pi the board pages offer (checked in, FPGA check passed)
+    pi = offered_pi(host)
+    if pi is None:
+        raise Http404("no Pi of that name has checked in and passed its FPGA check this boot")
+    return pi
 
 
 # @csrf_exempt
 def pibup(request):
 
-    pino, pi = board_from_request(request)
-    log.debug("upload page for pi%s (%s)", pino, pi.ip)
+    pi = board_from_request(request)
+    log.debug("upload page for %s (%s)", pi.hostname, pi.ip)
 
     error = None
     status = 200
@@ -92,24 +96,26 @@ def pibup(request):
         form = UploadFileForm(request.POST, request.FILES)
         if form.is_valid():
             try:
-                handle_uploaded_file(request.FILES["file"], pino, pi.ip)
+                handle_uploaded_file(request.FILES["file"], pi)
             except UploadError as e:
                 error, status = str(e), e.status
             else:
-                return HttpResponseRedirect(f"success?pino={pino}")
+                return HttpResponseRedirect("success?" + urlencode({"host": pi.hostname}))
     else:
         form = UploadFileForm()
 
     return render(request, "upload.html",
             {
-                "pino": pino,
+                "host": pi.hostname,
                 "form": form,
                 "error": error,
                 },
             status=status,
             )
 
-def handle_uploaded_file(f, pino, ip):
+def handle_uploaded_file(f, pi):
+
+    host, ip = pi.hostname, pi.ip
 
     # The shared pi password, base64 in settings the same way the board page
     # hands it to the wssh terminal. Without it paramiko only tries whatever
@@ -134,8 +140,8 @@ def handle_uploaded_file(f, pino, ip):
     except (paramiko.SSHException, OSError) as e:
         # refused, unroutable, timed out, half-booted sshd, password not yet
         # accepted: from here they are all "the board is not there".
-        log.exception("pi%s (%s): ssh connect failed", pino, ip)
-        raise BoardUnreachable(f"pi{pino} did not answer, so nothing was uploaded. {RETRY_HINT}") from e
+        log.exception("%s (%s): ssh connect failed", host, ip)
+        raise BoardUnreachable(f"{host} did not answer, so nothing was uploaded. {RETRY_HINT}") from e
 
     file_name=f.name
     total = f.size
@@ -153,22 +159,22 @@ def handle_uploaded_file(f, pino, ip):
                 destination.write(chunk)
                 written += len(chunk)
     except (paramiko.SSHException, OSError) as e:
-        log.exception("pi%s (%s): upload of %s failed after %d of %d bytes", pino, ip, file_name, written, total)
+        log.exception("%s (%s): upload of %s failed after %d of %d bytes", host, ip, file_name, written, total)
         if opened:
             detail = (f"the transfer stopped after {written} of {total} bytes, so the copy in "
                       f"Uploads/{file_name} on the board is incomplete and must not be loaded.")
         else:
             detail = f"Uploads/{file_name} could not be opened, so nothing was written to the board."
-        raise TransferFailed(f"pi{pino} answered, but {detail} {RETRY_HINT}") from e
+        raise TransferFailed(f"{host} answered, but {detail} {RETRY_HINT}") from e
     finally:
         client.close()
 
-    log.info("pi%s (%s): uploaded %s (%d bytes) to Uploads", pino, ip, file_name, written)
+    log.info("%s (%s): uploaded %s (%d bytes) to Uploads", host, ip, file_name, written)
 
 def success(request):
-    pino, pi = board_from_request(request)
-    log.debug("upload succeeded for pi%s (%s)", pino, pi.ip)
+    pi = board_from_request(request)
+    log.debug("upload succeeded for %s (%s)", pi.hostname, pi.ip)
     return render(request, "success.html",
             {
-                "pino": pino,
+                "host": pi.hostname,
                 })

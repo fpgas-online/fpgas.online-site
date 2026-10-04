@@ -1,8 +1,9 @@
 """The classic board page upload box.
 
 ``fpga.html`` includes ``upload.html``: a multipart form that POSTs to
-``/pibup/upload?pino=<port>``. The view looks the board up by switch port,
-opens an SFTP session to it as ``pi`` with the shared password from
+``/pibup/upload?host=<hostname>``. The view takes only a Pi the board pages
+offer (registered with that hostname, checked in, FPGA check passed), opens
+an SFTP session to it as ``pi`` with the shared password from
 ``settings.PI_PW`` (base64, like everywhere else on the site) and writes the
 file into ``~/Uploads`` on the Pi. paramiko is faked here: nothing in this
 file touches the network.
@@ -22,7 +23,8 @@ import pibup.views
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
-from pibfpgas.models import Pi
+
+from tests.fleet_pis import verified_pi
 
 PI_PASSWORD = "raspberry"
 
@@ -112,13 +114,17 @@ def c(settings, tmp_path):
     return Client(HTTP_HOST="welland.fpgas.online")
 
 
+HOST = "pi-sw2-p42"
+
+
 @pytest.fixture
 def board(db):
-    return Pi.objects.create(port=42, switch=2)
+    # a Pi the board pages offer: registered as HOST, checked in, FPGA check passed
+    return verified_pi(HOST)
 
 
-def upload(c, pino=42, name="blinky.bit", content=BITSTREAM):
-    return c.post(f"/pibup/upload?pino={pino}", {"file": SimpleUploadedFile(name, content)})
+def upload(c, host=HOST, name="blinky.bit", content=BITSTREAM):
+    return c.post(f"/pibup/upload?host={host}", {"file": SimpleUploadedFile(name, content)})
 
 
 # -- the happy path ---------------------------------------------------------
@@ -127,11 +133,12 @@ def test_upload_lands_in_uploads_on_the_board(c, board, fake_ssh):
     r = upload(c)
 
     assert r.status_code == 302
-    assert r["Location"] == "success?pino=42"
+    assert r["Location"] == "success?host=pi-sw2-p42"
     assert fake_ssh.connects == [
         ("10.21.2.42", {"username": "pi", "password": PI_PASSWORD, "timeout": pibup.views.CONNECT_TIMEOUT})
     ]
     assert fake_ssh.files["Uploads/blinky.bit"].getvalue() == BITSTREAM
+    assert "uploaded to pi-sw2-p42" in c.get("/pibup/" + r["Location"]).content.decode()
 
 
 def test_connect_cannot_wait_forever_on_a_dead_board(c, board, fake_ssh):
@@ -161,13 +168,13 @@ def test_a_board_that_does_not_answer_gets_a_readable_page(c, board, fake_ssh, b
 
     assert r.status_code == 502
     html = r.content.decode()
-    assert "pi42 did not answer" in html
+    assert "pi-sw2-p42 did not answer" in html
     assert "nothing was uploaded" in html
     assert "two minutes" in html
     assert "Reset" in html
     assert "try again" in html
     # and the form is still there to try again with
-    assert 'action="/pibup/upload?pino=42"' in html
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
     assert 'name="file"' in html
 
 
@@ -193,7 +200,7 @@ def test_a_transfer_that_dies_partway_says_the_copy_is_incomplete(c, board, fake
 
     assert r.status_code == 502
     html = r.content.decode()
-    assert "pi42 answered" in html
+    assert "pi-sw2-p42 answered" in html
     assert "incomplete" in html
     assert f"{64 * 1024} of {len(BITSTREAM)} bytes" in html
     assert "try again" in html
@@ -208,7 +215,7 @@ def test_a_missing_uploads_directory_says_nothing_landed(c, board, fake_ssh):
 
     assert r.status_code == 502
     html = r.content.decode()
-    assert "pi42 answered" in html
+    assert "pi-sw2-p42 answered" in html
     assert "nothing was written" in html
     assert "incomplete" not in html
 
@@ -234,25 +241,43 @@ def test_the_ssh_connection_is_closed_even_when_the_transfer_fails(c, board, fak
 
 # -- which board ------------------------------------------------------------
 
-def test_upload_to_a_port_with_no_board_is_404(c, board, fake_ssh):
-    r = upload(c, pino=99)
+# Pi hostnames, but of no Pi that registered with that name, checked in and
+# passed this boot.
+NOT_OFFERED = ["pi-sw2-p99", "pi42", "pi9999999999999999999999"]
+
+# Not Pi hostnames at all: a bare port number (what ?pino= used to carry),
+# another machine, an address, one port spelled a second way.
+NOT_A_PI_HOSTNAME = ["", "42", "tweed", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
+
+
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_upload_to_a_pi_that_is_not_offered_is_404(c, board, fake_ssh, host):
+    r = upload(c, host=host)
 
     assert r.status_code == 404
     assert fake_ssh.connects == []
 
 
+@pytest.mark.parametrize("host", NOT_A_PI_HOSTNAME)
+def test_upload_to_something_that_is_not_a_pi_is_400(c, board, fake_ssh, host):
+    r = upload(c, host=host)
+
+    assert r.status_code == 400
+    assert fake_ssh.connects == []
+
+
 def test_get_renders_the_bare_form(c, board):
-    r = c.get("/pibup/upload?pino=42")
+    r = c.get("/pibup/upload?host=pi-sw2-p42")
 
     assert r.status_code == 200
     html = r.content.decode()
-    assert 'action="/pibup/upload?pino=42"' in html
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
     assert 'name="file"' in html
 
 
-# -- ?pino= is a link, not a promise ----------------------------------------
+# -- ?host= is a link, not a promise ----------------------------------------
 
-def test_the_upload_page_needs_a_pino(c, db):
+def test_the_upload_page_needs_a_host(c, db):
     # GET /pibup/upload with no query string: a broken link, not a broken
     # server. It answered 500 in production.
     r = c.get("/pibup/upload")
@@ -260,46 +285,55 @@ def test_the_upload_page_needs_a_pino(c, db):
     assert r.status_code == 400
 
 
-def test_the_success_page_needs_a_pino(c, db):
+def test_the_success_page_needs_a_host(c, db):
     r = c.get("/pibup/success")
 
     assert r.status_code == 400
 
 
-@pytest.mark.parametrize("pino", ["", "pi42", "42;rm", "-1", "9999999999999999999999"])
-def test_a_pino_that_is_not_a_port_number_is_a_400(c, board, pino):
-    r = c.get(f"/pibup/upload?pino={pino}")
+@pytest.mark.parametrize("host", NOT_A_PI_HOSTNAME)
+def test_a_host_that_is_not_a_pi_hostname_is_a_400(c, board, host):
+    r = c.get(f"/pibup/upload?host={host}")
 
     assert r.status_code == 400
 
 
-def test_the_upload_page_for_a_board_that_is_not_ours_is_a_404(c, board):
-    r = c.get("/pibup/upload?pino=99")
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_the_upload_page_for_a_board_that_is_not_ours_is_a_404(c, board, host):
+    r = c.get(f"/pibup/upload?host={host}")
 
     assert r.status_code == 404
 
 
-def test_the_success_page_for_a_board_that_is_not_ours_is_a_404(c, board):
-    r = c.get("/pibup/success?pino=99")
+@pytest.mark.parametrize("host", NOT_OFFERED)
+def test_the_success_page_for_a_board_that_is_not_ours_is_a_404(c, board, host):
+    r = c.get(f"/pibup/success?host={host}")
 
     assert r.status_code == 404
 
 
 def test_the_success_page_names_the_board(c, board):
-    r = c.get("/pibup/success?pino=42")
+    r = c.get("/pibup/success?host=pi-sw2-p42")
 
     assert r.status_code == 200
-    assert "pino=42" in r.content.decode()
+    assert "uploaded to pi-sw2-p42" in r.content.decode()
 
 
-def test_a_port_on_two_switches_cannot_be_guessed_at(c, board):
+def test_a_port_on_two_switches_is_not_guessed_at(c, board, fake_ssh):
     # welland numbers ports per switch, so pi-sw1-p42 and pi-sw2-p42 can both
-    # exist. Uploading to whichever came back first would be worse than a 500.
-    Pi.objects.create(port=42, switch=1)
+    # exist. A bare port number could not tell them apart; the hostname names
+    # the switch, so the file goes to the board asked for and only to it.
+    verified_pi("pi-sw1-p42")
 
     r = upload(c)
 
-    assert r.status_code == 400
+    assert r.status_code == 302
+    assert [ip for ip, _ in fake_ssh.connects] == ["10.21.2.42"]
+
+    r = upload(c, host="pi-sw1-p42")
+
+    assert r.status_code == 302
+    assert [ip for ip, _ in fake_ssh.connects] == ["10.21.2.42", "10.21.1.42"]
 
 
 # -- the site itself is broken ----------------------------------------------
