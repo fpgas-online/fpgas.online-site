@@ -25,6 +25,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 
 from tests.fleet_pis import verified_pi
+from tests.test_fpga_verified import registered
 
 PI_PASSWORD = "raspberry"
 
@@ -241,28 +242,49 @@ def test_the_ssh_connection_is_closed_even_when_the_transfer_fails(c, board, fak
 
 # -- which board ------------------------------------------------------------
 
-# Pi hostnames, but of no Pi that registered with that name, checked in and
-# passed this boot.
-NOT_OFFERED = ["pi-sw2-p99", "pi42", "pi9999999999999999999999"]
+# Names of no Pi that registered with that name, checked in and passed this
+# boot. Pi hostnames or not, they are all the same 404: a bare port number
+# (what ?pino= used to carry), another machine, an address, one port spelled
+# a second way.
+NOT_OFFERED = ["pi-sw2-p99", "pi42", "pi9999999999999999999999",
+               "42", "tweed", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
 
-# Not Pi hostnames at all: a bare port number (what ?pino= used to carry),
-# another machine, an address, one port spelled a second way.
-NOT_A_PI_HOSTNAME = ["", "42", "tweed", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("host", ["pi-sw2-p99", "pi42", "tweed", "10.21.2.42"])
+def test_upload_to_a_pi_that_is_not_offered_is_404(c, fake_ssh, host):
+    # only to a Pi that registered with that name, checked in and passed this boot
+    verified_pi("pi-sw2-p42")
+    r = c.post(f"/pibup/upload?host={host}", {"file": SimpleUploadedFile("x.bit", b"x")})
+
+    assert r.status_code == 404
+    assert fake_ssh.connects == []
 
 
 @pytest.mark.parametrize("host", NOT_OFFERED)
-def test_upload_to_a_pi_that_is_not_offered_is_404(c, board, fake_ssh, host):
+def test_upload_to_any_name_that_is_not_offered_is_404(c, board, fake_ssh, host):
     r = upload(c, host=host)
 
     assert r.status_code == 404
     assert fake_ssh.connects == []
 
 
-@pytest.mark.parametrize("host", NOT_A_PI_HOSTNAME)
-def test_upload_to_something_that_is_not_a_pi_is_400(c, board, fake_ssh, host):
-    r = upload(c, host=host)
+def test_upload_with_an_empty_host_is_400(c, board, fake_ssh):
+    r = upload(c, host="")
 
     assert r.status_code == 400
+    assert fake_ssh.connects == []
+
+
+@pytest.mark.parametrize("page", ["upload", "success"])
+def test_a_pi_whose_fpga_check_failed_is_404(c, board, fake_ssh, page):
+    # registered and checking in, but its FPGA check failed this boot: the
+    # board pages do not offer it, so neither does the upload box
+    registered("failed", "pi-sw2-p7", "fail")
+
+    assert c.get(f"/pibup/{page}?host=pi-sw2-p7").status_code == 404
+    if page == "upload":
+        assert upload(c, host="pi-sw2-p7").status_code == 404
     assert fake_ssh.connects == []
 
 
@@ -291,9 +313,8 @@ def test_the_success_page_needs_a_host(c, db):
     assert r.status_code == 400
 
 
-@pytest.mark.parametrize("host", NOT_A_PI_HOSTNAME)
-def test_a_host_that_is_not_a_pi_hostname_is_a_400(c, board, host):
-    r = c.get(f"/pibup/upload?host={host}")
+def test_an_empty_host_is_a_400(c, board):
+    r = c.get("/pibup/upload?host=")
 
     assert r.status_code == 400
 

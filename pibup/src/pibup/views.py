@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.exceptions import BadRequest
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
-from pibfpgas.pis import Pi, offered_pi
+from pibfpgas.pis import offered_pi
 
 from .forms import UploadFileForm
 
@@ -59,11 +59,12 @@ def board_from_request(request):
     """The Pi named by ``?host=``: the board's registered hostname
     (pi-sw2-p42, or pi9 at a flat site).
 
-    A link with no ``host``, or one carrying something that is not a Pi
-    hostname, is a broken link rather than a broken server: 400. A Pi
-    hostname the board pages do not offer (nothing registered with that name,
-    or it has not checked in and passed its FPGA check this boot) is a 404.
-    Either way the visitor never meets Django's 500 page, which is what
+    A link with no ``host``, or an empty one, is a broken link rather than a
+    broken server: 400. Any other name the board pages do not offer (nothing
+    registered with that name, or it has not checked in and passed its FPGA
+    check this boot) is a 404: the offered list is the one rule for what a
+    board name is, so nothing here judges the name's shape. Either way the
+    visitor never meets Django's 500 page, which is what
     ``request.GET['host']`` gave them.
 
     A hostname names its switch as well as its port, and only the newest
@@ -72,8 +73,8 @@ def board_from_request(request):
     """
 
     host = request.GET.get("host")
-    if host is None or Pi.from_hostname(host) is None:
-        log.warning("upload request with no usable host: %s", request.get_full_path())
+    if not host:
+        log.warning("upload request with no host: %s", request.get_full_path())
         raise BadRequest("this page needs ?host=<Pi hostname>, naming the board to upload to")
 
     # only to a Pi the board pages offer (checked in, FPGA check passed)
