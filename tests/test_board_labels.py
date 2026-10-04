@@ -4,6 +4,7 @@ never a hand-typed label (docs/verify-events.md). `fpga-board-found` is still
 stored, for the /fleet/ pages."""
 
 import datetime
+import pathlib
 
 import pytest
 from django.test import Client
@@ -125,3 +126,15 @@ def test_the_tt_page_needs_a_tt_board_found_on_port_21(c):
     assert c.get("/fpgas/tt.html").status_code == 404
     verified_pi("pi-sw1-p21", ("tt", "tt-fpga"))
     assert c.get("/fpgas/tt.html").status_code == 200
+
+
+@pytest.mark.django_db
+def test_the_tt_page_offers_no_button_that_opens_the_demo_boards_python_prompt(c):
+    """Nothing of ours may change a file on a Tiny Tapeout demo board, so the page has no
+    button that types `mpremote` (the board's Python prompt) into the terminal."""
+    verified_pi("pi-sw1-p21", ("tt", "tt-fpga"))
+    html = c.get("/fpgas/tt.html").content.decode()
+    assert "tt910" not in html
+    assert "mpremote" not in html
+    demos = (pathlib.Path(__file__).parent.parent / "pibfpgas/src/pibfpgas/static/demos.js").read_text()
+    assert "mpremote" not in demos
