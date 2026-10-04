@@ -44,7 +44,7 @@ Consequences, in fpgas.online-test-designs:
 - rpi-hwid becomes required for this board, from the fleet's package repository. Nothing in infra installs it today.
 - The ASIC "Pmod wiring and function test" is fpgas.online-test-designs#15 (the Tiny Tapeout Pmod wiring test), a named prerequisite; its place in the boot check is specified with the verify change, not here.
 
-Declared, not detected (open decision 3): a **TT04**'s ROM reads `unknown`, so the SDK reports a shuttle only if `force_shuttle` is set in the demo board's own `config.ini`; a **tt03p5** runs SDK 1.2.2 and takes its shuttle from a `rom_fallback.txt` on the board. Both travel with the board, not with the Pi or the port. Whether rpi-hwid can read a 1.2.2 board at all is unverified.
+Declared, not detected (open decision 3): a **TT04**'s ROM reads `unknown`, so the SDK reports a shuttle only if `force_shuttle` is set in the demo board's own `config.ini`; a **tt03p5** runs SDK 1.2.2 and takes its shuttle from a `rom_fallback.txt` on the board. Both travel with the board, not with the Pi or the port. Whether rpi-hwid can read a 1.2.2 board at all is unverified. Until decision 3 is taken, a board whose chip cannot say what it is, and which carries no such declaration, is an `error`.
 
 ### 2. One listing function, two sites
 
@@ -91,7 +91,7 @@ A board's URL must not change when its cable moves, or when another board arrive
 
 ### 6. Trust
 
-Variant, shuttle and USB serial are **asserted by the Pi**, and visitors have root on every Pi. Today the Tiny Tapeout site's map of slug to address is static and immune to that. After this change a Pi can claim a shuttle and so get that shuttle's page and serial route pointed at itself. The collision rule in section 4 keeps a forger from silently replacing a board that is also offered, but not from claiming a shuttle whose real board is off.
+Variant, shuttle and USB serial are **asserted by the Pi**, and visitors have root on every Pi. Today the Tiny Tapeout site's map of slug to address is static and immune to that. After this change a Pi can claim a shuttle and so get that shuttle's page and serial route pointed at itself. The collision rule in section 4 keeps a forger from silently replacing a board that is also offered, but not from claiming a shuttle whose real board is off; and a forged second claim changes the real board's URL to the suffixed form, which is a way to disrupt it.
 
 fpgas.online-infra#196 (the broker accepts anonymous messages, so a Pi can forge another Pi's registration) does not close this: once fixed, a Pi can still lie about its own board. Whether steps 4 and 5 wait for #196, and whether this exposure is acceptable at all, is open decision 6.
 
@@ -102,8 +102,8 @@ Each step leaves both sites as they were or better.
 1. **site**: the shared listing function reading `fpga-verified`; the allow-list filters; titles by variant. Works with the verify deployed today. It must be deployed before step 2 reaches the fleet, so an ASIC board never shows on the site's own list.
 2. **test-designs** and **infra**: the definition of a Tiny Tapeout board, detection before loading, `tt-asic` and its tests (prerequisite: test-designs#15), one board per Pi, atomic report and restart order; rpi-hwid in the Pi root. From here a Tiny Tapeout Pi whose board cannot be identified is an `error`.
 3. **fpgas-tt**: kind from `verify.json`. Gated: not deployed until every board whose daemon is serving on that day has a recorded boot-check pass on the hardware, because from this step a board without one loses its serial bridge and gallery while the Tiny Tapeout site still lists it.
-4. **site**, then **infra**: `ttsite` lists from registration joined with the rows; every per-board address from the hostname; the serial route through Django; slugs as decided. Same gate as step 3.
-5. **infra**: placement leaves `tt_boards`; the Pi root stops carrying the table, while the tasks that enable `fpgas-tt` stay. `tt_boards` stays defined, so the web play and `ALLOWED_HOSTS` conditions do not change; the verify plays' assertions (the table in the root, one WebSocket location per live board) do.
+4. **site**, then **infra**: `ttsite` lists from registration joined with the rows; every per-board address from the hostname; the serial route through Django; slugs per open decision 1. Same hardware gate as step 3, and subject to open decision 6.
+5. **infra**, subject to open decision 6: placement leaves `tt_boards`; the Pi root stops carrying the table, while the tasks that enable `fpgas-tt` stay. `tt_boards` stays defined, so the web play and `ALLOWED_HOSTS` conditions do not change; the verify plays' assertions (the table in the root, one WebSocket location per live board) do.
 
 Tests each step owes: the listing matrix for both hosts (a `tt-asic` Pi; a `tt-fpga` Pi; a Pi with a Tiny Tapeout board and a board of another kind; a `tt` board with no or an unknown variant; lost progress events; two boards claiming one shuttle); the serial-auth view; the loader with both row shapes; the `auth_request` route in infra's virtual-fleet test; and a run on fleet hardware recorded in the PR.
 
