@@ -16,6 +16,11 @@ class Machine(models.Model):
     online = models.BooleanField(default=False)
     last_boot_id = models.CharField(max_length=40, blank=True)
     last_uptime_s = models.PositiveIntegerField(default=0)
+    # The port (short hostname, e.g. pi-sw2-p9) this machine last registered
+    # from, as the broker's per-port listener stamped it on the topic: not
+    # what the Pi claims. Blank: only ever registered without that stamp, so
+    # its hostname is the Pi's own word. See fleet.services.
+    verified_port = models.CharField(max_length=64, blank=True)
     latest_snapshot = models.ForeignKey(
         "HardwareSnapshot", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="+")
