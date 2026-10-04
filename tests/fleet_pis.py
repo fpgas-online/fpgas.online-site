@@ -50,3 +50,18 @@ def registered(serial, hostname, result, minutes=0):
     m.save()
     verified(m, result)
     return m
+
+
+def by_serial(result):
+    """A services result keyed by machine id ({id: x} or {id, ...}) read by
+    serial, for tests that seed one machine per serial."""
+    serial = dict(Machine.objects.values_list("pk", "serial"))
+    if isinstance(result, dict):
+        return {serial[pk]: value for pk, value in result.items()}
+    return {serial[pk] for pk in result}
+
+
+def verified_serials():
+    """The serials whose FPGA check passed in the boot they are running now."""
+    from fleet.services import fpga_states
+    return {s for s, state in by_serial(fpga_states()).items() if state == "pass"}
