@@ -176,7 +176,8 @@ def handle_uploaded_file(f, pi):
                 for chunk in f.chunks():
                     destination.write(chunk)
                     written += len(chunk)
-        except (paramiko.SSHException, OSError) as e:
+        except (paramiko.SSHException, OSError, EOFError) as e:
+            # EOFError: what paramiko's SFTP raises when the connection drops
             log.exception("%s (%s): upload of %s failed after %d of %d bytes", host, ip, file_name, written, total)
             if opened:
                 detail = (f"the transfer stopped after {written} of {total} bytes, so the copy in "

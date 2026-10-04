@@ -35,14 +35,16 @@ BITSTREAM = b"\x00\x09\x0f\xf0" * 64 * 1024
 
 
 class _FakeSFTPFile(io.BytesIO):
-    """A file on the board. ``fail_after`` makes the write blow up partway."""
+    """A file on the board. ``fail_after`` makes the write blow up partway,
+    with ``fail_with``."""
 
     fail_after = None
+    fail_with = None
 
     def write(self, data):
         written = super().write(data)
         if self.fail_after is not None and self.tell() > self.fail_after:
-            raise OSError("Failure")  # what paramiko raises for a dead channel
+            raise self.fail_with
         return written
 
     def __exit__(self, *exc):
@@ -53,10 +55,10 @@ class _FakeSFTPFile(io.BytesIO):
 class FakeSSHClient:
     """Stands in for paramiko.SSHClient; records connect() and SFTP writes.
 
-    The three class attributes let a test say how the board misbehaves:
+    The class attributes let a test say how the board misbehaves:
     ``connect_error`` is raised out of connect(), ``open_error`` out of the
-    SFTP open(), and ``fail_write_after`` kills the transfer once that many
-    bytes have landed.
+    SFTP open(), and ``fail_write_after`` kills the transfer with
+    ``write_error`` once that many bytes have landed.
     """
 
     connects = []
@@ -64,6 +66,7 @@ class FakeSSHClient:
     connect_error = None
     open_error = None
     fail_write_after = None
+    write_error = None
     closed = 0
 
     def load_system_host_keys(self):
@@ -85,6 +88,7 @@ class FakeSSHClient:
             raise self.open_error
         f = self.files.setdefault(path, _FakeSFTPFile())
         f.fail_after = self.fail_write_after
+        f.fail_with = self.write_error
         return f
 
     def close(self):
@@ -98,6 +102,7 @@ def fake_ssh(monkeypatch):
     FakeSSHClient.connect_error = None
     FakeSSHClient.open_error = None
     FakeSSHClient.fail_write_after = None
+    FakeSSHClient.write_error = OSError("Failure")  # what paramiko raises for a dead channel
     FakeSSHClient.closed = 0
     monkeypatch.setattr(pibup.views.paramiko, "SSHClient", FakeSSHClient)
     return FakeSSHClient
@@ -242,6 +247,31 @@ def test_a_transfer_that_dies_partway_says_the_copy_is_incomplete(c, board, fake
     assert "try again" in html
     # a partial file really is sitting on the board
     assert 0 < len(fake_ssh.files["Uploads/blinky.bit"].getvalue()) < len(BITSTREAM)
+
+
+def test_a_connection_that_drops_mid_transfer_says_the_copy_is_incomplete(c, board, fake_ssh):
+    # paramiko's SFTP raises EOFError, which is no OSError, when the server goes away
+    fake_ssh.fail_write_after = 64 * 1024
+    fake_ssh.write_error = EOFError()
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered" in html
+    assert "incomplete" in html
+    assert f"{64 * 1024} of {len(BITSTREAM)} bytes" in html
+    assert fake_ssh.closed == 1
+
+
+def test_a_connection_that_drops_before_the_file_opens_says_nothing_landed(c, board, fake_ssh):
+    fake_ssh.open_error = EOFError()
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    assert "nothing was written" in r.content.decode()
+    assert fake_ssh.closed == 1
 
 
 def test_a_missing_uploads_directory_says_nothing_landed(c, board, fake_ssh):
