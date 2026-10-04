@@ -69,8 +69,10 @@ An `fpga-verified` from pi-sw2-p46 on 2026-10-03, as stored (shortened):
 
 ## Boards found on welland
 
-Every Pi with a board sends `fpga-board-found` each boot, so this is the one
-event that names the board for every board type. Only the Acorn sends
+Every Pi with a board sends `fpga-board-found` each boot, naming the board
+for every board type. (The board pages take the name from `fpga-verified`
+instead, which is sent even when the progress events are lost: see "What the
+site reads".) Only the Acorn sends
 `fpga-board-identified` in the deployed version. Each host's newest boot, on
 2026-10-03:
 

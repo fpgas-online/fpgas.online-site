@@ -9,7 +9,7 @@ import pathlib
 import pytest
 from django.test import Client
 from fleet.models import BootEvent
-from fleet.services import verified_boards
+from fleet.services import MAX_BOARDS, verified_boards
 from pibfpgas.pis import board_title, listed, offered, shown_here
 
 from tests.fleet_pis import machine, verified_detail, verified_pi, verifying
@@ -40,8 +40,8 @@ def test_verified_boards_come_from_the_verified_event_of_this_boot():
     _verified(m, [("acorn", "cle-215+")], boot_id="b1")  # an earlier boot's
     _verified(m, [("tt", "tt-asic", {"shuttle": "tt06", "usb_serial": "E661", "sdk": "2.0.4"})])
     assert verified_boards() == {"now": [{"board": "tt", "variant": "tt-asic", "result": "pass",
-                                          "identity": {"kind": "tt", "shuttle": "tt06", "usb_serial": "E661",
-                                                       "sdk": "2.0.4"}}]}
+                                          "identity": {"board": "tt", "kind": "tt", "variant": "tt-asic",
+                                                       "shuttle": "tt06", "usb_serial": "E661", "sdk": "2.0.4"}}]}
 
 
 @pytest.mark.django_db
@@ -53,36 +53,73 @@ def test_a_check_that_is_running_again_has_no_verified_boards():
 
 
 @pytest.mark.django_db
-def test_two_boards_of_one_kind_keep_their_kind_and_no_variant_is_empty():
+def test_boards_keep_the_checks_order_and_no_variant_is_empty():
     m = machine("two")
-    _verified(m, [("arty@1-1.2", "a7-35"), ("arty@1-1.4", "a7-100"), ("tt", None)])
-    assert [(b["board"], b["variant"]) for b in verified_boards()["two"]] == [
-        ("arty", "a7-35"), ("arty", "a7-100"), ("tt", "")]
+    _verified(m, [("arty", "a7-35"), ("tt", None)])
+    assert [(b["board"], b["variant"]) for b in verified_boards()["two"]] == [("arty", "a7-35"), ("tt", "")]
 
 
 @pytest.mark.django_db
-def test_a_detail_that_is_not_as_fpgas_verify_sends_it_is_left_out():
+def test_a_detail_that_is_not_an_event_names_no_board():
     """The fleet broker is open on the site LAN: anyone on a Pi can publish."""
-    for i, detail in enumerate(("pass", {"result": "pass", "board0": 7}, {"result": "pass", "board0": "tt"},
-                                {"result": "pass", "boardx": "tt tt-fpga pass"})):
+    for i, detail in enumerate(("pass", {"result": "pass"}, {"result": "pass", "boardx": "tt tt-fpga pass"},
+                                {"result": "pass", "board01": "tt tt-fpga pass"},
+                                {"result": "pass", "board\u0661": "tt tt-fpga pass"})):
         m = machine(f"odd{i}")
         BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen, detail=detail)
     assert verified_boards() == {}
 
 
+@pytest.mark.django_db
+def test_an_entry_that_cannot_be_read_is_kept_as_unreadable_not_dropped():
+    m = machine("bad")
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen,
+                             detail={"result": "pass", "board0": 7, "board1": "tt", "board2": "tt tt-asic x pass",
+                                     "board3": "acorn cle-215+ pass"})
+    assert [b["board"] for b in verified_boards()["bad"]] == ["", "", "", "acorn"]
+
+
+@pytest.mark.django_db
+def test_a_key_too_long_to_be_a_number_breaks_nothing(c):
+    """int() of thousands of digits raises: such a key is no board, and the pages still answer."""
+    m = machine("huge", "pi-sw2-p46")
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen,
+                             detail={"result": "pass", "board" + "9" * 5000: "tt tt-asic pass",
+                                     "board0": "acorn cle-215+ pass"})
+    assert [b["board"] for b in verified_boards()["huge"]] == ["acorn"]
+    assert c.get("/fpgas/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_no_more_boards_are_read_than_a_pi_can_carry():
+    m = machine("many")
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen,
+                             detail={"result": "pass", **{f"board{i}": "arty a7-35 pass" for i in range(400)}})
+    assert len(verified_boards()["many"]) == MAX_BOARDS
+
+
 # -- which boards this site shows -----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("board, variant, shown", [
-    ("tt", "tt-fpga", True),
-    ("tt", "tt-asic", False),
-    ("tt", "", False),  # not identified: on neither site
-    ("tt", "tt-fgpa", False),  # an allow-list: anything unexpected is not shown
-    ("acorn", "cle-215+", True),
-    ("arty", "", True),
+@pytest.mark.parametrize("board, variant, kind, shown", [
+    ("tt", "tt-fpga", "tt", True),
+    ("tt", "tt-fpga", None, True),  # no kind in the identity: fpgas-verify before 0.0.post1013
+    ("tt", "tt-asic", "tt", False),
+    ("tt", "", "tt", False),  # not identified: on neither site
+    ("tt", "tt-fgpa", "tt", False),  # an allow-list: anything unexpected is not shown
+    ("tt", "tt-asic", "acorn", False),  # a kind that disagrees with the board does not unhide it
+    ("tt", "tt-fpga", "acorn", False),
+    ("tt", "tt-fpga", "-", False),
+    ("arty", "tt-fpga", "tt", False),  # says it is a Tiny Tapeout board by kind only: hidden, not believed
+    ("TT", "tt-fpga", "tt", False),
+    ("", "", None, False),  # an entry that could not be read
+    ("acorn", "cle-215+", "acorn", True),
+    ("acorn", "cle-215+", "pcileech", True),  # rpi-hwid's name for the design found on an Acorn card
+    ("arty", "", None, True),
 ])
-def test_only_an_fpga_tiny_tapeout_board_is_shown_here(board, variant, shown):
-    assert shown_here({"board": board, "variant": variant}) is shown
+def test_only_a_consistent_fpga_tiny_tapeout_board_is_shown_here(board, variant, kind, shown):
+    identity = {} if kind is None else {"kind": kind}
+    assert shown_here({"board": board, "variant": variant, "identity": identity}) is shown
 
 
 @pytest.mark.parametrize("variant, title", [("tt-fpga", "TT FPGA"), ("tt-asic", "TT ASIC")])
@@ -159,3 +196,29 @@ def test_the_identity_kind_does_not_rename_or_unhide_a_board():
     _verified(asic, [("tt", "tt-asic", {"kind": "arty"})])
     assert [b["board"] for b in verified_boards()["pcileech"]] == ["acorn"]
     assert [pi.hostname for pi in listed()] == ["pi-sw2-p44"]  # the ASIC stays hidden whatever its kind says
+
+
+@pytest.mark.django_db
+def test_a_pi_whose_only_entry_cannot_be_read_is_not_listed(c):
+    """Fail closed: it reported a board, and what it is cannot be told."""
+    m = machine("garbled", "pi-sw2-p6")
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen,
+                             detail={"result": "pass", "board0": "tt tt-asic x pass"})
+    assert [pi.hostname for pi in offered()] == ["pi-sw2-p6"] and listed() == []
+    assert c.get("/fpgas/pi-sw2-p6.html").status_code == 404
+
+
+@pytest.mark.django_db
+def test_a_pass_from_the_older_fpgas_verify_without_a_kind_is_listed(c):
+    m = machine("old", "pi-sw2-p33")
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=m.last_seen,
+                             detail={"result": "pass", "mode": "auto",
+                                     **verified_detail([("tt", "tt-fpga")], kind=False)})
+    assert "pi-sw2-p33</h1>TT FPGA</td>" in c.get("/fpgas/").content.decode()
+
+
+@pytest.mark.django_db
+def test_state_and_boards_are_read_together(django_assert_num_queries):
+    verified_pi("pi-sw2-p46", ("acorn", "cle-215+"))
+    with django_assert_num_queries(3):  # hostnames, check-ins, FPGA events: one read each
+        assert [pi.boards for pi in offered()] == ["Acorn (cle-215+)"]

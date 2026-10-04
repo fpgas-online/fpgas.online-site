@@ -5,7 +5,7 @@ A Pi's identity is its registered hostname, and everything else derives from
 it. ``pi-sw<s>-p<p>`` is the VLAN-per-port scheme (welland: 10.21.<s>.<p>,
 gateway ssh forward <s><pp>22); ``pi<p>`` is the legacy flat scheme (PS1:
 10.21.0.<100+p>, forward <100+p>22). What is on it is what its FPGA check
-reported this boot (fleet.services.verified_boards).
+reported this boot (fleet.services.fpga_reports).
 
 A Tiny Tapeout board is shown here only when it is an FPGA board; an ASIC
 board is on tinytapeout.fpgas.online alone
@@ -16,7 +16,7 @@ import logging
 import re
 from dataclasses import dataclass, replace
 
-from fleet.services import offered_hosts, verified_boards
+from fleet.services import offered_boards
 
 log = logging.getLogger(__name__)
 
@@ -50,9 +50,24 @@ TT_TITLES = {
 TT_SHOWN_HERE = ("tt-fpga",)
 
 
+def is_tiny_tapeout(board):
+    """Whether a reported board is, or says it is, a Tiny Tapeout board: by
+    the board module that checked it or by its identity's kind."""
+    return "tt" in (board["board"].lower(), board.get("identity", {}).get("kind", "").lower())
+
+
 def shown_here(board):
-    """Whether this site's own pages show a board a Pi reported."""
-    return board["board"] != "tt" or board.get("variant") in TT_SHOWN_HERE
+    """Whether this site's own pages show a board a Pi reported. An entry
+    that could not be read is not shown. A Tiny Tapeout board is shown only
+    when the board module and the identity's kind (when there is one) both
+    say `tt` and the variant is on the allow-list: anything that disagrees
+    with itself is hidden rather than believed."""
+    if not board["board"]:
+        return False
+    if not is_tiny_tapeout(board):
+        return True
+    kind = board.get("identity", {}).get("kind", "tt")
+    return board["board"] == "tt" and kind == "tt" and board.get("variant") in TT_SHOWN_HERE
 
 
 def board_title(board):
@@ -115,18 +130,16 @@ class Pi:
 
     @property
     def boards(self):
-        return ", ".join(board_title(board) for board in self.found)
+        return ", ".join(board_title(board) for board in self.found if board["board"])
 
 
 def offered():
     """The Pis to offer, in (switch, port) order: those whose registered
     machine has checked in recently and passed its FPGA check this boot
-    (fleet.services.offered_hosts). The others still boot and take ssh, so
+    (fleet.services.offered_boards). The others still boot and take ssh, so
     someone can log in and see what is wrong, but users are not sent to
     them."""
-    found = verified_boards()
-    pis = (Pi.from_hostname(host, found.get(serial, ()))
-           for host, serial in offered_hosts().items())
+    pis = (Pi.from_hostname(host, boards) for host, boards in offered_boards().items())
     return sorted((pi for pi in pis if pi is not None),
                   key=lambda pi: (pi.switch or 0, pi.port))
 
@@ -140,17 +153,15 @@ def offered_pi(hostname):
 def listed():
     """The offered Pis this site's own pages show, each with only the boards
     shown here (shown_here). A Pi that reported boards and has none left is
-    not listed; one that reported none is listed as it always was."""
+    not listed; one whose report named no board at all is listed as it
+    always was."""
     pis = []
     for pi in offered():
         shown = tuple(board for board in pi.found if shown_here(board))
-        hidden = [board for board in pi.found if not shown_here(board)]
-        for board in hidden:
-            if board.get("variant") not in TT_TITLES:
-                log.warning("%s reports a Tiny Tapeout board with variant %r: shown on no site",
-                            pi.hostname, board.get("variant"))
         if shown or not pi.found:
             pis.append(replace(pi, found=shown))
+        else:
+            log.info("%s is not listed: none of the boards it reported is shown here", pi.hostname)
     return pis
 
 

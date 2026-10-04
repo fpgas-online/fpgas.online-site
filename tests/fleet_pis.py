@@ -23,14 +23,17 @@ def verified_pi(hostname, *boards, serial=None, boot_id="b1"):
     return m
 
 
-def verified_detail(boards, result="pass"):
-    """The per-board part of an fpga-verified event, as fpgas-verify sends it: `board<i>` is
-    "<board> <variant> <result>", and the identity's fields follow as `board<i>_identity_*`.
+def verified_detail(boards, result="pass", kind=True):
+    """The per-board part of an fpga-verified event, as fpgas-verify sends it (runner.details()): `board<i>` is
+    "<board> <variant> <result>", and the identity's fields follow as `board<i>_identity_*`: `board`, `kind`
+    (not sent by fpgas-verify before 0.0.post1013: pass kind=False) and `variant`, then whatever the board read.
     `boards` are (board, variant) or (board, variant, {identity field: value}) tuples."""
     detail = {}
     for i, (board, variant, *identity) in enumerate(boards):
         detail[f"board{i}"] = f"{board} {variant or '-'} {result}"
-        for key, value in {"kind": board.split("@")[0], **(identity[0] if identity else {})}.items():
+        fields = {"board": board, **({"kind": board} if kind else {}), **({"variant": variant} if variant else {}),
+                  **(identity[0] if identity else {})}
+        for key, value in fields.items():
             detail[f"board{i}_identity_{key}"] = value
     return detail
 
