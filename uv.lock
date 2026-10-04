@@ -625,7 +625,7 @@ wheels = [
 [[package]]
 name = "fpgas-online-poe"
 version = "0.1.0"
-source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#76a9b9390fac917d43bcc507534512aaa522dce4" }
+source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#35643a5b1e9ae1342e3303ba7763a5a257c3c98b" }
 dependencies = [
     { name = "channels" },
     { name = "django", version = "5.2.17", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
