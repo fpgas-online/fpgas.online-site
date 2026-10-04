@@ -24,8 +24,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 
-from tests.fleet_pis import verified_pi
-from tests.test_fpga_verified import registered
+from tests.fleet_pis import registered, verified_pi
 
 PI_PASSWORD = "raspberry"
 
