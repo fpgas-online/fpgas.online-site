@@ -123,9 +123,10 @@ def handle_uploaded_file(f, pi):
     # ssh keys the gunicorn user happens to have.
     try:
         password = base64.b64decode(settings.PI_PW).decode()
-    except (AttributeError, ValueError) as e:
-        # a deployment whose gunicorn never got PI_PW, or got something that
-        # is not base64. No board is going to let us in, so do not try.
+    except (AttributeError, TypeError, ValueError) as e:
+        # a deployment whose gunicorn never got PI_PW, or got None, or got
+        # something that is not base64. No board is going to let us in, so
+        # do not try.
         log.exception("PI_PW is missing or not base64; no upload can work")
         raise SiteMisconfigured(
             "This site has no working password for the boards, so the upload was not attempted. "
