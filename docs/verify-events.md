@@ -143,6 +143,40 @@ listing is only as trustworthy as that (fpgas.online-infra#196). The
 addresses the site reaches (upload, ping, ssh) derive from the port's
 hostname, never from anything a message says.
 
+### Messages stamped with their port
+
+Anyone on a Pi has root, so a Pi can send messages as any other Pi. To tie
+a message to the port it came from, the gateway gives each fleet port its
+own broker listener that puts `port/<port>/` in front of every topic its Pi
+publishes, whatever the Pi says. A Pi on `pi-sw2-p47` that publishes
+`fpgas/<site>/pi/<serial>/event` reaches the site as
+`port/pi-sw2-p47/fpgas/<site>/pi/<serial>/event`. The site's `fleet_consumer`
+subscribes to both forms and, for a stamped message, takes the port from the
+stamp:
+
+- A stamp that is not a port's hostname is refused and logged.
+- A registration must name the stamped port's own hostname. Any other is
+  refused and logged, and nothing it says is stored.
+- A status beat or event reaches only the machine that registered from the
+  same stamped port. Any other (a serial that is not that machine, or one
+  that never registered) is dropped and logged. A beat that arrives before
+  its registration is dropped, as ever.
+- A machine moves to a new port when it registers there, as it always has,
+  unless it is still online on its old port. Until it has gone quiet there
+  (its last will, or no beat for 3 minutes), a stamped registration for its
+  serial from another port is refused, so a Pi cannot unlist another port's
+  board by registering that board's serial.
+- Once a machine has registered from a stamped port, unstamped messages
+  cannot touch it, and a machine placed on a hostname by a stamped
+  registration outranks any machine that only claimed the hostname. The
+  detail page shows the stamped port.
+
+The unstamped form is still accepted for machines never stamped, so the
+site can be deployed before the gateway change and nothing differs until
+stamped messages arrive. A later change will stop accepting it. A Pi can
+still lie about the board on its own port, because it has root there; it
+cannot show, hide or mislabel any other port.
+
 ## Sources
 
 - fpgas.online-test-designs `7ee3a5e` (main, 2026-10-03):

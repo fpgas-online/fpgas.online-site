@@ -246,3 +246,13 @@ def test_a_newer_board_on_the_same_port_replaces_the_older_as_today():
     honest_board("serial-a", A)
     honest_board("serial-n", A, board="arty")
     assert listed(A) == "Arty A7"
+
+
+@pytest.mark.django_db
+def test_detail_page_shows_the_stamped_port_only_when_there_is_one(client):
+    register("serial-a", A, A)
+    register("serial-b", B)
+    page = client.get("/fleet/serial-a/", HTTP_HOST="welland.fpgas.online").content.decode()
+    assert "Registered from port" in page and A in page
+    page = client.get("/fleet/serial-b/", HTTP_HOST="welland.fpgas.online").content.decode()
+    assert "Registered from port" not in page
