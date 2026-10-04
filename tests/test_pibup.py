@@ -156,9 +156,13 @@ UNREACHABLE = [
         id="connection-refused"),
     pytest.param(socket.timeout("timed out"), id="timeout"),
     pytest.param(OSError(113, "No route to host"), id="no-route-to-host"),
-    pytest.param(paramiko.AuthenticationException("Authentication failed."), id="auth-failure"),
     pytest.param(paramiko.SSHException("Error reading SSH protocol banner"), id="half-booted-sshd"),
 ]
+
+# The board answered and turned the login down: not "nobody home".
+LOGIN_REFUSED = pytest.param(paramiko.AuthenticationException("Authentication failed."), id="auth-failure")
+
+CONNECT_FAILED = [*UNREACHABLE, LOGIN_REFUSED]
 
 
 @pytest.mark.parametrize("boom", UNREACHABLE)
@@ -179,7 +183,28 @@ def test_a_board_that_does_not_answer_gets_a_readable_page(c, board, fake_ssh, b
     assert 'name="file"' in html
 
 
-@pytest.mark.parametrize("boom", UNREACHABLE)
+def test_a_board_that_refuses_the_login_is_not_called_unreachable(c, board, fake_ssh):
+    fake_ssh.connect_error = paramiko.AuthenticationException("Authentication failed.")
+
+    r = upload(c)
+
+    assert r.status_code == 502
+    html = r.content.decode()
+    assert "pi-sw2-p42 answered, but refused our login" in html
+    assert "nothing was uploaded" in html
+    assert "did not answer" not in html
+    # waiting out a reboot will not fix a rejected login
+    assert "two minutes" not in html
+    assert "Reset" not in html
+    # nothing of the password, plain or as the setting holds it
+    assert PI_PASSWORD not in html
+    assert base64.b64encode(PI_PASSWORD.encode()).decode() not in html
+    # and the form is still there
+    assert 'action="/pibup/upload?host=pi-sw2-p42"' in html
+    assert 'name="file"' in html
+
+
+@pytest.mark.parametrize("boom", CONNECT_FAILED)
 def test_a_board_that_does_not_answer_is_logged_with_its_traceback(c, board, fake_ssh, boom, caplog):
     fake_ssh.connect_error = boom
 
@@ -192,7 +217,7 @@ def test_a_board_that_does_not_answer_is_logged_with_its_traceback(c, board, fak
     assert "10.21.2.42" in record.getMessage()
 
 
-@pytest.mark.parametrize("boom", UNREACHABLE)
+@pytest.mark.parametrize("boom", CONNECT_FAILED)
 def test_the_ssh_client_is_closed_when_the_board_does_not_answer(c, board, fake_ssh, boom):
     # a failed connect can leave paramiko's transport thread and socket alive
     fake_ssh.connect_error = boom

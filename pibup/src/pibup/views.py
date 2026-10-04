@@ -42,7 +42,11 @@ class UploadError(Exception):
 
 
 class BoardUnreachable(UploadError):
-    """The board never answered: powered off, still booting, or refusing us."""
+    """The board never answered: powered off, unreachable, or still booting."""
+
+
+class LoginRefused(UploadError):
+    """The board answered and rejected the shared pi login."""
 
 
 class TransferFailed(UploadError):
@@ -151,9 +155,17 @@ def handle_uploaded_file(f, pi):
     try:
         try:
             client.connect(ip, username='pi', password=password, timeout=CONNECT_TIMEOUT)
+        except paramiko.AuthenticationException as e:
+            # the board is up and its sshd turned the shared login down.
+            # Waiting out a reboot will not change that, so no Reset hint.
+            log.exception("%s (%s): ssh login refused", host, ip)
+            raise LoginRefused(
+                f"{host} answered, but refused our login, so nothing was uploaded. "
+                "That is our fault, not yours -- please report it."
+            ) from e
         except (paramiko.SSHException, OSError) as e:
-            # refused, unroutable, timed out, half-booted sshd, password not yet
-            # accepted: from here they are all "the board is not there".
+            # refused, unroutable, timed out, half-booted sshd: from here they
+            # are all "the board is not there".
             log.exception("%s (%s): ssh connect failed", host, ip)
             raise BoardUnreachable(f"{host} did not answer, so nothing was uploaded. {RETRY_HINT}") from e
 
