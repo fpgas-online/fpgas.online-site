@@ -28,19 +28,59 @@ def fingerprint(doc):
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def register_document(doc):
+def _live(machine):
+    """Whether the machine is online with a status beat inside
+    CHECKED_IN_WITHIN (checked_in, for one machine)."""
+    return machine.online and \
+        machine.last_seen >= timezone.now() - CHECKED_IN_WITHIN
+
+
+def register_document(doc, port=None):
     """Ingest a registration document. Returns (machine, changed) where
     changed means the machine's latest snapshot moved to a different
-    fingerprint (a flap back to a previously seen document reuses its row)."""
+    fingerprint (a flap back to a previously seen document reuses its row).
+    A registration that is refused returns (None, False) and is logged.
+
+    `port` is the port the broker's per-port listener stamped on the topic
+    (the short hostname, already validated), or None for a message with no
+    stamp. A stamped registration is believed over its own payload:
+
+    - it must name the port's own hostname, or it is refused;
+    - a machine that is online on another port is not moved by it (a Pi on
+      one port must not unlist the board on another by registering that
+      board's serial); a machine that has gone quiet there is, as a board
+      that moved.
+
+    An unstamped registration is as it always was, except that it cannot
+    touch a machine a stamped one has placed on a port."""
     now = timezone.now()
+    serial = doc["machine"]["serial"]
     connection = doc.get("connection", {})
-    machine, _ = Machine.objects.update_or_create(
-        serial=doc["machine"]["serial"],
-        defaults={
-            "site": connection.get("site", ""),
-            "hostname": connection.get("hostname", ""),
-            "last_seen": now,
-        })
+    hostname = connection.get("hostname", "")
+    existing = Machine.objects.filter(serial=serial).first()
+    defaults = {
+        "site": connection.get("site", ""),
+        "hostname": hostname,
+        "last_seen": now,
+    }
+    if port is None:
+        if existing is not None and existing.verified_port:
+            log.warning("unstamped registration for %s dropped: it registered"
+                        " from port %s", serial, existing.verified_port)
+            return None, False
+    else:
+        if hostname.split(".")[0] != port:
+            log.warning("registration for %s from port %s dropped: it names"
+                        " host %r", serial, port, hostname)
+            return None, False
+        if existing is not None and existing.verified_port not in ("", port) \
+                and _live(existing):
+            log.warning("registration for %s from port %s dropped: it is"
+                        " online on port %s", serial, port,
+                        existing.verified_port)
+            return None, False
+        defaults["verified_port"] = port
+    machine, _ = Machine.objects.update_or_create(serial=serial, defaults=defaults)
     snapshot, created = machine.snapshots.get_or_create(
         fingerprint=fingerprint(doc), defaults={"document": doc})
     if not created:
@@ -53,11 +93,30 @@ def register_document(doc):
     return machine, changed
 
 
-def status(serial, payload):
-    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice)."""
+def _machine_for(serial, port, what):
+    """The machine a status or event is about, or None (logged). A stamped
+    message (`port` set) is only about the machine that registered from that
+    port; an unstamped one is not about a machine a stamped registration has
+    placed on a port, whose beats and events come stamped."""
     machine = Machine.objects.filter(serial=serial).first()
     if machine is None:
-        log.warning("status for unknown machine %s dropped", serial)
+        log.warning("%s for unknown machine %s dropped", what, serial)
+        return None
+    wrong = bool(machine.verified_port) if port is None \
+        else machine.verified_port != port
+    if wrong:
+        log.warning("%s for %s dropped: sent %s, registered from port %s",
+                    what, serial,
+                    f"from port {port}" if port else "unstamped",
+                    machine.verified_port or "(none)")
+        return None
+    return machine
+
+
+def status(serial, payload, port=None):
+    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice)."""
+    machine = _machine_for(serial, port, "status")
+    if machine is None:
         return None
     machine.online = bool(payload.get("online"))
     machine.last_seen = timezone.now()
@@ -114,13 +173,18 @@ def machine_hosts():
     """{hostname: serial} of the machine most recently seen with each
     registered hostname (the short name: pi-sw<s>-p<p> at a VLAN-per-port
     site, so a port). A machine that left a port keeps its last
-    registration, so only the newest machine on a hostname speaks for it; a
-    machine that registered no hostname is on no port."""
+    registration, so only the newest machine on a hostname speaks for it, the
+    newest of those a stamped registration placed there when there are any
+    (verified_port); a machine that registered no hostname is on no port."""
     seen_on = {}
-    for serial, hostname, seen in Machine.objects.values_list("serial", "hostname", "last_seen"):
+    for serial, hostname, seen, port in Machine.objects.values_list(
+            "serial", "hostname", "last_seen", "verified_port"):
         host = hostname.split(".")[0]
-        if host and (host not in seen_on or seen > seen_on[host][0]):
-            seen_on[host] = (seen, serial)
+        # a machine a stamped registration put on a port outranks any that
+        # only claimed it, whenever that claim was heard
+        rank = (bool(port), seen)
+        if host and (host not in seen_on or rank > seen_on[host][0]):
+            seen_on[host] = (rank, serial)
     return {host: serial for host, (_, serial) in seen_on.items()}
 
 
@@ -168,11 +232,10 @@ def found_boards():
     return {serial: list(places.values()) for serial, places in boards.items()}
 
 
-def boot_event(serial, payload):
+def boot_event(serial, payload, port=None):
     """Record one boot-stage event ({"stage","boot_id","ts","detail"})."""
-    machine = Machine.objects.filter(serial=serial).first()
+    machine = _machine_for(serial, port, "boot event")
     if machine is None:
-        log.warning("boot event for unknown machine %s dropped", serial)
         return None
     ts = parse_datetime(payload.get("ts") or "") or timezone.now()
     return BootEvent.objects.create(
