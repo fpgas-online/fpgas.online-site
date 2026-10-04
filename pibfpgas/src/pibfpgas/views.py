@@ -1,5 +1,6 @@
 # pibfpgas - the FPGA board pages
 
+import base64
 
 from django.conf import settings
 from django.http import Http404
@@ -23,6 +24,11 @@ def render_pi(request, pi, template):
             {
                 "pi": pi,
                 "pw": settings.PI_PW,
+                # The Pis' login is public by design; the page states it next
+                # to the ssh command. PI_PW is base64 (it rides in the web
+                # terminal's URL); a value that is not is a broken deploy and
+                # fails the page loudly rather than printing nonsense.
+                "pw_plain": base64.b64decode(settings.PI_PW, validate=True).decode(),
                 "domain_name": settings.DOMAIN_NAME,
                 "form": UploadFileForm(),
                 })
