@@ -1,6 +1,12 @@
 """The PoE endpoints (/snmp/status, /snmp/toggle; the snmp_switch app from
-the fpgas-online-poe package) act only on a port with a board the site
-offers (pibfpgas/poe.py), once per port per interval.
+the fpgas-online-poe package) act on a board's own port and nothing beyond
+(pibfpgas/poe.py), once per port per interval.
+
+Visitors use the boards and press Reset, with no login: every board keeps
+its Reset, above all one that has hung, is restarting or is failing its
+check. What is refused is a port no board is registered on, and, whatever
+has been registered, a trunk, an uplink or a port outside a switch's access
+ports.
 
 Run against the installed fpgas-online-poe package with this project's own
 settings and URL routing, on both hosts, and with a switch client that
@@ -13,20 +19,25 @@ The port numbers are fixture data: nothing here says what is on which port
 of a real switch.
 """
 
+import datetime
 import json
 import textwrap
 import types
 
 import pytest
 from django.test import Client
+from django.utils import timezone
 from django.utils.module_loading import import_string
+from netgear_switch.errors import NetgearSwitchError
 from pibfpgas.checks import poe_package_enforces_the_port_policy
 from snmp_switch import switches
 from snmp_switch.policy import PORT_POLICY_SETTING
+from snmp_switch.switches import is_access_port
 from ttsite.models import Board
 
 import pib.settings
-from tests.fleet_pis import registered, verified_pi
+from fleet import consumer
+from tests.fleet_pis import machine, registered, verified_pi, verifying
 
 WELLAND = "welland.fpgas.online"
 TINYTAPEOUT = "tinytapeout.fpgas.online"
@@ -50,7 +61,21 @@ SWITCHES = textwrap.dedent("""
         downstream_trunk_ports: []
         house_uplink_port: 52
     """)
-NOT_FOR_BOARDS = [(1, 47), (1, 48), (1, 50), (2, 51), (2, 52)]
+# gateway trunk, uplink and downstream trunk of the first; trunk and uplink of
+# the second; then ports outside the first's access ports and off the end
+NOT_FOR_BOARDS = [(1, 47), (1, 48), (1, 50), (2, 51), (2, 52), (1, 41), (1, 46), (2, 49), (2, 60), (2, 999)]
+
+
+def forge(hostname, serial="f0rged"):
+    """A registration nobody checked: the three messages anything on the
+    site LAN can publish to the fleet broker to look like a board that
+    registered on `hostname`, is online and passed its check."""
+    topic = f"fpgas/welland/pi/{serial}/"
+    assert consumer.dispatch(topic + "registration", json.dumps(
+        {"machine": {"serial": serial}, "connection": {"site": "welland", "hostname": hostname}})) == "registration"
+    assert consumer.dispatch(topic + "status", json.dumps({"online": True, "boot_id": "x", "uptime_s": 9})) == "status"
+    assert consumer.dispatch(topic + "event", json.dumps(
+        {"stage": "fpga-verified", "boot_id": "x", "detail": {"result": "pass"}})) == "event"
 
 
 def post(host, path, body):
@@ -129,9 +154,11 @@ CYCLE_SW2_P46 = [("192.0.2.2", "set", 46, False), ("192.0.2.2", "get"), ("192.0.
 
 
 def test_the_settings_name_the_site_policy_under_the_name_the_package_reads():
-    """PORT_POLICY_SETTING is imported from the installed fpgas-online-poe: a
-    package from before it enforced a policy fails this file at import."""
+    """PORT_POLICY_SETTING and is_access_port are imported from the installed
+    fpgas-online-poe: a package from before it enforced a policy, or from
+    before it bounded the policy to access ports, fails this file at import."""
     assert PORT_POLICY_SETTING == "SNMP_SWITCH_PORT_POLICY"
+    assert callable(is_access_port)
     from pibfpgas.poe import board_port
     assert import_string(getattr(pib.settings, PORT_POLICY_SETTING)) is board_port
 
@@ -152,7 +179,14 @@ def test_the_deploy_check_fails_beside_a_package_that_does_not(monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, "snmp_switch.policy", None)  # as if the module did not exist
     errors = poe_package_enforces_the_port_policy(None)
-    assert [e.id for e in errors] == ["pibfpgas.E001"] and "any switch port" in errors[0].msg
+    assert [e.id for e in errors] == ["pibfpgas.E001"] and "not a board's" in errors[0].msg
+
+
+def test_the_deploy_check_fails_beside_a_package_with_the_policy_but_no_access_port_bound(monkeypatch):
+    """The first version of the package's fix asked the policy and nothing
+    else: a forged registration reached trunks and uplinks through it."""
+    monkeypatch.delattr(switches, "is_access_port")
+    assert [e.id for e in poe_package_enforces_the_port_policy(None)] == ["pibfpgas.E001"]
 
 
 def test_the_deploy_check_is_registered():
@@ -172,7 +206,7 @@ def test_the_package_refuses_everything_when_no_policy_is_named(switch_calls, se
     assert switch_calls == []
 
 
-# --- the welland site: a Pi the /fpgas/ pages list --------------------------
+# --- the welland site: a port a board is registered on ----------------------
 
 
 @pytest.mark.django_db
@@ -194,10 +228,13 @@ def test_a_listed_boards_port_reports_its_state(switch_calls):
 
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
-@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS + [(2, 45), (1, 46), (2, 999)])
-def test_an_uplink_trunk_empty_or_unknown_port_is_refused(switch_calls, path, switch, port):
-    """(1, 46): the listed board's port number on the other switch."""
+@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS + [(2, 45), (1, 30), (2, 4), (2, 6)])
+def test_an_uplink_trunk_out_of_range_or_empty_port_is_refused(switch_calls, path, switch, port):
+    """With boards registered on switch 2 port 46 and switch 1 port 6: not
+    their numbers on the other switch (1, 46 and 2, 6), not a neighbour, not
+    a port whose number only begins like theirs (2, 4)."""
     verified_pi("pi-sw2-p46")
+    verified_pi("pi-sw1-p6")
     r = post(WELLAND, path, {"port": str(port), "switch": switch})
     assert r.status_code == 403
     assert r.json() == {"error": f"switch {switch} port {port} is not a board this site offers; "
@@ -205,40 +242,136 @@ def test_an_uplink_trunk_empty_or_unknown_port_is_refused(switch_calls, path, sw
     assert switch_calls == []
 
 
-@pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
+# Every board keeps its Reset, whatever state it is in: the site has no page
+# for these boards just now, and each of them is one a visitor (or the board's
+# own page, left open) needs to be able to power-cycle.
+
+
+def cycled(host, switch, port):
+    mgmt = f"192.0.2.{switch}"
+    return [(mgmt, "set", port, False), (mgmt, "get"), (mgmt, "set", port, True), (mgmt, "get")]
+
+
 @pytest.mark.parametrize("result", ["fail", "missing"])
-def test_a_registered_board_that_is_not_listed_is_refused(switch_calls, path, result):
-    """Registered and checking in, but its FPGA check did not pass this boot:
-    the site has no page for it, so no Reset button."""
+def test_a_registered_board_that_is_failing_its_check_can_be_reset(switch_calls, result):
     registered("s1", "pi-sw2-p44", result)
-    assert Client(HTTP_HOST=WELLAND).get("/fpgas/pi-sw2-p44.html").status_code == 404
-    r = post(WELLAND, path, {"port": "44", "switch": 2})
-    assert r.status_code == 403
-    assert switch_calls == []
+    assert Client(HTTP_HOST=WELLAND).get("/fpgas/pi-sw2-p44.html").status_code == 404  # not listed
+    assert post(WELLAND, "/snmp/status", {"port": "44", "switch": 2}).status_code == 200
+    switch_calls.clear()
+    assert post(WELLAND, "/snmp/toggle", {"port": "44", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 2, 44)
 
 
-@pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
-def test_an_offered_pi_with_no_board_shown_here_is_refused(switch_calls, path):
-    """Passed its check, but carries only a Tiny Tapeout ASIC board, which
-    this site's pages do not list (pibfpgas.pis.listed)."""
-    verified_pi("pi-sw1-p12", ("tt", "tt-asic"))
-    r = post(WELLAND, path, {"port": "12", "switch": 1})
-    assert r.status_code == 403
-    assert switch_calls == []
+def test_a_hung_board_can_be_reset(switch_calls):
+    """It passed its check, then stopped: no beat for an hour, so the pages
+    dropped it long ago. This is the board Reset is for."""
+    m = verified_pi("pi-sw2-p46")
+    m.last_seen = timezone.now() - datetime.timedelta(hours=1)
+    m.save()
+    assert Client(HTTP_HOST=WELLAND).get("/fpgas/pi-sw2-p46.html").status_code == 404
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 2, 46)
 
 
-def test_a_board_that_stopped_checking_in_is_refused(switch_calls):
+def test_a_board_that_went_offline_long_ago_can_be_reset(switch_calls):
+    """No age cut-off: its last will was heard a month ago."""
     m = verified_pi("pi-sw2-p46")
     m.online = False
+    m.last_seen = timezone.now() - datetime.timedelta(days=30)
     m.save()
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 2, 46)
+
+
+def test_a_board_that_is_restarting_can_be_reset_and_asked_its_state(switch_calls):
+    """Its check is running again, so it is not listed until it passes: the
+    board page left open still gets its "Check PoE" answer."""
+    verifying(machine("s3", "pi-sw2-p46"))
+    assert Client(HTTP_HOST=WELLAND).get("/fpgas/pi-sw2-p46.html").status_code == 404
+    assert post(WELLAND, "/snmp/status", {"port": "46", "switch": 2}).json() == {"state": "on"}
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+
+
+def test_a_board_that_registered_and_has_run_no_check_can_be_reset(switch_calls):
+    machine("s4", "pi-sw1-p12")
+    assert post(WELLAND, "/snmp/toggle", {"port": "12", "switch": 1}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 1, 12)
+
+
+def test_a_board_this_sites_pages_do_not_show_can_be_reset(switch_calls):
+    """It carries only a Tiny Tapeout ASIC board, which the /fpgas/ pages do
+    not list (pibfpgas.pis.listed); it is a registered board all the same."""
+    verified_pi("pi-sw1-p12", ("tt", "tt-asic"))
+    assert post(WELLAND, "/snmp/toggle", {"port": "12", "switch": 1}).status_code == 200
+
+
+def test_several_machines_registered_on_one_port_is_still_yes(switch_calls):
+    registered("old", "pi-sw2-p46", "fail")
+    verified_pi("pi-sw2-p46", serial="new")
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+
+
+def test_a_registered_name_with_a_domain_names_its_port(switch_calls):
+    machine("s5", "pi-sw2-p46.welland.fpgas.online")
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+
+
+@pytest.mark.parametrize("hostname", [
+    "pi-sw2-p046", "pi-sw02-p46", "pi-sw2-p46x", "pi-sw2-p460", "pi-sw2-p4", "xpi-sw2-p46", "PI-SW2-P46",
+    "pi-sw2-p46\n", "pi46", "opi-sw2-p46", "", "gateway",
+])
+def test_only_the_one_spelling_of_a_ports_name_names_it(switch_calls, hostname):
+    machine("s6", hostname)
     assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 403
     assert switch_calls == []
+
+
+# --- a registration nobody checked -------------------------------------------
+#
+# The registry holds what boards say about themselves, and the broker takes
+# it from anything on the site LAN. The package bounds what that can reach.
+
+
+@pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
+@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS)
+def test_a_forged_registration_cannot_open_a_trunk_an_uplink_or_a_port_outside_the_access_ports(
+        switch_calls, path, switch, port):
+    forge(f"pi-sw{switch}-p{port}")
+    r = post(WELLAND, path, {"port": port, "switch": switch})
+    assert r.status_code == 403
+    assert r.json() == {"error": f"switch {switch} port {port} is not a board this site offers; "
+                                 "nothing was sent to the switch"}
+    assert switch_calls == []
+
+
+def test_a_forged_registration_reaches_an_access_port_and_no_further(switch_calls):
+    """What forging can do: name an access port. That is another board,
+    which any visitor may reset anyway, or (here) an empty port."""
+    assert post(WELLAND, "/snmp/toggle", {"port": 30, "switch": 1}).status_code == 403
+    forge("pi-sw1-p30")
+    assert post(WELLAND, "/snmp/toggle", {"port": 30, "switch": 1}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 1, 30)
+
+
+def test_a_forged_registration_on_a_switch_the_site_does_not_have_is_a_400(switch_calls):
+    forge("pi-sw3-p5")
+    assert post(WELLAND, "/snmp/toggle", {"port": 5, "switch": 3}).status_code == 400
+    assert switch_calls == []
+
+
+def test_a_flat_site_has_no_switch_description_to_bound_a_registration(flat_calls):
+    """Recorded, not wanted: the legacy single switch has no switches file,
+    so nothing says which of its ports are access ports, and a port a
+    registration names is accepted whatever it is."""
+    forge("pi48")
+    assert post(WELLAND, "/snmp/toggle", {"port": 48}).status_code == 200
+    assert flat_calls == [("set", "48", "2"), ("set", "48", "1")]
 
 
 # --- the legacy flat scheme (pi<port>, one switch with no index) ------------
 
 
-def test_flat_scheme_power_cycles_a_listed_board(flat_calls, settings):
+def test_flat_scheme_power_cycles_a_registered_board(flat_calls, settings):
     settings.DOMAIN_NAME = WELLAND
     settings.PI_PW = "cGFzc3dvcmQ="
     verified_pi("pi9")
@@ -250,14 +383,27 @@ def test_flat_scheme_power_cycles_a_listed_board(flat_calls, settings):
 
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
-def test_flat_scheme_refuses_a_port_with_no_listed_board(flat_calls, path):
+def test_flat_scheme_refuses_a_port_with_no_registered_board(flat_calls, path):
     verified_pi("pi9")
-    registered("s2", "pi11", "fail")
-    for port in ("10", "11", "48"):
+    verified_pi("pi90")
+    for port in ("10", "11", "48", "900"):
         r = post(WELLAND, path, {"port": port})
         assert r.status_code == 403
         assert f"port {port} is not a board this site offers" in r.json()["error"]
     assert flat_calls == []
+
+
+def test_flat_scheme_resets_a_board_that_is_failing_its_check(flat_calls):
+    registered("s2", "pi11", "fail")
+    assert post(WELLAND, "/snmp/toggle", {"port": "11"}).status_code == 200
+    assert flat_calls == [("set", "11", "2"), ("set", "11", "1")]
+
+
+def test_a_flat_registration_does_not_open_a_per_port_vlan_port(switch_calls):
+    verified_pi("pi46")
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 403
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 1}).status_code == 403
+    assert switch_calls == []
 
 
 def test_a_vlan_per_port_pi_does_not_open_a_flat_port(flat_calls):
@@ -279,8 +425,8 @@ def test_a_second_toggle_inside_the_interval_is_a_429_and_the_switch_is_not_call
     r = post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2})
     assert r.status_code == 429
     assert 1 <= int(r["Retry-After"]) <= 60
-    assert r.json() == {"error": f"switch 2 port 46 was power-cycled a moment ago; try again in {r['Retry-After']} s. "
-                                 "Nothing was sent to the switch"}
+    assert r.json() == {"error": f"switch 2 port 46 was power-cycled a moment ago; "
+                                 f"try again in {r['Retry-After']} seconds. Nothing was sent to the switch"}
     assert switch_calls == CYCLE_SW2_P46
     # the limit is per port: the next board along is not held up
     assert post(WELLAND, "/snmp/toggle", {"port": "45", "switch": 2}).status_code == 200
@@ -295,6 +441,47 @@ def test_toggle_is_refused_when_the_rate_limit_store_is_missing(switch_calls, se
     assert r.status_code == 503
     assert "rate limit store" in r.json()["error"]
     assert switch_calls == []
+
+
+def test_a_port_left_off_by_a_switch_that_missed_on_can_be_reset_again_at_once(switch_calls, monkeypatch):
+    """The switch takes "off" and then does not answer "on", three times
+    over: the answer says the port may be off, and the next Reset is not
+    told to wait a minute while the board sits without power."""
+    verified_pi("pi-sw2-p46")
+    failing = [True]
+    real_set = switches.LibraryPort.set
+
+    def set_(self, on):
+        if on and failing[0]:
+            switch_calls.append((self.switch.host, "set", self.port, True, "no answer"))
+            raise NetgearSwitchError("timeout")
+        return real_set(self, on)
+
+    monkeypatch.setattr(switches.LibraryPort, "set", set_)
+    r = post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2})
+    assert r.status_code == 502
+    assert "The port may be off: press Reset again" in r.json()["error"]
+    assert [c for c in switch_calls if c[1] == "set"] == \
+        [("192.0.2.2", "set", 46, False)] + [("192.0.2.2", "set", 46, True, "no answer")] * 3
+    failing[0] = False
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+
+
+def test_on_is_tried_again_when_the_switch_misses_it_once(switch_calls, monkeypatch):
+    verified_pi("pi-sw2-p46")
+    missed = []
+    real_set = switches.LibraryPort.set
+
+    def set_(self, on):
+        if on and not missed:
+            missed.append(self.port)
+            raise NetgearSwitchError("timeout")
+        return real_set(self, on)
+
+    monkeypatch.setattr(switches.LibraryPort, "set", set_)
+    r = post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2})
+    assert (r.status_code, r.json()) == (200, {"46": ["on", "on"]})
+    assert missed == [46] and ("192.0.2.2", "set", 46, True) in switch_calls
 
 
 # --- the legacy bulk routes --------------------------------------------------
@@ -330,7 +517,7 @@ def test_a_malformed_request_is_a_clean_400(switch_calls, tt_boards, host, body)
     assert switch_calls == []
 
 
-# --- the Tiny Tapeout site: a board whose page shows the button -------------
+# --- the Tiny Tapeout site: a board that site shows, on either switch -------
 
 
 def test_tt_board_page_button_power_cycles_its_board(switch_calls, tt_boards):
@@ -344,17 +531,24 @@ def test_tt_board_page_button_power_cycles_its_board(switch_calls, tt_boards):
     assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "6", "switch": 1}).status_code == 429
 
 
+def test_tt_board_on_the_second_switch_has_the_button_and_is_power_cycled(switch_calls, tt_boards):
+    html = Client(HTTP_HOST=TINYTAPEOUT).get("/board/tt07/").content.decode()
+    assert 'id="tt-power"' in html and 'data-port="7"' in html and 'data-switch="2"' in html
+    r = post(TINYTAPEOUT, "/snmp/toggle", {"port": "7", "switch": 2})
+    assert r.status_code == 200
+    assert switch_calls == cycled(TINYTAPEOUT, 2, 7)
+
+
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
 @pytest.mark.parametrize("switch, port, why", [
-    (1, 3, "tt03 is disabled: no button on its page"),
-    (2, 7, "tt07 is on the second switch: no button on its page"),
+    (1, 3, "tt03 is disabled: the site does not show it as a live board, no button"),
     (2, 6, "tt06's port number, on the other switch"),
     (1, 7, "tt07's port number, on the other switch"),
     (1, 5, "no board"),
     (1, 47, "gateway trunk"), (1, 48, "uplink"), (1, 50, "trunk"), (2, 51, "trunk"), (2, 52, "uplink"),
-    (2, 46, "a board the welland site lists, not this one"),
+    (2, 46, "a board registered with the fleet, which this site does not show"),
 ])
-def test_tt_site_refuses_every_port_without_a_button(switch_calls, tt_boards, path, switch, port, why):
+def test_tt_site_refuses_every_port_that_is_not_one_of_its_boards(switch_calls, tt_boards, path, switch, port, why):
     verified_pi("pi-sw2-p46")
     r = post(TINYTAPEOUT, path, {"port": str(port), "switch": switch})
     assert r.status_code == 403, why
@@ -363,8 +557,8 @@ def test_tt_site_refuses_every_port_without_a_button(switch_calls, tt_boards, pa
 
 
 def test_a_tt_site_board_is_not_thereby_a_welland_site_board(switch_calls, tt_boards):
-    """Each site answers for its own pages: tt06 has a button on the Tiny
-    Tapeout site, and the welland site lists no Pi on that port."""
+    """Each site answers from its own data: tt06 has a button on the Tiny
+    Tapeout site, and no machine is registered on that port."""
     r = post(WELLAND, "/snmp/toggle", {"port": "6", "switch": 1})
     assert r.status_code == 403
     assert switch_calls == []

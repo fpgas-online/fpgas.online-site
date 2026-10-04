@@ -162,8 +162,9 @@ CHANNEL_LAYERS = {
 # fpgas-online-poe package). The endpoints need no login, so the package acts
 # only on what these say, and refuses everything when they are missing.
 #
-# Which ports are boards: asked on every request, answered from what the pages
-# are built from (pibfpgas/poe.py). Any other port is refused with a 403.
+# Which ports are boards: asked on every request, answered from the fleet
+# registry and the Tiny Tapeout board table (pibfpgas/poe.py). Any other port
+# is refused with a 403.
 SNMP_SWITCH_PORT_POLICY = "pibfpgas.poe.board_port"
 # One power cycle per port per this many seconds; a second request inside it
 # gets a 429 with Retry-After.

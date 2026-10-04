@@ -263,7 +263,7 @@ test("ping asks for the Pi by its hostname", () => {
 // reason must reach the status box, or a refused Reset looks like a dead one.
 for (const [status, error] of [
     [403, "switch 2 port 33 is not a board this site offers; nothing was sent to the switch"],
-    [429, "switch 2 port 33 was power-cycled a moment ago; try again in 42 s. Nothing was sent to the switch"],
+    [429, "switch 2 port 33 was power-cycled a moment ago; try again in 42 seconds. Nothing was sent to the switch"],
     [503, "PoE control is refused: the power-cycle rate limit store is not answering"],
 ]) {
     test(`a reset refused with ${status} prints the reason in the status box`, async () => {
