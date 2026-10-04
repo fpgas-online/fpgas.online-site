@@ -12,6 +12,7 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 
 from . import services
 
@@ -47,6 +48,14 @@ def _bridge(hostname, stage):
         log.exception("widget bridge failed for %s (%s)", hostname, stage)
 
 
+def port_prefix_enabled():
+    """Whether `port/<port>/` topics are believed: the broker only stamps
+    them once its per-port listeners are in place, and until then any Pi can
+    publish one itself, so with this off (the default) such a topic is as
+    foreign as any other and is ignored."""
+    return bool(settings.FLEET_MQTT.get("port_prefix", False))
+
+
 def _split(topic):
     """(port, serial, kind) of a fleet topic, or None for a foreign one.
 
@@ -55,15 +64,16 @@ def _split(topic):
     <serial>/<kind>` is whatever the Pi on that port sent as
     `fpgas/<site>/pi/<serial>/<kind>`; port is then the stamped port and the
     Pi had no say in it. An unstamped topic gives port None. A stamp that
-    is no port's hostname gives (False, ...): refused, not ignored."""
+    is no port's hostname gives (False, ...): refused, not ignored. Stamps
+    are only read when port_prefix_enabled()."""
     parts = topic.split("/")
     port = None
-    if parts[:1] == ["port"] and len(parts) == 7:
+    if parts[0] == "port" and len(parts) > 1 and port_prefix_enabled():
         port, parts = parts[1], parts[2:]
-        if not _is_port(port):
-            port = False
     if len(parts) != 5 or parts[0] != "fpgas" or parts[2] != "pi":
         return None
+    if port is not None and not _is_port(port):
+        port = False
     return port, parts[3], parts[4]
 
 
@@ -81,21 +91,21 @@ def dispatch(topic, payload):
         return "ignored"
     port, serial, kind = split
     if port is False:
-        log.warning("%s rejected: the port prefix is no port's hostname", topic)
+        log.warning("%r rejected: the port prefix is no port's hostname", topic)
         return "rejected"
     if kind not in KINDS:
         return "ignored"
     try:
         doc = json.loads(payload)
     except (ValueError, UnicodeDecodeError):
-        log.warning("malformed JSON on %s ignored", topic)
+        log.warning("malformed JSON on %r ignored", topic)
         return "ignored"
     if not isinstance(doc, dict):
-        log.warning("non-object payload on %s ignored", topic)
+        log.warning("non-object payload on %r ignored", topic)
         return "ignored"
     if kind == "registration":
         if doc.get("machine", {}).get("serial") != serial:
-            log.warning("registration serial mismatch on %s ignored", topic)
+            log.warning("registration serial mismatch on %r ignored", topic)
             return "ignored"
         machine, _ = services.register_document(doc, port)
         return "registration" if machine is not None else "rejected"

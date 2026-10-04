@@ -296,8 +296,11 @@ def _build_logging(level, request_level):
 
 
 # fleet MQTT consumer broker (anonymous LAN listener, no credentials).
-# Overridable in local_settings.py.
-FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
+# Overridable in local_settings.py. port_prefix: believe the per-port
+# `port/<port>/` topic prefix the broker's per-port listeners add (see
+# docs/verify-events.md). Leave it off until those listeners are running:
+# on today's open broker any Pi could publish such a topic itself.
+FLEET_MQTT = {"host": "127.0.0.1", "port": 1883, "port_prefix": False}
 
 try:
     from pib.local_settings import *  # noqa: E402, F403

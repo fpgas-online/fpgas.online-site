@@ -1,6 +1,6 @@
-"""Long-running MQTT consumer: subscribes fpgas/+/pi/+/+ and the same under
-the broker's per-port prefix, port/+/fpgas/+/pi/+/+, and feeds every
-message through fleet.consumer.dispatch. Run under systemd (Restart=always);
+"""Long-running MQTT consumer: subscribes fpgas/+/pi/+/+ and, when
+FLEET_MQTT["port_prefix"] is on, the same under the broker's per-port
+prefix, port/+/fpgas/+/pi/+/+, and feeds every message through fleet.consumer.dispatch. Run under systemd (Restart=always);
 paho's loop_forever handles broker reconnects itself."""
 
 import logging
@@ -27,7 +27,10 @@ class Command(BaseCommand):
 
         def on_connect(client, userdata, flags, reason_code, properties):
             log.info("connected to %(host)s:%(port)s", cfg)
-            client.subscribe([(TOPIC, 1), (PORT_TOPIC, 1)])
+            topics = [(TOPIC, 1)]
+            if consumer.port_prefix_enabled():
+                topics.append((PORT_TOPIC, 1))
+            client.subscribe(topics)
 
         def on_message(client, userdata, msg):
             try:
