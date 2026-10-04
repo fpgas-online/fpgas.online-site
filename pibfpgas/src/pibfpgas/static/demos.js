@@ -42,11 +42,6 @@ button_click('check_wire',
     wssh_run(e,'echo $?')
 });
 
-button_click('tt910',
-  function(e) {
-    wssh_run(e,'mpremote')
-});
-
 button_click('usb_off',
   function(e) {
     wssh_run(e,'/sbin/uhubctl -S --ports 2 --action off')
