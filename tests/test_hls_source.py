@@ -66,7 +66,8 @@ def test_welland_players_take_their_source_from_data_setup(welland, settings, pa
 
 @pytest.mark.django_db
 def test_tinytapeout_board_player_takes_its_source_from_data_setup(tinytapeout):
-    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
+    Board.objects.create(slug="tt07", usb_serial="07070707aaaa0007", kind="asic", title="Tiny Tapeout 7")
+    verified_pi("pi-sw2-p7", ("tt", "tt-fpga", {"usb_serial": "07070707aaaa0007", "chip": "asic"}))
     (setup,) = players(tinytapeout, "/board/tt07/")
     assert setup["liveui"] is True
     assert setup["sources"] == [{"src": "/live/pi-sw2-p7.m3u8", "type": "application/x-mpegURL"}]
@@ -74,8 +75,10 @@ def test_tinytapeout_board_player_takes_its_source_from_data_setup(tinytapeout):
 
 @pytest.mark.django_db
 def test_tinytapeout_index_thumbnails_take_their_source_from_data_setup(tinytapeout):
-    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
-    Board.objects.create(slug="fpga-1", switch=2, port=12, kind="fpga", title="TT FPGA emulation board 1")
+    Board.objects.create(slug="tt07", usb_serial="07070707aaaa0007", kind="asic", title="Tiny Tapeout 7")
+    verified_pi("pi-sw2-p7", ("tt", "tt-fpga", {"usb_serial": "07070707aaaa0007", "chip": "asic"}))
+    # a board no catalogue row names has its thumbnail all the same
+    verified_pi("pi-sw2-p12", ("tt", "tt-fpga", {"usb_serial": "f0f0f0f0aaaa0012", "chip": "fpga"}))
     setups = players(tinytapeout, "/")
     assert sorted(s["sources"][0]["src"] for s in setups) == ["/live/pi-sw2-p12.m3u8", "/live/pi-sw2-p7.m3u8"]
     assert all(s["sources"][0]["type"] == "application/x-mpegURL" and s["fluid"] is True for s in setups)

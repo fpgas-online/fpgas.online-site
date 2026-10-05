@@ -11,7 +11,7 @@ import json
 import logging
 import re
 
-from django.db.models import F
+from django.db.models import F, Max
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -260,3 +260,47 @@ def boot_event(serial, payload):
     return BootEvent.objects.create(
         machine=machine, boot_id=payload.get("boot_id", ""),
         stage=payload["stage"], detail=payload.get("detail") or {}, ts=ts)
+
+
+def reporting_machines():
+    """What each registered machine's FPGA boot check reported, for the pages
+    that follow the device the check found: a list of
+    {"serial", "hostname", "checked_in", "last_seen", "state", "boards",
+    "last_boards", "last_report"}.
+
+    `hostname` is the short name the machine registered (pi-sw<s>-p<p> at a
+    VLAN-per-port site: where it is now, by its own word; nothing here or in
+    any catalogue says where a machine should be). `state` and `boards` are
+    fpga_reports()'s for the boot the machine is running: "" and [] before
+    its check has started, "verifying" and [] while it runs.
+
+    `last_boards` are the boards of the newest `fpga-verified` event of the
+    machine that named any board, from whichever boot, and `last_report` is
+    that event's id (0 when there is none): arrival order across the fleet,
+    so of two machines that named the same board the higher one named it
+    last. A machine keeps them while it restarts, while its check runs again
+    and after a check that found nothing, because a board that has hung or
+    dropped off its USB port is still on that machine and is the one that
+    needs its Reset. A machine that has stopped checking in is still here,
+    with `checked_in` False, for the same reason.
+
+    Only the machine most recently seen with each hostname is given
+    (machine_hosts): one that left a port keeps its last registration. A
+    machine that registered no hostname is left out: it cannot be reached."""
+    reports = fpga_reports()
+    live = checked_in()
+    newest = set(machine_hosts().values())
+    named = BootEvent.objects.filter(stage="fpga-verified", detail__has_key="board0", machine__serial__in=newest) \
+        .values("machine__serial").annotate(newest=Max("id")).values_list("newest", flat=True)
+    last = {serial: (event_id, _reported_boards(detail) if isinstance(detail, dict) else [])
+            for serial, event_id, detail in BootEvent.objects.filter(id__in=list(named))
+            .values_list("machine__serial", "id", "detail")}
+    machines = []
+    rows = Machine.objects.filter(serial__in=newest).values_list("serial", "hostname", "last_seen")
+    for serial, hostname, last_seen in rows:
+        state, boards = reports.get(serial, ("", []))
+        last_report, last_boards = last.get(serial, (0, []))
+        machines.append({"serial": serial, "hostname": hostname.split(".")[0], "checked_in": serial in live,
+                         "last_seen": last_seen, "state": state, "boards": boards,
+                         "last_boards": last_boards, "last_report": last_report})
+    return machines

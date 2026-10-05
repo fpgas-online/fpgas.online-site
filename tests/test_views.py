@@ -7,32 +7,47 @@ from ttsite.models import Board
 
 from ttsite import daemon
 
+from .fleet_pis import verified_pi
+
 
 @pytest.fixture
 def c():
     return Client(HTTP_HOST="tinytapeout.fpgas.online")
 
 
+def tt(usb_serial, chip, **identity):
+    """A Tiny Tapeout board as a Pi's boot check reports it (the variant is `tt-fpga` whatever it is)."""
+    return ("tt", "tt-fpga", {"usb_serial": usb_serial, "chip": chip, **identity})
+
+
+TT06, TT07, FPGA1, TT03P5 = "06060606aaaa0006", "07070707aaaa0007", "f0f0f0f0aaaa0012", "03050305aaaa0035"
+
+
 @pytest.fixture
 def boards(db):
-    Board.objects.create(slug="tt06", port=6, kind="asic", shuttle="tt06", title="Tiny Tapeout 6")
-    Board.objects.create(slug="tt03", port=3, kind="asic", shuttle="tt03", title="Tiny Tapeout 3", enabled=False)
-    Board.objects.create(slug="kianv-1", port=None, kind="kianv", shuttle="tt06", title="KianV uLinux SoC")
-    Board.objects.create(slug="fpga-1", port=12, kind="fpga", title="TT FPGA emulation board 1")
-    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
+    """The catalogue names boards by USB serial and says nothing of where they are; the Pis' boot checks say
+    which board each carries. tt03 and kianv-1 are rows no Pi reports."""
+    Board.objects.create(slug="tt06", usb_serial=TT06, kind="asic", title="Tiny Tapeout 6")
+    Board.objects.create(slug="tt03", kind="asic", shuttle="tt03", title="Tiny Tapeout 3")
+    Board.objects.create(slug="kianv-1", kind="kianv", shuttle="tt06", title="KianV uLinux SoC")
+    Board.objects.create(slug="fpga-1", usb_serial=FPGA1, kind="fpga", title="TT FPGA emulation board 1")
+    Board.objects.create(slug="tt07", usb_serial=TT07, kind="asic", title="Tiny Tapeout 7")
+    verified_pi("pi-sw1-p6", tt(TT06, "asic", shuttle="tt06", sdk="2.0.4", mcu="RP2040"))
+    verified_pi("pi-sw1-p12", tt(FPGA1, "fpga", sdk="3.1.0", mcu="RP2350", demoboard="TTDBv3 [3.2]"))
+    verified_pi("pi-sw2-p7", tt(TT07, "asic", shuttle="tt07", sdk="2.0.4"))
 
 
 def test_index_lists_sections(c, boards):
     html = c.get("/").content.decode()
     assert "Tiny Tapeout 6" in html and "KianV uLinux SoC" in html and "TT FPGA emulation board 1" in html
-    # only catalogue rows render: tt03 (disabled), kianv-1 (no port), fpga-1... tt06+tt07 live
-    assert html.count("coming soon") == 2
+    # tt03 and kianv-1 are rows no Pi reports; tt06, tt07 and fpga-1 are live
+    assert html.count("not connected") == 2
     assert "/board/tt06/" in html
 
 
-def test_index_coming_soon_cards_link_to_their_board_page(c, boards):
+def test_index_cards_of_boards_no_pi_reports_link_to_their_page(c, boards):
     html = c.get("/").content.decode()
-    # kianv-1 has a row but no port: it still has a page worth reading
+    # kianv-1 is a row no Pi reports: it still has a page worth reading
     assert '<a href="/board/kianv-1/">Read about it' in html
     # tt03 is a catalogue row: chip page AND board page
     assert '<a href="/board/tt03/">Read about it' in html
@@ -77,8 +92,9 @@ def test_board_page_without_bundle_shows_notice(c, boards):
 
 @pytest.fixture
 def legacy_board(db):
-    return Board.objects.create(slug="tt03p5", switch=2, port=3, kind="asic", shuttle="tt03p5",
-                                title="Tiny Tapeout 3.5", commander="legacy")
+    """A board on firmware older than SDK 2: the board's own SDK version picks the Commander, no list does."""
+    verified_pi("pi-sw2-p3", tt(TT03P5, "asic", shuttle="tt03p5", sdk="1.2.2"))
+    return Board.objects.create(slug="tt03p5", usb_serial=TT03P5, kind="asic", title="Tiny Tapeout 3.5")
 
 
 def test_board_page_legacy_commander_uses_legacy_bundle(c, boards, legacy_board, settings):
@@ -102,11 +118,11 @@ def test_board_page_legacy_commander_without_bundle_names_legacy_setting(c, boar
 
 
 @pytest.mark.parametrize("slug", ["tt03", "kianv-1"])
-def test_board_page_coming_soon(c, boards, slug):
+def test_board_page_of_a_board_no_pi_reports(c, boards, slug):
     r = c.get(f"/board/{slug}/")
     assert r.status_code == 200
     html = r.content.decode()
-    assert "coming soon" in html.lower()
+    assert "not connected" in html.lower()
     assert "tt-commander-embed.js" not in html and ".m3u8" not in html
 
 
@@ -134,15 +150,14 @@ def test_status_json_cached(c, boards, monkeypatch):
     assert len(calls) == 1
 
 
-def test_status_json_coming_soon_never_calls_daemon(c, boards, monkeypatch):
+def test_status_json_of_a_board_no_pi_reports_never_calls_daemon(c, boards, monkeypatch):
     def boom(b, timeout=3.0):  # pragma: no cover - must never run
         raise AssertionError("daemon.health called for a non-live board")
 
     monkeypatch.setattr(daemon, "health", boom)
     r = c.get("/board/kianv-1/status.json")
     assert r.status_code == 200
-    assert r.json() == {"reachable": False, "error": "coming soon"}
-    assert cache.get("ttsite:health:kianv-1") is None
+    assert r.json() == {"reachable": False, "error": "not connected"}
 
 
 def test_status_json_writes_pending_placeholder_before_calling_daemon(c, boards, monkeypatch):
@@ -155,7 +170,7 @@ def test_status_json_writes_pending_placeholder_before_calling_daemon(c, boards,
     assert cache.get("ttsite:health:tt06") == {"reachable": True}
 
 
-def test_coming_soon_page_has_no_status_polling(c, boards):
+def test_page_of_a_board_no_pi_reports_has_no_status_polling(c, boards):
     html = c.get("/board/kianv-1/").content.decode()
     assert "data-status-url" not in html
     assert 'id="tt-status"' not in html
@@ -190,13 +205,13 @@ def test_board_page_data_attributes(c, boards, settings):
 
 
 def test_power_button_on_every_board_the_site_shows(c, boards):
-    """On either switch; a board that is disabled or has no port has none.
+    """On either switch; a board no Pi reports has none.
     /snmp/toggle accepts exactly the same boards: tests/test_poe_policy.py."""
     assert 'id="tt-power"' in c.get("/board/tt06/").content.decode()
     tt07 = c.get("/board/tt07/").content.decode()  # on the second switch
     assert 'id="tt-power"' in tt07 and 'data-switch="2"' in tt07 and 'data-port="7"' in tt07
-    assert 'id="tt-power"' not in c.get("/board/tt03/").content.decode()  # disabled
-    assert 'id="tt-power"' not in c.get("/board/kianv-1/").content.decode()  # no port
+    assert 'id="tt-power"' not in c.get("/board/tt03/").content.decode()
+    assert 'id="tt-power"' not in c.get("/board/kianv-1/").content.decode()
 
 
 def test_board_links_reject_dangerous_schemes(c, boards):
@@ -348,9 +363,9 @@ def test_asic_board_page_has_no_gallery(c, boards):
 
 
 def test_fpga_board_page_not_live_shows_notice_not_gallery(c, boards):
-    Board.objects.create(slug="fpga-2", port=None, kind="fpga", title="TT FPGA emulation board 2")
+    Board.objects.create(slug="fpga-2", kind="fpga", title="TT FPGA emulation board 2")
     html = c.get("/board/fpga-2/").content.decode()
-    assert "not wired up yet" in html
+    assert "this one is not connected" in html
     assert 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
 
 
