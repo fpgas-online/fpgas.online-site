@@ -59,7 +59,7 @@ UNLISTED_PREFIX = "tt-"
 # `error` for an identity that could not be sent).
 _WHY_NOT = ("tinytapeout_error", "tinytapeout_note", "error")
 # The Commander that drives a board on firmware older than SDK 2: the main one needs SDK 2 or newer.
-LEGACY_SDK = re.compile(r"v?[01]\.")
+LEGACY_SDK = re.compile(r"v?[01]\.", re.IGNORECASE)
 # A shuttle's name as it may go into a link to its chip page.
 _SHUTTLE = re.compile(r"[a-z0-9]{1,16}")
 # How much of a reported field, and of a reason, a page shows.
@@ -124,19 +124,13 @@ def _address(pi):
     return True
 
 
-def reported():
-    """{usb_serial: Reported} of every Tiny Tapeout board a registered Pi's boot check reported: the boards of
-    each Pi's last report that named any (fleet.services.reporting_machines), `current` when the boot the Pi
-    is running named it too. A board several Pis name is on the one that names it in the boot it is running,
-    and among those (or among none) on the one whose report came last: a board moved from a Pi that keeps
-    running is on the Pi it was moved to."""
-    boards = {}
-    best = {}
+def _named():
+    """(machine, its Pi, a Tiny Tapeout board of the machine's last report that named any board, its serial)
+    for every such board on every registered machine that has an address."""
     for machine in reporting_machines():
         pi = Pi.from_hostname(machine["hostname"])
         if pi is None or not _address(pi):
             continue
-        now = {usb_serial_of(b): b for b in machine["boards"] if b["board"] == "tt"}
         for last in machine["last_boards"]:
             if last["board"] != "tt":
                 continue
@@ -145,26 +139,42 @@ def reported():
                 log.warning("%s reported a Tiny Tapeout board with no usable USB serial: not shown",
                             machine["hostname"])
                 continue
-            # a Pi that has stopped checking in is not running the boot its last report came from
-            current = serial in now and machine["checked_in"]
-            rank = (current, machine["last_report"])
-            if serial in best and best[serial] >= rank:
-                continue
-            best[serial] = rank
-            board = now.get(serial, last)
-            kind, reason = kind_of(board)
-            if current:
-                waiting = ""
-            elif not machine["checked_in"]:
-                waiting = "its Raspberry Pi has stopped reporting"
-            else:
-                waiting = _NOT_CURRENT.get(
-                    machine["state"],
-                    f"its Raspberry Pi's boot check did not find it this boot ({machine['state'][:20]})")
-            boards[serial] = Reported(
-                usb_serial=serial, kind=kind, reason=reason, identity=board.get("identity", {}),
-                result=str(board["result"])[:20], pi=pi, pi_serial=machine["serial"],
-                checked_in=machine["checked_in"], current=current, waiting=waiting)
+            yield machine, pi, last, serial
+
+
+def reported():
+    """{usb_serial: Reported} of every Tiny Tapeout board a registered Pi's boot check reported: the boards of
+    each Pi's last report that named any (fleet.services.reporting_machines), `current` when the boot the Pi
+    is running named it too.
+
+    A board several Pis name is on the one whose report came last, among the Pis that are checking in (among
+    all of them when none is). So a board moved from a Pi that keeps running is on the Pi it was moved to,
+    and stays there while that Pi restarts: the Pi it left still names it in a boot it is still running, and
+    that older word does not win it back."""
+    boards = {}
+    best = {}
+    for machine, pi, last, serial in _named():
+        rank = (machine["checked_in"], machine["last_report"])
+        if serial in best and best[serial] >= rank:
+            continue
+        best[serial] = rank
+        now = {usb_serial_of(b): b for b in machine["boards"] if b["board"] == "tt"}
+        # a Pi that has stopped checking in is not running the boot its last report came from
+        current = serial in now and machine["checked_in"]
+        if current:
+            waiting = ""
+        elif not machine["checked_in"]:
+            waiting = "its Raspberry Pi has stopped reporting"
+        else:
+            waiting = _NOT_CURRENT.get(
+                machine["state"],
+                f"its Raspberry Pi's boot check did not name it this boot (the check's result: {machine['state'][:20]})")
+        board = now.get(serial, last)
+        kind, reason = kind_of(board)
+        boards[serial] = Reported(
+            usb_serial=serial, kind=kind, reason=reason, identity=board.get("identity", {}),
+            result=str(board["result"])[:20], pi=pi, pi_serial=machine["serial"],
+            checked_in=machine["checked_in"], current=current, waiting=waiting)
     return boards
 
 
@@ -295,5 +305,6 @@ def page(slug):
 
 def reported_port(switch, port):
     """Whether the Pi registered on this switch and port is one whose boot check named a Tiny Tapeout board
-    (in its last report that named any board, whatever the Pi is doing now)."""
-    return any((board.pi.switch, board.pi.port) == (switch, port) for board in reported().values())
+    (in its last report that named any board, whatever the Pi is doing now). Every such Pi counts, also one
+    whose board another Pi has named since: until its own check says otherwise the board may still be there."""
+    return any((pi.switch, pi.port) == (switch, port) for _, pi, _, _ in _named())

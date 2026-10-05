@@ -29,7 +29,7 @@ The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`t
 The boot check on each Pi (fpgas-verify) is the authority on what is connected. The site shows every Tiny Tapeout board some registered Pi's check reported, and takes everything about it from that report and from the Pi's own registration, at the moment of the request (`ttsite/boards.py`, over `fleet.services.reporting_machines`):
 
 - **What the page offers** follows the device the check reported in the boot its Pi is running now: a board that said it carries the FPGA breakout (`chip` `fpga`) gets the Commander, the gallery and upload; a board with a Tiny Tapeout chip gets the Commander; a board the check found and could not read gets a page that says so, with the check's own reason; a board whose Pi is restarting, is running its check, has stopped reporting or did not find the board this boot gets a page that says that. The camera and Reset are on every one of those pages. A board stays its Pi's until a check on that Pi names another board. The report's `variant` is not asked, because the check calls every Raspberry Pi USB device `tt-fpga` before reading it ([fpgas.online-test-designs issue #124](https://github.com/fpgas-online/fpgas.online-test-designs/issues/124)).
-- **Where the board is** is the hostname its Pi registered: its address, its camera and its switch port for Reset follow from that. No file says which board is on which port, so a board moved to another port keeps its page and what the page offers (uploads are kept on the Pi, so a board moved to another Pi leaves those behind). A board several Pis name is on the one that named it last in the boot it is running.
+- **Where the board is** is the hostname its Pi registered: its address, its camera and its switch port for Reset follow from that. No file says which board is on which port, so a board moved to another port keeps its page and what the page offers (uploads are kept on the Pi, so a board moved to another Pi leaves those behind). A board several Pis name is on the one whose report came last, among the Pis that are checking in.
 - **No list is needed.** A board in no catalogue is shown at `/board/tt-<usb serial>/` with every feature of its kind.
 - The Commander's WebSocket, `/ws/board/<slug>/serial`, is answered by Django with `X-Accel-Redirect: /_tt-serial/<the Pi's address>`; nginx has one internal location of that name that proxies to the Pi's bridge (fpgas.online-infra, `roles/ttsite`).
 
@@ -57,7 +57,9 @@ daemon's status code and JSON body through unchanged:
 | `POST /api/board/<slug>/bitstream` | `POST /bitstream` (multipart `name` + `file`; rejected here when > 256 KiB) |
 
 POSTs are CSRF-protected; the page sends the `csrftoken` cookie as
-`X-CSRFToken`. Boards that are not live or not `fpga` answer 404 JSON; an
+`X-CSRFToken`. A board no Pi reports, and one that said it carries a chip, answer 404
+JSON; a board whose Pi has not named it in the boot it is running (restarting,
+checking, stopped) answers 503 `board not ready` with the reason; an
 unreachable Pi answers 502 `{"error": "Pi unreachable", "detail": ...}`.
 After a successful Run/upload the page calls the Commander embed's
 `refreshDesigns()` (embed bundle >= 0.2.0; older bundles are tolerated), so

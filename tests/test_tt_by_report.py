@@ -158,7 +158,23 @@ def test_a_board_moved_from_a_pi_that_keeps_running_is_on_the_pi_it_was_moved_to
         Machine.objects.filter(serial=beat_from).update(last_seen=timezone.now())
         board = boards.reported()[FPGA4]
         assert (board.pi.hostname, board.pi_serial, board.current) == ("pi-sw2-p13", "new-pi", True)
-    # ... and it goes back when the Pi it left reports it again
+    # the Pi it was moved to restarts, runs its check, finds nothing: the board is still that Pi's, and that
+    # Pi's port is the one Reset acts on. The Pi it left still names the board in a boot it is still running;
+    # that older word does not win the board back.
+    new = Machine.objects.get(serial="new-pi")
+    new.last_boot_id = "b9"
+    new.save()
+    for event in (None, ("fpga-verifying", {}), ("fpga-verified", {"result": "missing"})):
+        if event:
+            BootEvent.objects.create(machine=new, boot_id="b9", stage=event[0], ts=timezone.now(), detail=event[1])
+        board = boards.reported()[FPGA4]
+        assert (board.pi.hostname, board.current) == ("pi-sw2-p13", False), event
+        page = boards.page(f"tt-{FPGA4}")
+        assert (page.switch, page.port) == (2, 13) and page.can_power_cycle and not page.has_commander
+        assert boards.reported_port(2, 13)
+    # the Pi it left is still a Pi whose check named a Tiny Tapeout board: it can be reset too
+    assert boards.reported_port(2, 36)
+    # ... and the board goes back when the Pi it left reports it again
     report(left, tt(FPGA4, "fpga"))
     assert boards.reported()[FPGA4].pi.hostname == "pi-sw2-p36"
 
@@ -277,7 +293,7 @@ def test_a_board_keeps_its_page_and_its_reset_while_its_pi_restarts(c, commander
     # ... and finds no board at all: the board is still this Pi's, and can be reset
     BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=timezone.now(),
                              detail={"result": "missing", "mode": "auto"})
-    assert "did not find it this boot (missing)" in page_now()[1]
+    assert "did not name it this boot (the check&#x27;s result: missing)" in page_now()[1]
     # ... and then, run again, finds it
     report(m, ("tt", "tt-fpga", REAL_FPGA))
     assert page_now()[0].live.current
@@ -336,7 +352,8 @@ def test_a_catalogue_slug_cannot_hide_a_board(c):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("sdk, commander_dir", [("1.2.2", "legacy-0.1.0"), ("v1.2.2", "legacy-0.1.0"), ("0.9", "legacy-0.1.0"),
+@pytest.mark.parametrize("sdk, commander_dir", [("1.2.2", "legacy-0.1.0"), ("v1.2.2", "legacy-0.1.0"), ("V1.2", "legacy-0.1.0"),
+                                                ("0.9", "legacy-0.1.0"),
                                                 ("2.0.4", "0.2.0"), ("10.0.0", "0.2.0"), ("-", "0.2.0")])
 def test_which_commander_for_which_sdk(c, commander, sdk, commander_dir):
     verified_pi("pi-sw2-p6", tt(CHIP6, "asic", shuttle="tt06", sdk=sdk))

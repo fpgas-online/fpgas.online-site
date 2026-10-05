@@ -46,8 +46,10 @@ class Command(BaseCommand):
             if not isinstance(entry, dict):
                 raise CommandError(f"{path}: entry is not a mapping: {entry!r}")
             slug = entry.get("slug")
-            if not slug:
-                raise CommandError(f"{path}: entry without slug: {entry!r}")
+            if not slug or not isinstance(slug, str):
+                raise CommandError(f"{path}: entry without a slug that is text: {entry!r}")
+            if slug in rows:
+                raise CommandError(f"{path}: two entries have the slug {slug!r}")
             if slug.startswith(UNLISTED_PREFIX) and SERIAL.fullmatch(slug[len(UNLISTED_PREFIX):]):
                 raise CommandError(f"{path}: slug {slug!r} is the address of a board no row names: choose another")
             unknown = sorted(set(entry) - {"slug", *FIELDS, *NOT_READ})

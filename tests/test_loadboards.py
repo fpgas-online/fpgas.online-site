@@ -122,6 +122,31 @@ def test_a_serial_a_board_could_not_report_is_refused(tmp_path, serial):
 
 
 @pytest.mark.django_db
+def test_a_load_that_fails_part_way_changes_nothing(tmp_path):
+    """The first row would load; the second names a serial held by a row that is not in the file."""
+    Board.objects.create(slug="by-hand", usb_serial="a2961e5cac65b25f", kind="fpga", title="x")
+    Board.objects.create(slug="fpga-1", usb_serial="", kind="fpga", title="old title")
+    p = tmp_path / "tt-boards.yaml"
+    p.write_text(BY_SERIAL)
+    with pytest.raises(CommandError, match="belongs to a row that is not in the file"):
+        call_command("ttsite_loadboards", str(p))
+    assert dict(Board.objects.values_list("slug", "usb_serial")) == {"by-hand": "a2961e5cac65b25f", "fpga-1": ""}
+    assert Board.objects.get(slug="fpga-1").title == "old title"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("rows, why", [
+    ("  - {slug: 123, kind: asic, title: x}\n", "slug that is text"),
+    ("  - {slug: x, kind: asic, title: x}\n  - {slug: x, kind: fpga, title: y}\n", "two entries have the slug"),
+])
+def test_a_slug_that_is_not_text_or_is_used_twice_is_refused(tmp_path, rows, why):
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n" + rows)
+    with pytest.raises(CommandError, match=why):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
 def test_a_slug_that_is_a_boards_own_address_is_refused(tmp_path):
     p = tmp_path / "bad.yaml"
     p.write_text("tt_boards:\n  - {slug: tt-a2961e5cac65b25f, kind: asic, title: x}\n")
