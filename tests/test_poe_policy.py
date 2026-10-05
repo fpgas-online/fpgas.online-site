@@ -28,6 +28,7 @@ import pytest
 from django.test import Client
 from django.utils import timezone
 from django.utils.module_loading import import_string
+from fleet.models import Machine
 from netgear_switch.errors import NetgearSwitchError
 from pibfpgas.checks import poe_package_enforces_the_port_policy
 from snmp_switch import switches
@@ -139,12 +140,25 @@ def flat_calls(monkeypatch, db):
     return calls
 
 
+def tt(usb_serial, chip="asic"):
+    """A Tiny Tapeout board as a Pi's boot check reports it."""
+    return ("tt", "tt-fpga", {"usb_serial": usb_serial, "chip": chip})
+
+
+TT06, TT07, UNLISTED = "06060606aaaa0006", "07070707aaaa0007", "f0f0f0f0aaaa0009"
+
+
 @pytest.fixture
 def tt_boards(db):
-    Board.objects.create(slug="tt06", switch=1, port=6, kind="asic", shuttle="tt06", title="Tiny Tapeout 6")
-    Board.objects.create(slug="tt03", switch=1, port=3, kind="asic", title="Tiny Tapeout 3", enabled=False)
-    Board.objects.create(slug="kianv-1", port=None, kind="kianv", title="KianV uLinux SoC")
-    Board.objects.create(slug="tt07", switch=2, port=7, kind="asic", shuttle="tt07", title="Tiny Tapeout 7")
+    """The Tiny Tapeout site's boards: where each is comes from the Pi that reported it, never from its
+    catalogue row. tt03 and kianv-1 are rows no Pi reports; the board on switch 2 port 9 has no row."""
+    Board.objects.create(slug="tt06", usb_serial=TT06, kind="asic", title="Tiny Tapeout 6")
+    Board.objects.create(slug="tt03", kind="asic", title="Tiny Tapeout 3")
+    Board.objects.create(slug="kianv-1", kind="kianv", title="KianV uLinux SoC")
+    Board.objects.create(slug="tt07", usb_serial=TT07, kind="asic", title="Tiny Tapeout 7")
+    verified_pi("pi-sw1-p6", tt(TT06))
+    verified_pi("pi-sw2-p7", tt(TT07))
+    verified_pi("pi-sw2-p9", tt(UNLISTED, "fpga"))
 
 
 CYCLE_SW2_P46 = [("192.0.2.2", "set", 46, False), ("192.0.2.2", "get"), ("192.0.2.2", "set", 46, True), ("192.0.2.2", "get")]
@@ -557,7 +571,7 @@ def test_tt_board_on_the_second_switch_has_the_button_and_is_power_cycled(switch
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
 @pytest.mark.parametrize("switch, port, why", [
-    (1, 3, "tt03 is disabled: the site does not show it as a live board, no button"),
+    (1, 3, "tt03 is a catalogue row no Pi reports: no button, and no port to name"),
     (2, 6, "tt06's port number, on the other switch"),
     (1, 7, "tt07's port number, on the other switch"),
     (1, 5, "no board"),
@@ -572,20 +586,55 @@ def test_tt_site_refuses_every_port_that_is_not_one_of_its_boards(switch_calls, 
     assert switch_calls == []
 
 
-def test_a_tt_site_board_is_not_thereby_a_welland_site_board(switch_calls, tt_boards):
-    """Each site answers from its own data: tt06 has a button on the Tiny
-    Tapeout site, and no machine is registered on that port."""
-    r = post(WELLAND, "/snmp/toggle", {"port": "6", "switch": 1})
-    assert r.status_code == 403
-    assert switch_calls == []
+def test_a_tt_boards_pi_is_a_registered_board_on_the_welland_site_too(switch_calls, tt_boards):
+    """A Tiny Tapeout board is now found from its Pi's registration, so that Pi is a registered board like
+    any other and the welland site may reset it (it resets any registered board, whatever it carries). The
+    other way round stays closed: the Tiny Tapeout site refuses a Pi that reported no Tiny Tapeout board
+    (test_tt_site_refuses_every_port_that_is_not_one_of_its_boards, switch 2 port 46)."""
+    assert post(WELLAND, "/snmp/toggle", {"port": "6", "switch": 1}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 1, 6)
 
 
 def test_tt_button_and_policy_use_the_same_answer(tt_boards):
     from pibfpgas.poe import board_port
+
+    from ttsite import boards
     request = types.SimpleNamespace(get_host=lambda: TINYTAPEOUT)
-    for board in Board.objects.all():
-        html = Client(HTTP_HOST=TINYTAPEOUT).get(f"/board/{board.slug}/").content.decode()
+    pages = boards.pages()
+    assert {p.slug for p in pages} == {"tt06", "tt03", "kianv-1", "tt07", "tt-" + UNLISTED}
+    for page in pages:
+        html = Client(HTTP_HOST=TINYTAPEOUT).get(f"/board/{page.slug}/").content.decode()
         shown = 'id="tt-power"' in html
-        assert shown == board.can_power_cycle
-        if board.port is not None:
-            assert board_port(request, board.switch, board.port) == shown, board.slug
+        assert shown == page.can_power_cycle == (page.live is not None), page.slug
+        if shown:
+            assert f'data-port="{page.port}"' in html and f'data-switch="{page.switch}"' in html
+            assert board_port(request, page.switch, page.port), page.slug
+
+
+def test_a_tt_board_moved_to_another_port_takes_its_reset_with_it(switch_calls, tt_boards):
+    """Tim moved a board on 5 October 2026: nothing but the Pi's own registration says where it is."""
+    Machine.objects.filter(hostname="pi-sw2-p7").update(hostname="pi-sw2-p13")
+    html = Client(HTTP_HOST=TINYTAPEOUT).get("/board/tt07/").content.decode()
+    assert 'id="tt-power"' in html and 'data-port="13"' in html and 'data-switch="2"' in html
+    assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "13", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(TINYTAPEOUT, 2, 13)
+    assert post(TINYTAPEOUT, "/snmp/status", {"port": "7", "switch": 2}).status_code == 403  # where it was
+
+
+def test_a_tt_board_with_no_catalogue_row_can_be_reset(switch_calls, tt_boards):
+    html = Client(HTTP_HOST=TINYTAPEOUT).get(f"/board/tt-{UNLISTED}/").content.decode()
+    assert 'id="tt-power"' in html and 'data-port="9"' in html and 'data-switch="2"' in html
+    assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "9", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(TINYTAPEOUT, 2, 9)
+
+
+def test_a_tt_board_whose_pi_has_stopped_reporting_can_still_be_reset(switch_calls, tt_boards):
+    """A hung board is the one to reset: its Pi's last report still says which board it carries and its last
+    registration says where, long after its last status beat."""
+    long_ago = timezone.now() - datetime.timedelta(days=3)
+    Machine.objects.filter(hostname="pi-sw1-p6").update(online=False, last_seen=long_ago)
+    html = Client(HTTP_HOST=TINYTAPEOUT).get("/board/tt06/").content.decode()
+    assert 'id="tt-power"' in html and 'data-port="6"' in html and 'data-switch="1"' in html
+    assert "has stopped reporting" in html
+    assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "6", "switch": 1}).status_code == 200
+    assert switch_calls == cycled(TINYTAPEOUT, 1, 6)

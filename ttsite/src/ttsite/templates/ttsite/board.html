@@ -2,36 +2,38 @@
 {% block title %}{{ board.title }} &middot; Tiny Tapeout at fpgas.online{% endblock %}
 {% block head %}
 {% include "ttsite/_videojs_head.html" %}
-{% if live and commander_version %}<link rel="stylesheet" href="{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.css">{% endif %}
+{% if board.has_commander and commander_version %}<link rel="stylesheet" href="{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.css">{% endif %}
 {% endblock %}
 {% block content %}
 <div id="ttsite-board"
      data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
-     data-port="{{ board.port|default_if_none:'' }}" data-switch="{{ board.switch }}"
-     data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
+     data-usb-serial="{% if live %}{{ board.live.usb_serial }}{% endif %}"
+     data-port="{{ board.port|default_if_none:'' }}" data-switch="{{ board.switch|default_if_none:'' }}"
+     data-ws-path="{% if board.has_commander %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
      {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
-     data-commander-js="{% if live and commander_version %}{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.js{% endif %}">
+     data-commander-js="{% if board.has_commander and commander_version %}{{ STATIC_URL }}{{ commander_dir }}/tt-commander-embed.js{% endif %}">
   <header class="tt-board-head">
-    <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.get_kind_display }}</span></h1>
+    <h1>{{ board.title }} <span class="tt-kind tt-kind--{{ board.kind }}">{{ board.kind_title }}</span></h1>
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
     {% if live %}<span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
-    {% else %}<span class="tt-pill tt-pill--soon">coming soon</span>{% endif %}
-    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on switch {{ board.switch }} port {{ board.port }}">Power-cycle board</button>{% endif %}
+    {% else %}<span class="tt-pill tt-pill--soon">not connected</span>{% endif %}
+    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on the switch port this board's Pi is on now (switch {{ board.switch }} port {{ board.port }})">Power-cycle board</button>{% endif %}
     {% if live %}<button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
   </header>
   {% if not live %}
-    <p class="tt-soon-banner">This board is <strong>coming soon</strong> &mdash; not wired up yet. Meanwhile, read about it below.</p>
+    <p class="tt-soon-banner">This board is <strong>not connected</strong>: no Raspberry Pi's boot check reports it. Meanwhile, read about it below.</p>
   {% else %}
   <div class="tt-board-grid">
     <section class="tt-camera"><div class="whep-live" data-whep-url="{{ board.whep_url }}" data-hls-id="tt-video"></div>
     <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true, "sources": [{"src": "{{ board.stream_url }}", "type": "application/x-mpegURL"}]}'></video></section>
     <section class="tt-commander">
-      {% if commander_version %}<div id="tt-commander"></div>
+      {% if not board.has_commander %}<p class="tt-notice" id="tt-not-identified">The boot check on this board's Raspberry Pi found the board but could not read what it is, so this page offers no controls for it: {{ board.live.reason }}</p>
+      {% elif commander_version %}<div id="tt-commander"></div>
       {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER{% if board.commander == "legacy" %}_LEGACY{% endif %}_VERSION is empty).</p>{% endif %}
     </section>
   </div>
-  {% if board.kind == "fpga" %}
+  {% if board.has_gallery %}
   <section class="tt-gallery" id="tt-gallery" data-api-base="{{ board.api_base }}">
     <h2>Designs on this board</h2>
     <p id="tt-gallery-msg" class="tt-msg" hidden></p>
@@ -54,7 +56,9 @@
     {% if board.description %}<div class="tt-md">{{ board.description|linebreaks }}</div>{% endif %}
     <dl>{% if board.pcb %}<dt>PCB</dt><dd>{{ board.pcb }}</dd>{% endif %}
         {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url|safe_url }}" target="_blank" rel="noopener">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
-        {% if live %}<dt>Where</dt><dd>Welland, switch {{ board.switch }} port {{ board.port }} ({{ board.hostname }})</dd>{% endif %}</dl>
+        {% if live %}<dt>Board</dt><dd>USB serial {{ board.live.usb_serial }}{% if board.facts.demoboard %}, {{ board.facts.demoboard }}{% endif %}{% if board.facts.sdk %}, SDK {{ board.facts.sdk }}{% endif %}</dd>
+        <dt>Boot check</dt><dd>{{ board.live.result }}{% if not board.live.checked_in %} (its Raspberry Pi has stopped reporting){% endif %}</dd>
+        <dt>Where now</dt><dd>Welland, on {{ board.hostname }}</dd>{% endif %}</dl>
     <ul class="tt-links">
       {% for l in board.links %}<li><a href="{{ l.url|safe_url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}
       <li><a href="https://tinytapeout.com/guides/get-started-demoboard/" target="_blank" rel="noopener">Demo board guide &#8599;</a></li>
@@ -63,7 +67,7 @@
       <li><a href="/docs/">All docs &rarr;</a></li>
     </ul>
     {% if board.kind == "kianv" %}<p class="tt-notice">{% if board.pmods %}KianV boards carry a QSPI flash/PSRAM PMOD and boot Linux on the chip; the{% else %}The{% endif %} one-click boot demo arrives in a later phase.</p>{% endif %}
-    {% if board.kind == "fpga" and not live %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; this one is not wired up yet.</p>{% endif %}
+    {% if board.kind == "fpga" and not live %}<p class="tt-notice">FPGA emulation boards run Tiny Tapeout designs on an iCE40UP5K; this one is not connected.</p>{% endif %}
   </section>
   {% if live %}<section class="tt-log"><h2>Status log</h2>
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}

@@ -8,8 +8,8 @@ DAEMON_PORT = 8765
 
 
 def health(board, timeout=3.0):
-    if board.port is None:
-        return {"reachable": False, "error": "board is not wired to a port"}
+    if board.ip is None:
+        return {"reachable": False, "error": "no Pi reports this board"}
     url = f"http://{board.ip}:{DAEMON_PORT}/health"
     try:
         resp = requests.get(url, timeout=timeout)

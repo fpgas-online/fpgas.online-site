@@ -19,7 +19,7 @@
           <p>{{ b.blurb }}</p>
           <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
         {% else %}
-          <p class="tt-soon">coming soon</p>
+          <p class="tt-soon">not connected</p>
           {% if b.shuttle %}<a href="https://tinytapeout.com/chips/{{ b.shuttle }}/" target="_blank" rel="noopener">{{ b.shuttle }} chip page &#8599;</a>{% endif %}
           <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
         {% endif %}
@@ -39,7 +39,7 @@
           <p>{{ b.blurb }}</p>
           <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
         {% else %}
-          <p class="tt-soon">coming soon</p>
+          <p class="tt-soon">not connected</p>
           <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
         {% endif %}
       </article>
@@ -58,13 +58,30 @@
           <p>{{ b.blurb }}</p>
           <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
         {% else %}
-          <p class="tt-soon">coming soon</p>
+          <p class="tt-soon">not connected</p>
           <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
         {% endif %}
       </article>
     {% endfor %}
   </div>
 </section>
+
+{% if unknown_boards %}
+<section id="unknown">
+  <h2>Boards not identified</h2>
+  <p>A Raspberry Pi's boot check found each of these boards and could not read what it is.</p>
+  <div class="tt-grid">
+    {% for b in unknown_boards %}
+      <article class="tt-card">
+        <h3>{{ b.title }}</h3>
+        <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true, "sources": [{"src": "{{ b.stream_url }}", "type": "application/x-mpegURL"}]}'></video>
+        <p>{{ b.live.reason }}</p>
+        <a class="tt-btn" href="/board/{{ b.slug }}/">See this board</a>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 <section id="how">
   <h2>How this works</h2>

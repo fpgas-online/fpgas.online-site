@@ -12,12 +12,12 @@ def test_load_creates_rows():
     call_command("ttsite_loadboards", str(DATA))
     assert set(Board.objects.values_list("slug", flat=True)) == {"tt06", "tt03", "kianv-1", "fpga-1"}
     tt06 = Board.objects.get(slug="tt06")
-    assert (tt06.port, tt06.kind, tt06.shuttle, tt06.pcb) == (6, "asic", "tt06", "TT demo board v3 (RP2040)")
+    assert (tt06.kind, tt06.shuttle, tt06.pcb) == ("asic", "tt06", "TT demo board v3 (RP2040)")
     assert tt06.links == [{"label": "TT06 chip page", "url": "https://tinytapeout.com/chips/tt06/"}]
-    assert Board.objects.get(slug="tt03").enabled is False
-    assert Board.objects.get(slug="tt03").commander == "legacy"
-    assert tt06.commander == "main"
-    assert Board.objects.get(slug="kianv-1").port is None
+    # DATA is a file from before the catalogue was by USB serial: its switch, port, enabled and commander
+    # are not read, and no row gets a serial
+    assert set(Board.objects.values_list("usb_serial", flat=True)) == {""}
+    assert not {"switch", "port", "enabled", "commander"} & {f.name for f in Board._meta.get_fields()}
     assert Board.objects.get(slug="fpga-1").sort_order == 5
 
 
@@ -33,7 +33,7 @@ def test_load_is_idempotent_and_updates():
 @pytest.mark.django_db
 def test_prune_removes_missing_only_with_flag(tmp_path):
     call_command("ttsite_loadboards", str(DATA))
-    Board.objects.create(slug="gone", port=40, kind="asic", title="gone")
+    Board.objects.create(slug="gone", kind="asic", title="gone")
     call_command("ttsite_loadboards", str(DATA))
     assert Board.objects.filter(slug="gone").exists()
     call_command("ttsite_loadboards", str(DATA), "--prune")
@@ -56,11 +56,49 @@ def test_unknown_kind_raises(tmp_path):
         call_command("ttsite_loadboards", str(p))
 
 
+BY_SERIAL = """tt_boards:
+  - {slug: fpga-1, usb_serial: "4df39a7a6856f86f", kind: fpga, title: "TT FPGA emulation board 1"}
+  - {slug: fpga-4, usb_serial: "a2961e5cac65b25f", kind: fpga, title: "TT FPGA emulation board 4"}
+  - {slug: tt09, kind: asic, shuttle: tt09, title: "Tiny Tapeout 9"}
+"""
+
+
 @pytest.mark.django_db
-def test_unknown_commander_raises(tmp_path):
+def test_a_catalogue_by_usb_serial_loads(tmp_path):
+    p = tmp_path / "tt-boards.yaml"
+    p.write_text(BY_SERIAL)
+    call_command("ttsite_loadboards", str(p))
+    assert dict(Board.objects.values_list("slug", "usb_serial")) == {
+        "fpga-1": "4df39a7a6856f86f", "fpga-4": "a2961e5cac65b25f", "tt09": ""}
+    # a serial moved to another row, and one taken away, are followed
+    p.write_text(BY_SERIAL.replace('usb_serial: "a2961e5cac65b25f", ', ""))
+    call_command("ttsite_loadboards", str(p))
+    assert Board.objects.get(slug="fpga-4").usb_serial == ""
+
+
+@pytest.mark.django_db
+def test_two_rows_naming_one_board_are_refused(tmp_path):
     p = tmp_path / "bad.yaml"
-    p.write_text("tt_boards:\n  - {slug: x, port: 1, kind: asic, title: x, commander: banana}\n")
-    with pytest.raises(Exception, match="commander"):
+    p.write_text(BY_SERIAL.replace("a2961e5cac65b25f", "4df39a7a6856f86f"))
+    with pytest.raises(Exception, match="same usb_serial"):
+        call_command("ttsite_loadboards", str(p))
+    assert Board.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_serial_yaml_read_as_a_number_is_refused(tmp_path):
+    """An all-digit serial written without quotes is a number to YAML, not the text on the label."""
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n  - {slug: x, usb_serial: 1234567890123456, kind: asic, title: x}\n")
+    with pytest.raises(Exception, match="quoted text"):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_a_key_nobody_reads_is_refused(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n  - {slug: x, kind: asic, title: x, usb_serail: abc}\n")
+    with pytest.raises(Exception, match="unknown keys"):
         call_command("ttsite_loadboards", str(p))
 
 

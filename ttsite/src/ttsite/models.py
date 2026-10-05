@@ -1,9 +1,14 @@
-"""Boards shown on tinytapeout.fpgas.online.
+"""The catalogue of tinytapeout.fpgas.online: words a person wrote about a board.
 
-One row per Tiny Tapeout board at Welland. Network identity is DERIVED from
-(switch, port) per the VLAN-per-port scheme (pi-sw<s>-p<p> / 10.21.<s>.<p>);
-nothing here stores an IP. Demos/designs are not modelled — they are read
-live from the Pi daemon.
+A row names a board by its USB serial (the value on its label) and gives it a
+page address, a title and a description. It says nothing about where the
+board is plugged in and decides no feature of its page: which board is on
+which Pi, and what it is, comes from the fleet's boot checks at the moment of
+the request (boards.py). A board no row names is shown all the same.
+
+A row with no USB serial is a page about a board that is not here yet (or a
+chip, such as the KianV boxes); `kind` and `shuttle` file such a row on the
+index and are not asked for a board a boot check reported.
 """
 
 from django.db import models
@@ -11,75 +16,28 @@ from django.db import models
 
 class Board(models.Model):
     KIND_CHOICES = [("asic", "TT ASIC"), ("kianv", "KianV RISC-V"), ("fpga", "FPGA emulation")]
-    # Which Commander embed drives the board: "main" is the fork of upstream
-    # main (needs TT SDK >= 2.0.0RC2 on the demo board); "legacy" is the
-    # SDK-agnostic port of upstream's legacy branch, for chips stuck on 1.x
-    # firmware (tt03p5). Each pins its own bundle version in settings.
-    COMMANDER_CHOICES = [("main", "Commander"), ("legacy", "Legacy Commander (pre-2.x firmware)")]
 
     slug = models.SlugField(unique=True)
-    switch = models.PositiveSmallIntegerField(default=1)
-    port = models.PositiveSmallIntegerField(null=True, blank=True, help_text="s3300 port; empty = not wired yet")
-    kind = models.CharField(max_length=8, choices=KIND_CHOICES)
-    shuttle = models.CharField(max_length=16, blank=True, help_text="e.g. tt06; blank for FPGA boards")
+    usb_serial = models.CharField(max_length=32, blank=True,
+                                  help_text="the board's USB serial, as on its label; empty = not here yet")
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES,
+                            help_text="where the index files this row while no boot check reports the board")
+    shuttle = models.CharField(max_length=16, blank=True,
+                               help_text="e.g. tt06, for a row no boot check reports; a reported board says its own")
     title = models.CharField(max_length=80)
     blurb = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True, help_text="Plain text; line breaks are kept")
     pcb = models.CharField(max_length=80, blank=True)
     pmods = models.JSONField(default=list, blank=True)
     links = models.JSONField(default=list, blank=True)
-    enabled = models.BooleanField(default=True)
-    commander = models.CharField(max_length=8, choices=COMMANDER_CHOICES, default="main")
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ["sort_order", "slug"]
+        constraints = [
+            models.UniqueConstraint(fields=["usb_serial"], condition=~models.Q(usb_serial=""),
+                                    name="ttsite_one_row_per_usb_serial"),
+        ]
 
     def __str__(self):
         return f"{self.slug} ({self.title})"
-
-    # -- derived network identity --
-    def _require_port(self):
-        if self.port is None:
-            raise ValueError(f"board {self.slug} has no port")
-
-    @property
-    def hostname(self):
-        self._require_port()
-        return f"pi-sw{self.switch}-p{self.port}"
-
-    @property
-    def ip(self):
-        self._require_port()
-        return f"10.21.{self.switch}.{self.port}"
-
-    @property
-    def stream_url(self):
-        return f"/live/{self.hostname}.m3u8"
-
-    @property
-    def whep_url(self):
-        # WebRTC low-latency live view (mediamtx via nginx /cam/<host>/whep)
-        return f"/cam/{self.hostname}/whep"
-
-    @property
-    def serial_ws_path(self):
-        return f"/ws/board/{self.slug}/serial"
-
-    @property
-    def api_base(self):
-        return f"/api/board/{self.slug}"
-
-    @property
-    def live(self):
-        return self.port is not None and self.enabled
-
-    @property
-    def can_power_cycle(self):
-        """Whether the board's page shows the power-cycle button: every
-        board the site shows (enabled, with a port), on either switch. The
-        same answer decides whether /snmp/toggle accepts the board's port
-        (pibfpgas.poe.board_port), so the button and the endpoint cannot
-        disagree."""
-        return self.live
-

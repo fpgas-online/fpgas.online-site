@@ -260,3 +260,31 @@ def boot_event(serial, payload):
     return BootEvent.objects.create(
         machine=machine, boot_id=payload.get("boot_id", ""),
         stage=payload["stage"], detail=payload.get("detail") or {}, ts=ts)
+
+
+def reporting_machines():
+    """What each registered machine's FPGA boot check reported, for the pages
+    that follow the device the check found: a list of
+    {"serial", "hostname", "checked_in", "last_seen", "state", "boards"}.
+
+    `hostname` is the short name the machine registered (pi-sw<s>-p<p> at a
+    VLAN-per-port site: where it is now, by its own word; nothing here or in
+    any catalogue says where a machine should be). `state` and `boards` are
+    fpga_reports()'s for the boot the machine is running, or was last
+    running: a machine that has stopped checking in is still here, with
+    `checked_in` False, because a hung board's page must still offer Reset.
+    A machine with no report this boot has state "" and no boards.
+
+    Only the machine most recently seen with each hostname is given
+    (machine_hosts): one that left a port keeps its last registration. A
+    machine that registered no hostname is left out: it cannot be reached."""
+    reports = fpga_reports()
+    live = checked_in()
+    newest = set(machine_hosts().values())
+    machines = []
+    rows = Machine.objects.filter(serial__in=newest).values_list("serial", "hostname", "last_seen")
+    for serial, hostname, last_seen in rows:
+        state, boards = reports.get(serial, ("", []))
+        machines.append({"serial": serial, "hostname": hostname.split(".")[0], "checked_in": serial in live,
+                         "last_seen": last_seen, "state": state, "boards": boards})
+    return machines

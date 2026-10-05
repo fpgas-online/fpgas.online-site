@@ -18,13 +18,22 @@ This is the web frontend that lets users interact with remote FPGA boards. It pr
 
 The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package provides the `snmp_switch` Django app for PoE switch control (installed as a dependency).
 
-The PoE endpoints (`/snmp/status`, `/snmp/toggle`) need no login: visitors use the boards, and Reset is part of that. They act on a board's own port and nothing beyond (`pibfpgas/poe.py`, named by `SNMP_SWITCH_PORT_POLICY` in `pib/settings.py`): on the welland and ps1 sites a port some machine in the fleet registry is registered on, whatever state that board is in (a hung, restarting or failing board can be reset; that is when Reset is needed), and on the Tiny Tapeout site the port of a board that site shows, on either switch. A port no board is registered on is refused with a 403. Trunks, uplinks and ports outside a switch's access ports are refused by the package itself, from the switches file, so a wrong or forged registration cannot reach them. A port can be power-cycled once per `SNMP_SWITCH_TOGGLE_INTERVAL` seconds (429 with "try again in N seconds" otherwise); a board cannot usefully be cycled faster than it boots. The time of each port's last power cycle is kept in redis, so that every gunicorn worker sees the same limit.
+The PoE endpoints (`/snmp/status`, `/snmp/toggle`) need no login: visitors use the boards, and Reset is part of that. They act on a board's own port and nothing beyond (`pibfpgas/poe.py`, named by `SNMP_SWITCH_PORT_POLICY` in `pib/settings.py`): on the welland and ps1 sites a port some machine in the fleet registry is registered on, whatever state that board is in (a hung, restarting or failing board can be reset; that is when Reset is needed), and on the Tiny Tapeout site the port a Pi is registered on whose boot check reported a Tiny Tapeout board, on either switch, whether or not that Pi still checks in. A port no board is registered on is refused with a 403. Trunks, uplinks and ports outside a switch's access ports are refused by the package itself, from the switches file, so a wrong or forged registration cannot reach them. A port can be power-cycled once per `SNMP_SWITCH_TOGGLE_INTERVAL` seconds (429 with "try again in N seconds" otherwise); a board cannot usefully be cycled faster than it boots. The time of each port's last power cycle is kept in redis, so that every gunicorn worker sees the same limit.
 
 ## Hosts
 
 The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.
 
-Boards are seeded from `/etc/fpgas-online/tt-boards.yaml`, which is rendered on the host by the [fpgas.online-infra](https://github.com/fpgas-online/fpgas.online-infra) Ansible `site` role:
+### Which boards the Tiny Tapeout site shows
+
+The boot check on each Pi (fpgas-verify) is the authority on what is connected. The site shows every Tiny Tapeout board some registered Pi's check reported, and takes everything about it from that report and from the Pi's own registration, at the moment of the request (`ttsite/boards.py`, over `fleet.services.reporting_machines`):
+
+- **What the page offers** follows the device the check reported: a board that said it carries the FPGA breakout (`chip` `fpga`) gets the Commander, the gallery and upload; a board with a Tiny Tapeout chip gets the Commander; a board the check found and could not read gets a page that says so, with the check's own reason. The report's `variant` is not asked, because the check calls every Raspberry Pi USB device `tt-fpga` before reading it ([fpgas.online-test-designs issue #124](https://github.com/fpgas-online/fpgas.online-test-designs/issues/124)).
+- **Where the board is** is the hostname its Pi registered: its address, its camera and its switch port for Reset follow from that. No file says which board is on which port, so a board moved to another port keeps its page and everything on it.
+- **No list is needed.** A board in no catalogue is shown at `/board/tt-<usb serial>/` with every feature of its kind.
+- The Commander's WebSocket, `/ws/board/<slug>/serial`, is answered by Django with `X-Accel-Redirect: /_tt-serial/<the Pi's address>`; nginx has one internal location of that name that proxies to the Pi's bridge (fpgas.online-infra, `roles/ttsite`).
+
+The catalogue (`ttsite.models.Board`) only adds words: a row names a board by its USB serial (the value on its label) and gives it a page address, a title and a description. A row without a serial is a page about a board that is not here yet. Rows are loaded from `/etc/fpgas-online/tt-boards.yaml`, which is rendered on the host by the [fpgas.online-infra](https://github.com/fpgas-online/fpgas.online-infra) Ansible `ttsite` role:
 
 ```bash
 uv run python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --prune
@@ -32,7 +41,7 @@ uv run python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --pru
 /srv/www/pib/venv/bin/python manage.py ttsite_loadboards /etc/fpgas-online/tt-boards.yaml --prune
 ```
 
-`--prune` deletes rows whose slug is absent from the file; it refuses to run against an empty `tt_boards` list unless `--allow-empty` is also given.
+`--prune` deletes rows whose slug is absent from the file; it refuses to run against an empty `tt_boards` list unless `--allow-empty` is also given. A file from before the catalogue was by USB serial (with `switch`, `port`, `enabled` and `commander`) still loads; those keys are not read.
 
 The `TTSITE_COMMANDER_VERSION` setting (also in `pib/settings.py`, overridable in `local_settings.py`) pins the embedded [Commander fork](https://github.com/fpgas-online/tt-commander-app) bundle version under `STATIC_URL`; when it is empty the board pages show a "bundle not deployed" notice instead of the Commander embed.
 

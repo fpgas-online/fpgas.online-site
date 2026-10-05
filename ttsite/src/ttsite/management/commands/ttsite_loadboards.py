@@ -1,7 +1,13 @@
-"""Upsert Board rows from the site-wide tt-boards.yaml (rendered by fpgas.online-infra).
+"""Upsert the catalogue rows from the site-wide tt-boards.yaml (rendered by fpgas.online-infra).
 
 The file is a mapping with a ``tt_boards`` list; each entry needs ``slug``,
-``kind`` and ``title``. ``switch`` defaults to 1, ``port`` may be null.
+``kind`` and ``title``, and names its board by ``usb_serial`` (empty or absent
+for a board that is not here yet).
+
+A file from before the catalogue was by USB serial also says ``switch``,
+``port``, ``enabled`` and ``commander``. Those are not read: where a board is,
+whether it is there and which Commander drives it come from the fleet's boot
+checks (ttsite/boards.py). Such a file loads, and its boards have no serial.
 """
 
 import yaml
@@ -10,10 +16,10 @@ from django.db import transaction
 
 from ttsite.models import Board
 
-FIELDS = ("switch", "port", "kind", "shuttle", "title", "blurb", "description", "pcb", "pmods", "links", "enabled",
-          "commander", "sort_order")
+FIELDS = ("usb_serial", "kind", "shuttle", "title", "blurb", "description", "pcb", "pmods", "links", "sort_order")
+# What a file from before the catalogue was by USB serial also carries: accepted, not read.
+NOT_READ = ("switch", "port", "enabled", "commander")
 KINDS = {k for k, _ in Board.KIND_CHOICES}
-COMMANDERS = {k for k, _ in Board.COMMANDER_CHOICES}
 
 
 class Command(BaseCommand):
@@ -34,7 +40,7 @@ class Command(BaseCommand):
         if prune and not entries and not allow_empty:
             raise CommandError(f"{path}: refusing to --prune against an empty 'tt_boards' list; "
                                f"pass --allow-empty if deleting every board is really what you want")
-        seen = set()
+        seen, serials = set(), {}
         with transaction.atomic():
             for entry in entries:
                 if not isinstance(entry, dict):
@@ -42,14 +48,23 @@ class Command(BaseCommand):
                 slug = entry.get("slug")
                 if not slug:
                     raise CommandError(f"{path}: entry without slug: {entry!r}")
+                unknown = sorted(set(entry) - {"slug", *FIELDS, *NOT_READ})
+                if unknown:
+                    raise CommandError(f"{path}: board {slug!r} has unknown keys {unknown}")
                 kind = entry.get("kind", "asic")
                 if kind not in KINDS:
                     raise CommandError(f"{path}: board {slug!r} has unknown kind {kind!r}")
-                commander = entry.get("commander", "main")
-                if commander not in COMMANDERS:
-                    raise CommandError(f"{path}: board {slug!r} has unknown commander {commander!r}")
+                serial = entry.get("usb_serial") or ""
+                if not isinstance(serial, str):
+                    raise CommandError(f"{path}: board {slug!r}: usb_serial must be quoted text, not {serial!r}")
+                if serial and serial in serials:
+                    raise CommandError(f"{path}: boards {serials[serial]!r} and {slug!r} name the same "
+                                       f"usb_serial {serial!r}")
+                if serial:
+                    serials[serial] = slug
                 defaults = {k: entry[k] for k in FIELDS if k in entry}
                 defaults["kind"] = kind
+                defaults["usb_serial"] = serial
                 defaults.setdefault("title", slug)
                 Board.objects.update_or_create(slug=slug, defaults=defaults)
                 seen.add(slug)

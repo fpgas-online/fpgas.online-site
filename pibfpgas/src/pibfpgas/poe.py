@@ -12,8 +12,11 @@ answers from the site's own data at the moment of the request, so there is
 no list of ports to keep.
 
 * On the Tiny Tapeout site (the host TTSiteHostMiddleware serves ttsite.urls
-  on): the port of a board that site shows, on either switch
-  (ttsite.models.Board.can_power_cycle: enabled, with a port).
+  on): the port a Pi is registered on whose boot check reported a Tiny
+  Tapeout board (ttsite.boards.reported_port), on either switch. The Pi's
+  report from the boot it last ran counts, whether or not it still checks in:
+  a hung board is the one to reset. No catalogue is asked: a list says
+  nothing about where a board is.
 * On every other host: a port a board has registered on. Some machine in the
   fleet registry has a hostname that names exactly that switch and port
   (pi-sw<s>-p<p>, or pi<p> at a flat site). Whether it is online, when it
@@ -32,8 +35,8 @@ an empty port. A flat site has no switches file and so no such bound.
 """
 
 from fleet.models import Machine
+from ttsite.boards import reported_port
 from ttsite.middleware import serves_ttsite
-from ttsite.models import Board
 
 from .pis import Pi
 
@@ -56,5 +59,5 @@ def board_port(request, switch, port):
     `request`. `switch` is the switch's index, or None at a flat site (one
     switch, Pis registered as pi<port>); `port` is an int."""
     if serves_ttsite(request):
-        return any(board.can_power_cycle for board in Board.objects.filter(switch=switch, port=port))
+        return reported_port(switch, port)
     return registered_on(switch, port)
