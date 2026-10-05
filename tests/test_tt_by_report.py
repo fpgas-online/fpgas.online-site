@@ -100,8 +100,8 @@ def test_a_catalogue_row_names_the_page_and_does_not_decide_its_features(c, comm
     # one page per board: the serial's own address is not a second one
     assert c.get(f"/board/tt-{FPGA4}/").status_code == 404
     index = c.get("/").content.decode()
-    fpga, asic = index.index('<section id="fpga">'), index.index('<section id="asic">')
-    assert fpga < index.index("TT FPGA emulation board 4") or asic > index.index("TT FPGA emulation board 4")
+    card = index.index("TT FPGA emulation board 4")
+    assert index.index('<section id="fpga">') < card < index.index('<section id="kianv">')
     assert [p.slug for p in boards.pages() if p.kind == "fpga"] == ["fpga-4"]
 
 
@@ -142,20 +142,36 @@ def test_a_board_moved_to_another_port_keeps_its_page_and_everything_on_it(c, co
     assert r.status_code == 200 and r["X-Accel-Redirect"] == "/_tt-serial/10.21.2.13"
 
 
+def report(m, *boards_, boot_id=None, result="pass"):
+    """One more fpga-verified event from a machine, in the boot it is running unless another is named."""
+    return BootEvent.objects.create(machine=m, boot_id=boot_id or m.last_boot_id, stage="fpga-verified",
+                                    ts=timezone.now(), detail={"result": result, **verified_detail(boards_)})
+
+
 @pytest.mark.django_db
-def test_a_board_moved_to_another_pi_is_on_the_pi_that_reports_it_now(c):
-    """The Pi it left has not booted since, so its last report still names the board."""
-    left = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="old-pi")
-    Machine.objects.filter(pk=left.pk).update(online=False, last_seen=timezone.now() - datetime.timedelta(hours=2))
+def test_a_board_moved_from_a_pi_that_keeps_running_is_on_the_pi_it_was_moved_to(c):
+    """Both Pis are checking in and each one's report of the boot it is running names the board: the report
+    that came last is where the board is, however the two Pis' status beats fall."""
+    left = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="left-pi")
     verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), serial="new-pi")
-    (board,) = boards.reported().values()
-    assert (board.pi.hostname, board.pi_serial, board.checked_in) == ("pi-sw2-p13", "new-pi", True)
-    # ... whichever was created first
-    Machine.objects.all().delete()
+    for beat_from in ("left-pi", "new-pi", "left-pi"):
+        Machine.objects.filter(serial=beat_from).update(last_seen=timezone.now())
+        board = boards.reported()[FPGA4]
+        assert (board.pi.hostname, board.pi_serial, board.current) == ("pi-sw2-p13", "new-pi", True)
+    # ... and it goes back when the Pi it left reports it again
+    report(left, tt(FPGA4, "fpga"))
+    assert boards.reported()[FPGA4].pi.hostname == "pi-sw2-p36"
+
+
+@pytest.mark.django_db
+def test_a_board_moved_from_a_pi_that_has_stopped_is_on_the_pi_that_reports_it_now():
+    """Whichever of the two reported last: a Pi that no longer checks in is not running that boot."""
     verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), serial="new-pi")
-    left = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="old-pi")
+    left = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="left-pi")  # the later report
+    assert boards.reported()[FPGA4].pi.hostname == "pi-sw2-p36"
     Machine.objects.filter(pk=left.pk).update(online=False, last_seen=timezone.now() - datetime.timedelta(hours=2))
-    assert boards.reported()[FPGA4].pi.hostname == "pi-sw2-p13"
+    board = boards.reported()[FPGA4]
+    assert (board.pi.hostname, board.current, board.checked_in) == ("pi-sw2-p13", True, True)
 
 
 @pytest.mark.django_db
@@ -180,7 +196,7 @@ def test_a_board_the_check_could_not_read_has_a_page_that_says_why(c, commander,
     page = boards.page("fpga-3")
     assert (page.kind, page.live.reason, page.live.result) == ("unknown", MAIN_PY, "error")
     html = c.get("/board/fpga-3/").content.decode()
-    assert 'id="tt-not-identified"' in html and "main.py is not known to be the SDK" in html
+    assert 'id="tt-no-controls"' in html and "main.py is not known to be the SDK" in html
     assert 'id="tt-commander"' not in html and "tt-commander-embed.js" not in html and 'data-ws-path=""' in html
     assert 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
     # the camera, the status and Reset are the Pi's: still there
@@ -232,10 +248,113 @@ def test_a_pi_with_a_name_that_names_no_port_is_left_out():
 
 
 @pytest.mark.django_db
-def test_only_the_boot_a_pi_is_running_counts():
-    """A Pi that booted again without the board no longer carries it."""
-    m = verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), boot_id="b1")
-    assert FPGA4 in boards.reported()
+def test_a_board_keeps_its_page_and_its_reset_while_its_pi_restarts(c, commander):
+    """A board is its Pi's until a check on that Pi names another: through a restart, while the check runs, and
+    after a check that found nothing (a board that dropped off USB is the one that needs its Reset). The
+    controls are only there when the boot the Pi is running has named the board."""
+    Board.objects.create(slug="fpga-4", usb_serial=FPGA4, kind="fpga", title="TT FPGA emulation board 4")
+    m = verified_pi("pi-sw2-p13", ("tt", "tt-fpga", REAL_FPGA), boot_id="b1")
+
+    def page_now():
+        page = boards.page("fpga-4")
+        html = c.get("/board/fpga-4/").content.decode()
+        assert 'id="tt-power"' in html and 'data-port="13"' in html and "/live/pi-sw2-p13.m3u8" in html
+        assert boards.reported_port(2, 13)
+        assert ('id="tt-commander"' in html) == ('id="tt-gallery"' in html) == page.live.current
+        return page, html
+
+    assert page_now()[0].live.current
+    # the Pi restarts: its status beat names a new boot
     m.last_boot_id = "b2"
     m.save()
+    page, html = page_now()
+    assert not page.live.current and "has restarted and the boot check has not started yet" in html
+    assert c.get("/api/board/fpga-4/designs").status_code == 503
+    assert c.get("/ws/board/fpga-4/serial").status_code == 503
+    # its check starts
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verifying", ts=timezone.now(), detail={})
+    assert "boot check is running" in page_now()[1]
+    # ... and finds no board at all: the board is still this Pi's, and can be reset
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verified", ts=timezone.now(),
+                             detail={"result": "missing", "mode": "auto"})
+    assert "did not find it this boot (missing)" in page_now()[1]
+    # ... and then, run again, finds it
+    report(m, ("tt", "tt-fpga", REAL_FPGA))
+    assert page_now()[0].live.current
+
+
+@pytest.mark.django_db
+def test_a_pi_whose_check_names_another_board_no_longer_carries_the_first():
+    m = verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), boot_id="b1")
+    m.last_boot_id = "b2"
+    m.save()
+    report(m, tt(CHIP6, "asic", shuttle="tt06"))
+    assert set(boards.reported()) == {CHIP6}
+    assert boards.reported_port(2, 13)
+
+
+@pytest.mark.django_db
+def test_a_tiny_tapeout_board_is_not_another_boards_pi(c):
+    """A Pi that carried a Tiny Tapeout board and now reports an Acorn is no Tiny Tapeout page and no port of
+    this site's."""
+    m = verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), boot_id="b1")
+    m.last_boot_id = "b2"
+    m.save()
+    report(m, ("acorn", "cle-215+", {"serial": "0123456789abcdef"}))
+    assert boards.reported() == {} and not boards.reported_port(2, 13)
+
+
+# --- what a forged report can and cannot do (the fleet broker takes reports from anything on the site LAN) ---
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("hostname", ["pi-sw300-p13", "pi-sw2-p99999", "pi-sw2-p256", "pi99999"])
+def test_a_registered_name_that_gives_no_address_is_left_out(c, hostname):
+    verified_pi(hostname, tt(FPGA4, "fpga"))
     assert boards.reported() == {}
+    assert c.get(f"/ws/board/tt-{FPGA4}/serial").status_code == 404
+
+
+@pytest.mark.django_db
+def test_reported_text_is_cut_short_escaped_and_kept_out_of_links(c, commander):
+    nasty = "<script>alert(1)</script>'\"" + "x" * 5000
+    verified_pi("pi-sw2-p13", tt(CHIP6, "asic", shuttle="../../x?y=1#", sdk=nasty, demoboard=nasty, mcu=nasty))
+    verified_pi("pi-sw2-p14", tt(UNREAD, tinytapeout_error=nasty))
+    for path in ("/", f"/board/tt-{CHIP6}/", f"/board/tt-{UNREAD}/"):
+        html = c.get(path).content.decode()
+        assert "<script>alert(1)" not in html and "x" * 400 not in html, path
+        assert "tinytapeout.com/chips/.." not in html
+    assert boards.page(f"tt-{CHIP6}").shuttle == ""
+
+
+@pytest.mark.django_db
+def test_a_catalogue_slug_cannot_hide_a_board(c):
+    """A row made by hand at a board's own address (the loader refuses one) does not get a second page."""
+    Board.objects.create(slug=f"tt-{FPGA4}", kind="asic", title="made by hand")
+    verified_pi("pi-sw2-p13", ("tt", "tt-fpga", REAL_FPGA))
+    assert [p.slug for p in boards.pages()] == [f"tt-{FPGA4}"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("sdk, commander_dir", [("1.2.2", "legacy-0.1.0"), ("v1.2.2", "legacy-0.1.0"), ("0.9", "legacy-0.1.0"),
+                                                ("2.0.4", "0.2.0"), ("10.0.0", "0.2.0"), ("-", "0.2.0")])
+def test_which_commander_for_which_sdk(c, commander, sdk, commander_dir):
+    verified_pi("pi-sw2-p6", tt(CHIP6, "asic", shuttle="tt06", sdk=sdk))
+    assert f"tt-commander/{commander_dir}/tt-commander-embed.js" in c.get(f"/board/tt-{CHIP6}/").content.decode()
+
+
+@pytest.mark.django_db
+def test_the_serial_hand_off_is_a_get(c):
+    verified_pi("pi-sw2-p13", ("tt", "tt-fpga", REAL_FPGA))
+    assert c.post(f"/ws/board/tt-{FPGA4}/serial").status_code == 405
+
+
+@pytest.mark.django_db
+def test_the_polled_routes_answer_from_their_cache_without_asking_the_fleet(c, monkeypatch, django_assert_num_queries):
+    verified_pi("pi-sw2-p13", ("tt", "tt-fpga", REAL_FPGA))
+    monkeypatch.setattr(daemon, "health", lambda b, timeout=3.0: {"reachable": True})
+    monkeypatch.setattr(daemon, "designs", lambda b: (200, {"enabled": None, "designs": []}))
+    for path in (f"/board/tt-{FPGA4}/status.json", f"/api/board/tt-{FPGA4}/designs"):
+        assert c.get(path).status_code == 200
+        with django_assert_num_queries(0):
+            assert c.get(path).status_code == 200

@@ -28,7 +28,7 @@
     <section class="tt-camera"><div class="whep-live" data-whep-url="{{ board.whep_url }}" data-hls-id="tt-video"></div>
     <video id="tt-video" class="video-js vjs-fluid" controls autoplay muted playsinline preload="auto" data-setup='{"liveui": true, "sources": [{"src": "{{ board.stream_url }}", "type": "application/x-mpegURL"}]}'></video></section>
     <section class="tt-commander">
-      {% if not board.has_commander %}<p class="tt-notice" id="tt-not-identified">The boot check on this board's Raspberry Pi found the board but could not read what it is, so this page offers no controls for it: {{ board.live.reason }}</p>
+      {% if not board.has_commander %}<p class="tt-notice" id="tt-no-controls">{{ board.why_no_controls }} This page offers no controls for the board until its Raspberry Pi's boot check has read it; the camera and the power-cycle button are still here.</p>
       {% elif commander_version %}<div id="tt-commander"></div>
       {% else %}<p class="tt-notice">Commander bundle not deployed on this server yet (TTSITE_COMMANDER{% if board.commander == "legacy" %}_LEGACY{% endif %}_VERSION is empty).</p>{% endif %}
     </section>
@@ -57,7 +57,7 @@
     <dl>{% if board.pcb %}<dt>PCB</dt><dd>{{ board.pcb }}</dd>{% endif %}
         {% if board.pmods %}<dt>PMODs fitted</dt><dd>{% for p in board.pmods %}<a href="{{ p.url|safe_url }}" target="_blank" rel="noopener">{{ p.name }}</a>{% if p.note %} &mdash; {{ p.note }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
         {% if live %}<dt>Board</dt><dd>USB serial {{ board.live.usb_serial }}{% if board.facts.demoboard %}, {{ board.facts.demoboard }}{% endif %}{% if board.facts.sdk %}, SDK {{ board.facts.sdk }}{% endif %}</dd>
-        <dt>Boot check</dt><dd>{{ board.live.result }}{% if not board.live.checked_in %} (its Raspberry Pi has stopped reporting){% endif %}</dd>
+        <dt>Boot check</dt><dd>{% if board.live.current %}{{ board.live.result }}{% else %}{{ board.live.waiting }}{% endif %}</dd>
         <dt>Where now</dt><dd>Welland, on {{ board.hostname }}</dd>{% endif %}</dl>
     <ul class="tt-links">
       {% for l in board.links %}<li><a href="{{ l.url|safe_url }}" target="_blank" rel="noopener">{{ l.label }} &#8599;</a></li>{% endfor %}

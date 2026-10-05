@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from ttsite.models import Board
 
 DATA = Path(__file__).parent / "data" / "tt-boards.yaml"
@@ -70,10 +71,62 @@ def test_a_catalogue_by_usb_serial_loads(tmp_path):
     call_command("ttsite_loadboards", str(p))
     assert dict(Board.objects.values_list("slug", "usb_serial")) == {
         "fpga-1": "4df39a7a6856f86f", "fpga-4": "a2961e5cac65b25f", "tt09": ""}
-    # a serial moved to another row, and one taken away, are followed
+    # a serial taken away is followed
     p.write_text(BY_SERIAL.replace('usb_serial: "a2961e5cac65b25f", ', ""))
     call_command("ttsite_loadboards", str(p))
     assert Board.objects.get(slug="fpga-4").usb_serial == ""
+
+
+SWAPS = [
+    # the two serials change places
+    ("4df39a7a6856f86f", "a2961e5cac65b25f", "a2961e5cac65b25f", "4df39a7a6856f86f"),
+    # a serial moves to the row listed earlier, and to the one listed later
+    ("", "a2961e5cac65b25f", "a2961e5cac65b25f", ""),
+    ("4df39a7a6856f86f", "", "", "4df39a7a6856f86f"),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("a_was, b_was, a_now, b_now", SWAPS)
+def test_a_serial_moves_from_one_row_to_another(tmp_path, a_was, b_was, a_now, b_now):
+    def write(a, b):
+        p = tmp_path / "tt-boards.yaml"
+        p.write_text(f'tt_boards:\n  - {{slug: a, usb_serial: "{a}", kind: fpga, title: a}}\n'
+                     f'  - {{slug: b, usb_serial: "{b}", kind: fpga, title: b}}\n')
+        return str(p)
+
+    call_command("ttsite_loadboards", write(a_was, b_was))
+    call_command("ttsite_loadboards", write(a_now, b_now))
+    assert dict(Board.objects.values_list("slug", "usb_serial")) == {"a": a_now, "b": b_now}
+
+
+@pytest.mark.django_db
+def test_a_serial_held_by_a_row_that_is_not_in_the_file_is_a_clear_refusal(tmp_path):
+    Board.objects.create(slug="by-hand", usb_serial="4df39a7a6856f86f", kind="fpga", title="x")
+    p = tmp_path / "tt-boards.yaml"
+    p.write_text(BY_SERIAL)
+    with pytest.raises(CommandError, match="belongs to a row that is not in the file"):
+        call_command("ttsite_loadboards", str(p))
+    assert list(Board.objects.values_list("slug", flat=True)) == ["by-hand"]
+    call_command("ttsite_loadboards", str(p), "--prune")
+    assert Board.objects.get(slug="fpga-1").usb_serial == "4df39a7a6856f86f"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("serial", ["0xA2961E5CAC65B25F", "A2961E5CAC65B25F", "a2961e5cac65b25f ", "abc", "-"])
+def test_a_serial_a_board_could_not_report_is_refused(tmp_path, serial):
+    p = tmp_path / "bad.yaml"
+    p.write_text(f'tt_boards:\n  - {{slug: x, usb_serial: "{serial}", kind: asic, title: x}}\n')
+    with pytest.raises(CommandError, match="is not a serial as a board reports it"):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_a_slug_that_is_a_boards_own_address_is_refused(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("tt_boards:\n  - {slug: tt-a2961e5cac65b25f, kind: asic, title: x}\n")
+    with pytest.raises(CommandError, match="address of a board no row names"):
+        call_command("ttsite_loadboards", str(p))
 
 
 @pytest.mark.django_db

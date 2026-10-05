@@ -13,10 +13,13 @@ no list of ports to keep.
 
 * On the Tiny Tapeout site (the host TTSiteHostMiddleware serves ttsite.urls
   on): the port a Pi is registered on whose boot check reported a Tiny
-  Tapeout board (ttsite.boards.reported_port), on either switch. The Pi's
-  report from the boot it last ran counts, whether or not it still checks in:
-  a hung board is the one to reset. No catalogue is asked: a list says
-  nothing about where a board is.
+  Tapeout board (ttsite.boards.reported_port), on either switch. What counts
+  is the Pi's last report that named any board, from whichever boot: the Pi
+  may since have stopped checking in, be restarting, be running its check
+  again, or have found nothing this boot, and each of those is when a board
+  needs its Reset. A Pi whose check has since named another kind of board is
+  no longer this site's. No catalogue is asked: a list says nothing about
+  where a board is.
 * On every other host: a port a board has registered on. Some machine in the
   fleet registry has a hostname that names exactly that switch and port
   (pi-sw<s>-p<p>, or pi<p> at a flat site). Whether it is online, when it

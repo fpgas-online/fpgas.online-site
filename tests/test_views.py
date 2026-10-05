@@ -158,7 +158,6 @@ def test_status_json_of_a_board_no_pi_reports_never_calls_daemon(c, boards, monk
     r = c.get("/board/kianv-1/status.json")
     assert r.status_code == 200
     assert r.json() == {"reachable": False, "error": "not connected"}
-    assert cache.get("ttsite:health:kianv-1") is None
 
 
 def test_status_json_writes_pending_placeholder_before_calling_daemon(c, boards, monkeypatch):

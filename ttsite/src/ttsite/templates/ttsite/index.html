@@ -75,7 +75,7 @@
       <article class="tt-card">
         <h3>{{ b.title }}</h3>
         <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true, "sources": [{"src": "{{ b.stream_url }}", "type": "application/x-mpegURL"}]}'></video>
-        <p>{{ b.live.reason }}</p>
+        <p>{{ b.why_no_controls }}</p>
         <a class="tt-btn" href="/board/{{ b.slug }}/">See this board</a>
       </article>
     {% endfor %}

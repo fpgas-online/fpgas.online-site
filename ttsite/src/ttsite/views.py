@@ -72,20 +72,23 @@ def board(request, slug):
 
 
 def board_status(request, slug):
-    b = _page_or_404(slug)
-    if b.live is None:
-        return JsonResponse(dict(NOT_CONNECTED))
-    key = f"ttsite:health:{b.slug}"
+    # the cache first: every viewer of a board polls this, and finding the board costs the fleet's tables
+    key = f"ttsite:health:{slug}"
     data = cache.get(key)
     if data is None:
-        # short-lived negative placeholder: concurrent pollers get an answer
-        # instead of each opening their own request to the daemon
-        cache.set(key, dict(PENDING), STATUS_PENDING_SECONDS)
-        data = daemon.health(b)
+        b = _page_or_404(slug)
+        if b.live is None:
+            data = dict(NOT_CONNECTED)
+        else:
+            # short-lived negative placeholder: concurrent pollers get an answer
+            # instead of each opening their own request to the daemon
+            cache.set(key, dict(PENDING), STATUS_PENDING_SECONDS)
+            data = daemon.health(b)
         cache.set(key, data, STATUS_CACHE_SECONDS)
     return JsonResponse(data)
 
 
+@require_GET
 def serial_ws(request, slug):
     """Hand the Commander's WebSocket to the Pi that carries the board now. nginx sends /ws/board/<slug>/serial
     here and follows X-Accel-Redirect to its one internal location, which proxies to the address named (the
@@ -93,6 +96,8 @@ def serial_ws(request, slug):
     b = boards.page(slug)
     if b is None or b.live is None:
         return JsonResponse({"error": "no such live board", "detail": ""}, status=404)
+    if not b.has_commander:
+        return JsonResponse({"error": "board not ready", "detail": b.why_no_controls}, status=503)
     response = HttpResponse(status=200)
     response["X-Accel-Redirect"] = f"{SERIAL_INTERNAL}{b.ip}"
     response["X-Accel-Buffering"] = "no"
@@ -110,6 +115,8 @@ def _fpga_board_or_error(slug):
     b = boards.page(slug)
     if b is None or b.live is None:
         return None, JsonResponse({"error": "no such live board", "detail": ""}, status=404)
+    if not b.live.current:
+        return None, JsonResponse({"error": "board not ready", "detail": b.why_no_controls}, status=503)
     if not b.has_gallery:
         return None, JsonResponse({"error": "not an fpga board", "detail": b.live.reason}, status=404)
     return b, None
@@ -121,14 +128,15 @@ def _designs_cache_key(slug):
 
 @require_GET
 def api_designs(request, slug):
-    b, err = _fpga_board_or_error(slug)
-    if err:
-        return err
+    # the cache first: the gallery polls this, and finding the board costs the fleet's tables
     key = _designs_cache_key(slug)
     cached = cache.get(key)
     if cached is not None:
         status, body = cached
     else:
+        b, err = _fpga_board_or_error(slug)
+        if err:
+            return err
         status, body = daemon.designs(b)
         # a daemon/transport failure (5xx) is transient -- don't freeze it in the cache
         if status < 500:

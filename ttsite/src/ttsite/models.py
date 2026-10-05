@@ -8,7 +8,8 @@ the request (boards.py). A board no row names is shown all the same.
 
 A row with no USB serial is a page about a board that is not here yet (or a
 chip, such as the KianV boxes); `kind` and `shuttle` file such a row on the
-index and are not asked for a board a boot check reported.
+index and are not asked for a board a boot check reported: a row filed as
+`kianv` whose serial a Pi reports is shown as what the board said it is.
 """
 
 from django.db import models

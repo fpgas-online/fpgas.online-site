@@ -547,7 +547,7 @@ def test_a_malformed_request_is_a_clean_400(switch_calls, tt_boards, host, body)
     assert switch_calls == []
 
 
-# --- the Tiny Tapeout site: a board that site shows, on either switch -------
+# --- the Tiny Tapeout site: the Pi of a board a boot check named, on either switch ---
 
 
 def test_tt_board_page_button_power_cycles_its_board(switch_calls, tt_boards):
