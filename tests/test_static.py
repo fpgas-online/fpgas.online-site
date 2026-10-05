@@ -3,7 +3,8 @@ from pathlib import Path
 STATIC = Path(__file__).resolve().parents[1] / "ttsite" / "src" / "ttsite" / "static" / "ttsite"
 
 # every dataset key board.js is expected to read off #ttsite-board
-DATASET_KEYS = ["statusUrl", "pistatGroups", "commanderJs", "wsPath", "apiBase", "slug", "kind", "shuttle", "port"]
+DATASET_KEYS = ["statusUrl", "pistatGroups", "commanderJs", "wsPath", "apiBase", "slug", "kind", "shuttle", "port",
+                "switch"]
 
 
 def test_assets_present():
@@ -26,6 +27,15 @@ def test_board_js_sends_the_port_as_a_string():
     js = (STATIC / "board.js").read_text()
     assert "port: d.port" in js
     assert "Number(d.port)" not in js
+
+
+def test_board_js_names_the_switch_and_prints_why_a_power_cycle_was_refused():
+    """The site has more than one switch, so the port alone is a 400; and a
+    refusal (403 not a board, 429 too soon) says why as JSON {"error": ...}."""
+    js = (STATIC / "board.js").read_text()
+    assert "switch: Number(d.switch)" in js
+    assert "(await r.json()).error" in js
+    assert "power-cycle refused (HTTP ${r.status})" in js
 
 
 def test_board_js_has_gallery_and_upload_behaviour():

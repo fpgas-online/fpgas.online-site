@@ -53,8 +53,7 @@ def board(request, slug):
         # the Pi's status log group is its hostname: its own pistat curls
         # (/pistat/stat/%l/) and the fleet bridge both send there
         pistat_groups=[b.hostname] if b.live else [],
-        # /snmp/toggle drives the first switch only, so hide the button elsewhere
-        can_power_cycle=b.live and b.switch == 1,
+        can_power_cycle=b.can_power_cycle,
     )
     return render(request, "ttsite/board.html", ctx)
 

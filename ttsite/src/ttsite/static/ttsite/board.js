@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // board page glue: mount Commander, status pill, pistat log, power-cycle.
 // reads #ttsite-board's dataset: data-slug data-kind data-shuttle data-ws-path
-// data-api-base data-status-url data-port data-pistat-groups data-commander-js
+// data-api-base data-status-url data-port data-switch data-pistat-groups data-commander-js
 function mount() {
   const root = document.getElementById('ttsite-board');
   if (!root) return;
@@ -66,13 +66,26 @@ function mount() {
       if (!confirm('Power-cycle this board? Anyone else using it will be interrupted.')) return;
       appendLog('power-cycle requested');
       try {
-        // snmp_switch builds "<oid>.<port>", so the port must go over as a string
+        // snmp_switch builds "<oid>.<port>", so the port must go over as a string;
+        // the switch goes with it: the site has more than one
         const r = await fetch('/snmp/toggle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port: d.port }),
+          body: JSON.stringify({ port: d.port, switch: Number(d.switch) }),
         });
-        appendLog(r.ok ? 'power-cycle: done' : `power-cycle: HTTP ${r.status}`);
+        if (r.ok) {
+          appendLog('power-cycle: done');
+        } else {
+          // a refusal (not a board this site offers, power-cycled a moment
+          // ago, switch not answering) says why as JSON {"error": ...}
+          let why = '';
+          try {
+            why = (await r.json()).error || '';
+          } catch {
+            // not JSON (an nginx error page): the status is all there is
+          }
+          appendLog(`power-cycle refused (HTTP ${r.status})` + (why ? ': ' + why : ''));
+        }
       } catch (e) {
         appendLog('power-cycle: failed: ' + e);
       }

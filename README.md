@@ -18,6 +18,8 @@ This is the web frontend that lets users interact with remote FPGA boards. It pr
 
 The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package provides the `snmp_switch` Django app for PoE switch control (installed as a dependency).
 
+The PoE endpoints (`/snmp/status`, `/snmp/toggle`) need no login: visitors use the boards, and Reset is part of that. They act on a board's own port and nothing beyond (`pibfpgas/poe.py`, named by `SNMP_SWITCH_PORT_POLICY` in `pib/settings.py`): on the welland and ps1 sites a port some machine in the fleet registry is registered on, whatever state that board is in (a hung, restarting or failing board can be reset; that is when Reset is needed), and on the Tiny Tapeout site the port of a board that site shows, on either switch. A port no board is registered on is refused with a 403. Trunks, uplinks and ports outside a switch's access ports are refused by the package itself, from the switches file, so a wrong or forged registration cannot reach them. A port can be power-cycled once per `SNMP_SWITCH_TOGGLE_INTERVAL` seconds (429 with "try again in N seconds" otherwise); a board cannot usefully be cycled faster than it boots. The time of each port's last power cycle is kept in redis, so that every gunicorn worker sees the same limit.
+
 ## Hosts
 
 The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.
@@ -58,7 +60,7 @@ Note: The `pistat` app's `ping` view still assumes the legacy `pi<N>` numbering 
 
 - Django 4.2+
 - Django Channels with Daphne (ASGI, WebSocket support)
-- Redis (channel layer backend)
+- Redis (channel layer backend; PoE power-cycle rate limit)
 - nginx (reverse proxy)
 - gunicorn + uvicorn (WSGI/ASGI workers)
 

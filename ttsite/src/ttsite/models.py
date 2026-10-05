@@ -74,3 +74,12 @@ class Board(models.Model):
     def live(self):
         return self.port is not None and self.enabled
 
+    @property
+    def can_power_cycle(self):
+        """Whether the board's page shows the power-cycle button: every
+        board the site shows (enabled, with a port), on either switch. The
+        same answer decides whether /snmp/toggle accepts the board's port
+        (pibfpgas.poe.board_port), so the button and the endpoint cannot
+        disagree."""
+        return self.live
+

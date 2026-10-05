@@ -595,9 +595,9 @@ resolution-markers = [
     "(python_full_version < '3.12' and platform_python_implementation != 'PyPy') or (python_full_version < '3.12' and sys_platform != 'win32')",
 ]
 dependencies = [
-    { name = "asgiref", marker = "python_full_version < '3.12'" },
-    { name = "sqlparse", marker = "python_full_version < '3.12'" },
-    { name = "tzdata", marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "asgiref" },
+    { name = "sqlparse" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d5/d8/43e9d000519adceb189620b6869ff88031e046df91c2e9da72f8f6918399/django-5.2.17.tar.gz", hash = "sha256:9d4d93be539a18ab80d058eb515900e10951e04c537c5a6b394fc49528d3251f", size = 10889740, upload-time = "2026-08-04T15:04:03.173Z" }
 wheels = [
@@ -613,9 +613,9 @@ resolution-markers = [
     "(python_full_version >= '3.12' and platform_python_implementation != 'PyPy') or (python_full_version >= '3.12' and sys_platform != 'win32')",
 ]
 dependencies = [
-    { name = "asgiref", marker = "python_full_version >= '3.12'" },
-    { name = "sqlparse", marker = "python_full_version >= '3.12'" },
-    { name = "tzdata", marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "asgiref" },
+    { name = "sqlparse" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e2/42/6cb20996733984c1f6661daeda3877990836c76c633c6c8879d39f7120eb/django-6.1.tar.gz", hash = "sha256:86a2aacd59b817e4d6ac2ebfe22356c58f66f7b24e503f71b7c2fead677ee48b", size = 11223034, upload-time = "2026-08-05T19:21:53.789Z" }
 wheels = [
@@ -625,8 +625,9 @@ wheels = [
 [[package]]
 name = "fpgas-online-poe"
 version = "0.1.0"
-source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#21710c9ae666e797d68c97eb9397a6651ca1c187" }
+source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#fcb4a2afce3f1259fabf955b5e68ff9a97f4cb95" }
 dependencies = [
+    { name = "channels" },
     { name = "django", version = "5.2.17", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "django", version = "6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pysnmp" },
@@ -646,6 +647,7 @@ dependencies = [
     { name = "paho-mqtt" },
     { name = "paramiko" },
     { name = "pyyaml" },
+    { name = "redis" },
     { name = "requests" },
     { name = "rpi-hwid", extra = ["labels"] },
 ]
@@ -666,6 +668,7 @@ requires-dist = [
     { name = "paho-mqtt", specifier = ">=2" },
     { name = "paramiko" },
     { name = "pyyaml", specifier = ">=6" },
+    { name = "redis", specifier = ">=4.6" },
     { name = "requests", specifier = ">=2.31" },
     { name = "rpi-hwid", extras = ["labels"], specifier = ">=0.0.post454" },
 ]

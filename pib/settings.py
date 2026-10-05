@@ -158,6 +158,36 @@ CHANNEL_LAYERS = {
     },
 }
 
+# PoE control (/snmp/status and /snmp/toggle, the snmp_switch app from the
+# fpgas-online-poe package). The endpoints need no login, so the package acts
+# only on what these say, and refuses everything when they are missing.
+#
+# Which ports are boards: asked on every request, answered from the fleet
+# registry and the Tiny Tapeout board table (pibfpgas/poe.py). Any other port
+# is refused with a 403.
+SNMP_SWITCH_PORT_POLICY = "pibfpgas.poe.board_port"
+# One power cycle per port per this many seconds; a second request inside it
+# gets a 429 with Retry-After.
+SNMP_SWITCH_TOGGLE_INTERVAL = 60
+# Where the time of each port's last power cycle is kept: the "poe" cache
+# below. It is in redis because gunicorn runs several worker processes and a
+# per-process store would give each its own limit. If redis does not answer,
+# the power cycle is refused (503), not allowed.
+SNMP_SWITCH_RATE_LIMIT_CACHE = "poe"
+
+CACHES = {
+    # per-process, as before this setting was written out: short-lived page
+    # data only (ttsite's board status and design lists)
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    # database 1 of the redis the channel layer uses (it is in database 0),
+    # so clearing this cache can never flush the channel layer
+    "poe": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        "KEY_PREFIX": "fpgas-site",
+    },
+}
+
 # Under-construction banner (pibfpgas.middleware.UnderConstructionMiddleware).
 # Off by default so a deployment only shows it when fpgas.online-infra turns
 # it on -- welland does, ps1 does not.

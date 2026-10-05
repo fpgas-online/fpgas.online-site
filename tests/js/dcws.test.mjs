@@ -63,7 +63,7 @@ class FakeWebSocket {
 }
 
 function loadPage() {
-    const page = { sockets: [], timers: [], now: 0, nextTimer: 1, elements: new Map(), fetches: [] };
+    const page = { sockets: [], timers: [], now: 0, nextTimer: 1, elements: new Map(), fetches: [], answers: {} };
 
     page.setTimeout = (fn, ms = 0) => {
         const id = page.nextTimer++;
@@ -115,7 +115,12 @@ function loadPage() {
         clearTimeout: page.clearTimeout,
         fetch: (url, init) => {
             page.fetches.push({ url, body: init?.body });
-            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ state: "on" }) });
+            const answer = page.answers[url] ?? { status: 200, json: { state: "on" } };
+            return Promise.resolve({
+                ok: answer.status === 200,
+                status: answer.status,
+                json: () => Promise.resolve(answer.json),
+            });
         },
         console: { log() {}, error() {} },
         JSON,
@@ -252,3 +257,23 @@ test("ping asks for the Pi by its hostname", () => {
     page.click("pi-ping");
     assert.deepEqual(page.fetches.map((f) => f.url), [`/pistat/ping/${PI_NAME}`]);
 });
+
+// The PoE endpoints refuse with JSON {"error": ...}: 403 for a port that is
+// not a board the site offers, 429 for a second power cycle too soon. The
+// reason must reach the status box, or a refused Reset looks like a dead one.
+for (const [status, error] of [
+    [403, "switch 2 port 33 is not a board this site offers; nothing was sent to the switch"],
+    [429, "switch 2 port 33 was power-cycled a moment ago; try again in 42 seconds. Nothing was sent to the switch"],
+    [503, "PoE control is refused: the power-cycle rate limit store is not answering"],
+]) {
+    test(`a reset refused with ${status} prints the reason in the status box`, async () => {
+        const page = loadPage();
+        page.sockets[0].open();
+        page.answers["/snmp/toggle"] = { status, json: { error } };
+        page.click(`reset${PI}`);
+        await new Promise((resolve) => setImmediate(resolve));
+        const sent = page.fetches.find((f) => f.url === "/snmp/toggle");
+        assert.deepEqual(JSON.parse(sent.body), { port: PI, switch: 2 });
+        assert.ok(page.log().includes(`reset failed (${status}): ${error}`), page.log());
+    });
+}

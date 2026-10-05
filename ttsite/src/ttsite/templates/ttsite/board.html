@@ -7,7 +7,7 @@
 {% block content %}
 <div id="ttsite-board"
      data-slug="{{ board.slug }}" data-kind="{{ board.kind }}" data-shuttle="{{ board.shuttle }}"
-     data-port="{{ board.port|default_if_none:'' }}"
+     data-port="{{ board.port|default_if_none:'' }}" data-switch="{{ board.switch }}"
      data-ws-path="{% if live %}{{ board.serial_ws_path }}{% endif %}" data-api-base="{{ board.api_base }}"
      {% if live %}data-status-url="/board/{{ board.slug }}/status.json"{% endif %}
      data-pistat-groups="{{ pistat_groups|join:' ' }}"
@@ -17,7 +17,7 @@
     {% if shuttle_url %}<a href="{{ shuttle_url }}" target="_blank" rel="noopener">{{ board.shuttle }} chip page &#8599;</a>{% endif %}
     {% if live %}<span id="tt-status" class="tt-pill tt-pill--unknown">status&hellip;</span>
     {% else %}<span class="tt-pill tt-pill--soon">coming soon</span>{% endif %}
-    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on s3300 port {{ board.port }}">Power-cycle board</button>{% endif %}
+    {% if can_power_cycle %}<button id="tt-power" class="tt-btn tt-btn--warn" title="Toggle PoE on switch {{ board.switch }} port {{ board.port }}">Power-cycle board</button>{% endif %}
     {% if live %}<button id="tt-video-reset" class="tt-btn">Reset video</button>{% endif %}
   </header>
   {% if not live %}
