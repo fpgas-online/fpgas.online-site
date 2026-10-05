@@ -58,7 +58,8 @@ class Command(BaseCommand):
             kind = entry.get("kind", "asic")
             if kind not in KINDS:
                 raise CommandError(f"{path}: board {slug!r} has unknown kind {kind!r}")
-            serial = entry.get("usb_serial") or ""
+            serial = entry.get("usb_serial")
+            serial = "" if serial is None else serial  # `usb_serial:` with nothing after it: no serial yet
             if not isinstance(serial, str):
                 raise CommandError(f"{path}: board {slug!r}: usb_serial must be quoted text, not {serial!r}")
             if serial and not SERIAL.fullmatch(serial):

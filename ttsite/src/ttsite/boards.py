@@ -147,14 +147,15 @@ def reported():
     each Pi's last report that named any (fleet.services.reporting_machines), `current` when the boot the Pi
     is running named it too.
 
-    A board several Pis name is on the one whose report came last, among the Pis that are checking in (among
-    all of them when none is). So a board moved from a Pi that keeps running is on the Pi it was moved to,
-    and stays there while that Pi restarts: the Pi it left still names it in a boot it is still running, and
-    that older word does not win it back."""
+    A board several Pis name is on the one whose report came last, whatever each Pi is doing now. So a board
+    moved from a Pi that keeps running is on the Pi it was moved to, and stays there while that Pi restarts,
+    is power-cycled or stops: the Pi it left still names it in a boot it is still running, and that older
+    word never wins it back. Only a newer check does (a board put back without a restart is found at its
+    Pi's next check)."""
     boards = {}
     best = {}
     for machine, pi, last, serial in _named():
-        rank = (machine["checked_in"], machine["last_report"])
+        rank = machine["last_report"]
         if serial in best and best[serial] >= rank:
             continue
         best[serial] = rank

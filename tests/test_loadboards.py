@@ -173,6 +173,23 @@ def test_a_serial_yaml_read_as_a_number_is_refused(tmp_path):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("value", ["0", "00000000", "false", "[]"])
+def test_a_serial_that_is_not_text_is_refused_even_when_it_is_falsy(tmp_path, value):
+    p = tmp_path / "bad.yaml"
+    p.write_text(f"tt_boards:\n  - {{slug: x, usb_serial: {value}, kind: asic, title: x}}\n")
+    with pytest.raises(Exception, match="quoted text"):
+        call_command("ttsite_loadboards", str(p))
+
+
+@pytest.mark.django_db
+def test_a_serial_left_blank_is_no_serial(tmp_path):
+    p = tmp_path / "ok.yaml"
+    p.write_text("tt_boards:\n  - {slug: x, usb_serial: , kind: asic, title: x}\n  - {slug: y, usb_serial: '', kind: asic, title: y}\n")
+    call_command("ttsite_loadboards", str(p))
+    assert set(Board.objects.values_list("usb_serial", flat=True)) == {""}
+
+
+@pytest.mark.django_db
 def test_a_key_nobody_reads_is_refused(tmp_path):
     p = tmp_path / "bad.yaml"
     p.write_text("tt_boards:\n  - {slug: x, kind: asic, title: x, usb_serail: abc}\n")

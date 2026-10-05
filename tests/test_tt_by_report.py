@@ -172,6 +172,15 @@ def test_a_board_moved_from_a_pi_that_keeps_running_is_on_the_pi_it_was_moved_to
         page = boards.page(f"tt-{FPGA4}")
         assert (page.switch, page.port) == (2, 13) and page.can_power_cycle and not page.has_commander
         assert boards.reported_port(2, 13)
+    # ... and when it is power-cycled (the bridge says goodbye, or its beats just stop): Reset pressed once
+    # must not move the board's page, and its next Reset, to the Pi it left
+    for gone in ({"online": False}, {"online": True, "last_seen": timezone.now() - datetime.timedelta(minutes=10)}):
+        Machine.objects.filter(serial="new-pi").update(**gone)
+        board = boards.reported()[FPGA4]
+        assert (board.pi.hostname, board.current, board.checked_in) == ("pi-sw2-p13", False, False), gone
+        page = boards.page(f"tt-{FPGA4}")
+        assert (page.switch, page.port) == (2, 13) and not page.has_commander and not page.has_gallery
+    Machine.objects.filter(serial="new-pi").update(online=True, last_seen=timezone.now())
     # the Pi it left is still a Pi whose check named a Tiny Tapeout board: it can be reset too
     assert boards.reported_port(2, 36)
     # ... and the board goes back when the Pi it left reports it again
@@ -180,14 +189,16 @@ def test_a_board_moved_from_a_pi_that_keeps_running_is_on_the_pi_it_was_moved_to
 
 
 @pytest.mark.django_db
-def test_a_board_moved_from_a_pi_that_has_stopped_is_on_the_pi_that_reports_it_now():
-    """Whichever of the two reported last: a Pi that no longer checks in is not running that boot."""
-    verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), serial="new-pi")
-    left = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="left-pi")  # the later report
-    assert boards.reported()[FPGA4].pi.hostname == "pi-sw2-p36"
-    Machine.objects.filter(pk=left.pk).update(online=False, last_seen=timezone.now() - datetime.timedelta(hours=2))
+def test_the_newest_report_places_a_board_also_on_a_pi_that_has_stopped():
+    """The check is the authority: the Pi that named the board last has it, and if that Pi has stopped it is
+    the one to reset. An older report from a Pi that is still running does not take the board."""
+    verified_pi("pi-sw2-p13", tt(FPGA4, "fpga"), serial="older-report")
+    last = verified_pi("pi-sw2-p36", tt(FPGA4, "fpga"), serial="newest-report")
+    Machine.objects.filter(pk=last.pk).update(online=False, last_seen=timezone.now() - datetime.timedelta(hours=2))
     board = boards.reported()[FPGA4]
-    assert (board.pi.hostname, board.current, board.checked_in) == ("pi-sw2-p13", True, True)
+    assert (board.pi.hostname, board.current, board.checked_in) == ("pi-sw2-p36", False, False)
+    assert board.waiting == "its Raspberry Pi has stopped reporting"
+    assert boards.reported_port(2, 36) and boards.reported_port(2, 13)
 
 
 @pytest.mark.django_db
