@@ -76,11 +76,13 @@
 
     <td colspan=2>
       Use your own ssh client<br>user: pi<br> host: {{ domain_name }}<br> port {{pi.ssh_port}}<br>
+      Board ssh works over IPv4 only for now (the <code>-4</code> below); over IPv6 the address
+      refuses it, and a client then falls back to IPv4.<br>
       like this (click to copy):
 
       <div class="highlight-bash notranslate">
           <div class=highlight style="position:relative">
-             <pre click-to-copy="click to copy...">ssh -p {{pi.ssh_port}} pi@{{ domain_name }}</pre>
+             <pre click-to-copy="click to copy...">ssh -4 -p {{pi.ssh_port}} pi@{{ domain_name }}</pre>
           </div>
       </div>
 

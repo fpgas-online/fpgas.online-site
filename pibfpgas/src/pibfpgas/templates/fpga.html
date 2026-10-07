@@ -149,15 +149,17 @@
     </td><td colspan=2>
       Use your own ssh client. user: pi, host: {{ domain_name }}, port {{pi.ssh_port}},
       password: <code id="ssh-password">{{ pw_plain }}</code><br>
+      Board ssh works over IPv4 only for now (the <code>-4</code> below); over IPv6 the address
+      refuses it, and a client then falls back to IPv4.<br>
       click to copy:
       <div class="highlight-bash notranslate">
           <div class=highlight style="position:relative">
-             <pre click-to-copy="click to copy...">ssh -p {{pi.ssh_port}} pi@{{ domain_name }}</pre>
+             <pre click-to-copy="click to copy...">ssh -4 -p {{pi.ssh_port}} pi@{{ domain_name }}</pre>
           </div>
       </div>
       <div class="highlight-bash notranslate">
           <div class=highlight style="position:relative">
-             <pre click-to-copy="click to copy...">scp -P {{pi.ssh_port}} * pi@{{ domain_name }}:Uploads</pre>
+             <pre click-to-copy="click to copy...">scp -4 -P {{pi.ssh_port}} * pi@{{ domain_name }}:Uploads</pre>
           </div>
       </div>
 
