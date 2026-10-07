@@ -137,8 +137,8 @@ def test_the_board_page_states_the_ssh_password_next_to_the_command(c):
     assert "login banner" not in html
     assert 'password: <code id="ssh-password">password</code>' in html  # PI_PW decoded
     assert "ssh -4 -p 24622 pi@welland.fpgas.online" in html
-    # board ssh is IPv4 only: the upstream refuses the per-board ports over IPv6
-    assert "over IPv4 only" in html
+    # board ssh is offered over IPv4 only (the per-board ports are forwarded for IPv4)
+    assert "offered over IPv4 only" in html
     # the line the e2e suite parses for user, host and port is unchanged
     assert "user: pi, host: welland.fpgas.online, port 24622," in html
 

@@ -149,8 +149,7 @@
     </td><td colspan=2>
       Use your own ssh client. user: pi, host: {{ domain_name }}, port {{pi.ssh_port}},
       password: <code id="ssh-password">{{ pw_plain }}</code><br>
-      Board ssh works over IPv4 only for now (the <code>-4</code> below); over IPv6 the address
-      refuses it, and a client then falls back to IPv4.<br>
+      Board ssh is offered over IPv4 only; the <code>-4</code> below makes your ssh client use it.<br>
       click to copy:
       <div class="highlight-bash notranslate">
           <div class=highlight style="position:relative">
