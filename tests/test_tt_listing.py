@@ -41,7 +41,7 @@ def test_verified_boards_come_from_the_verified_event_of_this_boot():
     m = machine("now")
     _verified(m, [("acorn", "cle-215+")], boot_id="b1")  # an earlier boot's
     _verified(m, [("tt", "tt-asic", {"shuttle": "tt06", "usb_serial": "E661", "sdk": "2.0.4"})])
-    assert verified_boards() == {"now": [{"board": "tt", "variant": "tt-asic", "result": "pass",
+    assert verified_boards() == {"now": [{"board": "tt", "variant": "tt-asic", "result": "pass", "reason": "",
                                           "identity": {"board": "tt", "kind": "tt", "variant": "tt-asic",
                                                        "shuttle": "tt06", "usb_serial": "E661", "sdk": "2.0.4"}}]}
 
