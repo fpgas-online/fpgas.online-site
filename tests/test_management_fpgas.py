@@ -116,3 +116,11 @@ def test_a_pi_with_no_report_is_shown_by_what_its_registration_says(fleet):
 def test_no_pi_registered_says_so():
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
     assert "No Raspberry Pi has registered." in html
+
+
+@pytest.mark.django_db
+def test_the_fleet_pages_are_linked_only_where_the_host_has_them(fleet):
+    welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
+    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in welland
+    tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
+    assert "pi-sw2-p46" in tt and 'href="/fleet/' not in tt

@@ -101,7 +101,9 @@ def hosts(now=None):
         state, detail, ts = checks.get(m.serial, ("", {}, None))
         boards = []
         for i, b in enumerate(_reported_boards(detail) if detail else []):
-            boards.append({"title": board_title(b), "variant": _text(b["variant"], 40), "id": board_id(b),
+            # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
+            variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
+            boards.append({"title": board_title(b), "variant": variant, "id": board_id(b),
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
                            "failing": failing_tests(detail, i)})
         if boards:

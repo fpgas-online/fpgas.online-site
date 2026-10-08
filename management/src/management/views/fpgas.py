@@ -4,6 +4,7 @@ from django.shortcuts import render
 from fleet.services import CONDITIONS
 
 from .. import fpga
+from .index import _url
 
 
 def fpgas(request):
@@ -18,4 +19,6 @@ def fpgas(request):
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "want_condition": want_condition if want_condition in CONDITIONS else "", "want_type": want_type,
         "filtered": bool(want_condition or want_type),
+        # the fleet pages, where this host has them (tinytapeout.fpgas.online's urlconf does not)
+        "fleet": _url(request, "fleet-list"),
     })
