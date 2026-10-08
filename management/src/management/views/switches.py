@@ -6,6 +6,7 @@ server-side (complete without JavaScript), and the same rows as JSON for the pag
 never talks to a switch, and no community or credential is in anything built here."""
 
 import logging
+import re
 from datetime import datetime
 
 from django.core.cache import caches
@@ -21,6 +22,8 @@ from .. import localtime
 REFRESH_SECONDS = 15
 MACS_SHOWN = 3
 NONE = "–"  # shown for a value that is not known
+# An LLDP port ID that is a MAC address (a Pi announces its own): it says nothing the MAC column does not.
+MAC_ID = re.compile(r"^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}$")
 NOT_INSTALLED = "The switch reader is not installed on this site yet."
 READ_FAILED = "The switches could not be read just now. This page tries again by itself."
 
@@ -122,7 +125,7 @@ def _row(request, port, hosts):
         "poe": (port.poe_state + watts) if port.poe_state else NONE,
         "lldp_name": name,
         "lldp_url": _fleet_url(request, serial) if serial else "",
-        "lldp_port": port.lldp_port or "",
+        "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
         "macs": shown,
         "rx": rate(port.rx_bps),
         "tx": rate(port.tx_bps),

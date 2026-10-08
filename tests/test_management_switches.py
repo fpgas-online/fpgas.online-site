@@ -237,6 +237,15 @@ def test_read_times_are_local_with_the_zone_named_once(reader, settings):
 
 
 @pytest.mark.django_db
+def test_an_lldp_port_id_that_is_a_mac_is_not_repeated(monkeypatch):
+    views = make_views()
+    views[0].ports[0].lldp_port = "B8:27:EB:E3:E7:E4"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["lldp_port"] == "" and ports[1]["lldp_port"] == "gi1"
+
+
+@pytest.mark.django_db
 def test_get_only(reader):
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches/").status_code == 405
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches.json").status_code == 405
