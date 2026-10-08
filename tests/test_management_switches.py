@@ -124,7 +124,7 @@ def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     d = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert (d[0]["rx"], d[0]["tx"]) == ("250 kbit/s", "3.4 Mbit/s")
     assert (d[2]["rx"], d[2]["tx"]) == ("–", "–") and d[0]["errors"] == "0 / 2"
-    assert d[0]["macs"].endswith("+1") and d[0]["macs"].count("aa:") == 3 and d[0]["link"] == "up 1000 Mbit/s"
+    assert d[0]["macs"].endswith("+1") and d[0]["macs"].count("aa:") == 3 and d[0]["link"] == "up 1G"
 
 
 @pytest.mark.django_db
@@ -272,6 +272,24 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["poe"] == "delivering 3.5 W" and ports[2]["poe"] == "searching"
+
+
+def test_link_speeds_are_short():
+    assert [page.link_speed(m) for m in (10, 100, 1000, 2500, 10000, 20000)] == \
+        ["10M", "100M", "1G", "2.5G", "10G", "20G"]
+
+
+@pytest.mark.django_db
+def test_headers_are_short_so_values_set_the_column_widths(reader):
+    """Tim, 2026-10-09: a column is as wide as its values, not its header. Each header is no longer than the
+    shortest value its column always has (a port number, "up 1G", "0 / 0"); the full names are in <abbr title>."""
+    import re
+
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    thead = html[html.index("<thead>"):html.index("</thead>")]
+    headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', thead)]
+    assert headers == ["#", "Label", "Link", "PoE", "LLDP", "MACs", "In", "Out", "Err"]
+    assert 'title="Errors in / out"' in thead and 'title="Port"' in thead
 
 
 @pytest.mark.django_db

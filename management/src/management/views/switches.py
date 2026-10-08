@@ -92,6 +92,13 @@ def when(iso):
     return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def link_speed(mbps):
+    """A link speed as Tim asked (2026-10-09): "10M", "100M", "1G", "10G"; "2.5G" for a speed between."""
+    if mbps >= 1000:
+        return f"{mbps / 1000:g}G"
+    return f"{mbps}M"
+
+
 def _count(n):
     return NONE if n is None else str(n)
 
@@ -117,7 +124,7 @@ def _row(request, port, hosts):
     shown = ", ".join(macs[:MACS_SHOWN]) + (f" +{len(macs) - MACS_SHOWN}" if len(macs) > MACS_SHOWN else "")
     # watts only where power flows: "searching 0.0 W" on every empty port says nothing
     watts = f" {port.poe_watts:.1f} W" if port.poe_state == "delivering" and port.poe_watts is not None else ""
-    speed = f" {port.speed_mbps} Mbit/s" if port.link_up and port.speed_mbps else ""
+    speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
         "label": port.label or "",

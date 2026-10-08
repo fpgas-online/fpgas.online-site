@@ -65,12 +65,15 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ forloop.counter0 }}">
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
+  <p class="mgmt-key"># port number; LLDP the neighbour the port sees; In / Out traffic; Err errors in / out.</p>
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
-      <th scope="col">Port</th><th scope="col">Label</th><th scope="col">Link</th><th scope="col">PoE</th>
-      <th scope="col">LLDP neighbour</th><th scope="col">MAC addresses</th>
-      <th scope="col">In</th><th scope="col">Out</th><th scope="col">Errors in / out</th>
+      <th scope="col"><abbr title="Port">#</abbr></th><th scope="col">Label</th><th scope="col">Link</th>
+      <th scope="col">PoE</th><th scope="col"><abbr title="LLDP neighbour">LLDP</abbr></th>
+      <th scope="col"><abbr title="MAC addresses seen on the port">MACs</abbr></th>
+      <th scope="col"><abbr title="Traffic in">In</abbr></th><th scope="col"><abbr title="Traffic out">Out</abbr></th>
+      <th scope="col"><abbr title="Errors in / out">Err</abbr></th>
     </tr></thead>
     <tbody>
     {% for p in s.ports %}
