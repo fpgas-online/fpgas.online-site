@@ -5,18 +5,26 @@
 .mgmt-table { border-collapse: collapse; width: 100%; }
 .mgmt-table th, .mgmt-table td { border: 1px solid #ccc; padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
 .mgmt-table th { background: #f0f0f0; }
-.mgmt-soon { color: #777; font-size: 0.9em; margin-left: 0.4rem; }
-.mgmt-public { color: #777; font-size: 0.85em; margin-top: 1.2rem; }
-
+.mgmt-soon { color: #666; font-size: 0.9em; margin-left: 0.4rem; }
+.mgmt-n { text-align: right; }
+.mgmt-total td { font-weight: 600; }
+.badge { padding: 0.1rem 0.5rem; border-radius: 0.6rem; font-size: 0.85em; }
+.badge.mgmt-operational { background: #c9f7c9; }
+.badge.mgmt-attention { background: #f7c9c9; }
+.badge.mgmt-missing { background: #ddd; }
+.badge.mgmt-unknown { background: #f7ecc9; }
+.mgmt-reason { color: #933; font-size: 0.9em; }
+.mgmt-public { color: #666; font-size: 0.85em; margin-top: 1.2rem; }
 /* The tables scroll sideways on a phone instead of widening the page. */
 .mgmt-scroll { overflow-x: auto; max-width: 100%; }
+
 /* Switch port dashboard (#67) */
 .mgmt-switch { margin: 1.2rem 0; }
 .mgmt-switch h2 { margin-bottom: 0.2rem; }
-.mgmt-model { color: #777; font-size: 0.7em; font-weight: normal; margin-left: 0.4rem; }
+.mgmt-model { color: #666; font-size: 0.7em; font-weight: normal; margin-left: 0.4rem; }
 .mgmt-dead .mgmt-status { color: #b00020; font-weight: bold; }
 .mgmt-problem { border: 1px solid #b00020; padding: 0.5rem 0.8rem; }
 .mgmt-ports td, .mgmt-ports th { white-space: nowrap; font-size: 0.92em; }
 .mgmt-ports tbody th { background: transparent; font-weight: normal; }
 .mgmt-up { color: #1b7a1b; }
-.mgmt-down { color: #777; }
+.mgmt-down { color: #666; }

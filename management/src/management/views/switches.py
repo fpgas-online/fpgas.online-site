@@ -16,6 +16,8 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
+from .. import localtime
+
 REFRESH_SECONDS = 15
 MACS_SHOWN = 3
 NONE = "–"  # shown for a value that is not known
@@ -74,7 +76,8 @@ def rate(bps):
 
 
 def when(iso):
-    """An ISO 8601 time from the reader as the site's local date and time with its zone; "" when not given."""
+    """An ISO 8601 time from the reader as a date and time in the current zone (the page names it once); "" when
+    not given."""
     if not iso:
         return ""
     try:
@@ -83,7 +86,7 @@ def when(iso):
         return iso
     if timezone.is_naive(moment):
         return iso
-    return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _count(n):
@@ -134,7 +137,13 @@ def _status(view):
 
 
 def _switches(request):
-    """The page's data, one dict per switch with display-ready rows: the template and the JSON both use it."""
+    """The page's data, one dict per switch with display-ready rows: the template and the JSON both use it. Times
+    are in the installation's own zone (override, not activate: the worker's next request keeps the site's)."""
+    with timezone.override(localtime.zone()):
+        return _switch_dicts(request)
+
+
+def _switch_dicts(request):
     views = _read()
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
     return [{
@@ -155,7 +164,7 @@ def switches(request):
     except _Unavailable as exc:
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
-        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS,
+        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(),
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
 

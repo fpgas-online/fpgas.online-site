@@ -90,7 +90,7 @@ def test_the_page_and_json_answer_without_a_login_on_every_host(host, reader):
     html = r.content.decode()
     assert "<title>Switch ports &mdash; Management &mdash; fpgas.online</title>" in html
     assert "&rsaquo; Switch ports" in html
-    assert "GSM7252PS" in html and "2026-10-09 00:30:00 UTC" in html and "/accounts/login" not in html
+    assert "GSM7252PS" in html and "Times are" in html and "/accounts/login" not in html
     assert 'class="mgmt-scroll"' in html and 'scope="col"' in html and 'scope="row"' in html
     j = c.get("/management/switches.json")
     assert j.status_code == 200 and j["Content-Type"].startswith("application/json")
@@ -222,9 +222,17 @@ def test_device_text_is_escaped_in_the_page_and_plain_in_the_json(monkeypatch):
     assert ports[0]["label"] == evil and ports[1]["lldp_name"] == evil
 
 
-def test_read_times_are_shown_in_the_sites_zone(settings):
-    settings.TIME_ZONE = "Australia/Adelaide"
-    assert page.when("2026-10-08T23:29:19.735562+00:00") == "2026-10-09 09:59:19 ACDT"
+@pytest.mark.django_db
+def test_read_times_are_local_with_the_zone_named_once(reader, settings):
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    assert "2026-10-09 11:00:00" in html and "Times are Australia/Adelaide." in html
+    # READ_AT is 10:00 at +09:30; Adelaide is on daylight time (+10:30) on 9 Oct
+    assert html.count("Australia/Adelaide") == 1 and "+09:30" not in html
+    assert json.loads(c.get("/management/switches.json").content)["switches"][0]["read_at"] == "2026-10-09 11:00:00"
+    with timezone.override("UTC"):
+        assert page.when("2026-10-08T23:29:19.735562+00:00") == "2026-10-08 23:29:19"
     assert page.when("") == "" and page.when("not a time") == "not a time"
 
 

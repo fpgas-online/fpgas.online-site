@@ -3,8 +3,8 @@
 <h1>Management</h1>
 <p>How this fpgas.online installation is doing: its switches, its Raspberry Pis and their FPGA boards, and how
 much they are used.</p>
-<table class="mgmt-table">
-  <thead><tr><th>Page</th><th>What it shows</th><th>Where the data comes from</th></tr></thead>
+<div class="mgmt-scroll"><table class="mgmt-table">
+  <thead><tr><th scope="col">Page</th><th scope="col">What it shows</th><th scope="col">Where the data comes from</th></tr></thead>
   <tbody>
   {% for entry, url in dashboards %}
     <tr>
@@ -22,5 +22,5 @@ much they are used.</p>
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
 {% endblock %}

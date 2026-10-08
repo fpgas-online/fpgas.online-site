@@ -58,7 +58,7 @@
 {% block body %}
 <h1>Switch ports</h1>
 <p>Every switch and every port, read from the switches by the gateway at most every {{ refresh_seconds }} seconds.
-This page refreshes itself; without JavaScript, reload it.</p>
+This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.</p>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
