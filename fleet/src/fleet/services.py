@@ -146,6 +146,29 @@ def is_offered(state, has_checked_in):
     return bool(has_checked_in) and state == "pass"
 
 
+# A Pi not heard from for longer than this is missing, not merely offline: it is not coming back by itself.
+MISSING_AFTER = datetime.timedelta(hours=6)
+OPERATIONAL, ATTENTION, MISSING, UNKNOWN = "operational", "attention", "missing", "unknown"
+CONDITIONS = (OPERATIONAL, ATTENTION, MISSING, UNKNOWN)
+
+
+def condition(state, has_checked_in, last_seen, now=None):
+    """How a registered machine is doing, for the management pages (#68), by the one rule that offers it
+    (is_offered): OPERATIONAL when it is offered; MISSING when it has not checked in for MISSING_AFTER;
+    UNKNOWN when it checks in and its FPGA check has not finished this boot (not started, or running);
+    otherwise ATTENTION: it checks in and its check failed, could not finish or sent what cannot be read, or it
+    has stopped checking in within MISSING_AFTER. So a machine that needs attention is one that is not offered
+    and should be."""
+    if is_offered(state, has_checked_in):
+        return OPERATIONAL
+    now = now or timezone.now()
+    if not has_checked_in and (last_seen is None or now - last_seen > MISSING_AFTER):
+        return MISSING
+    if has_checked_in and state in ("", "verifying"):
+        return UNKNOWN
+    return ATTENTION
+
+
 def offered_hosts():
     """{hostname: serial} of the machines the /fpgas/ pages offer: the newest
     machine on each hostname (machine_hosts) that is_offered."""

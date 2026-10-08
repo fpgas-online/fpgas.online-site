@@ -5,8 +5,9 @@ One line per page: management-index here; the dashboards add theirs (#67 managem
 
 from django.urls import path
 
-from .views import index
+from .views import fpgas, index
 
 urlpatterns = [
     path("", index.index, name="management-index"),
+    path("fpgas/", fpgas.fpgas, name="management-fpgas"),
 ]
