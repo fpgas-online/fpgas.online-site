@@ -34,11 +34,19 @@ def test_the_index_answers_without_a_login_on_every_host(host):
 @pytest.mark.django_db
 def test_the_index_lists_each_dashboard_with_what_it_shows_and_where_its_data_comes_from(welland):
     html = welland.get("/management/").content.decode()
-    for title, issue in (("Switch ports", 67), ("FPGA hosts", 68), ("Visitor and usage stats", 69)):
+    for title, issue in (("Switch ports", 67), ("Visitor and usage stats", 69)):
         assert title in html
         # not built yet: named, with its issue, and no link to a page that does not exist
         assert f"coming: <a href=\"https://github.com/fpgas-online/fpgas.online-site/issues/{issue}\">#{issue}</a>" in html
-    assert 'href="/management/switches/"' not in html and 'href="/management/fpgas/"' not in html
+    assert 'href="/management/switches/"' not in html
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("host", ["welland.fpgas.online", TT])
+def test_a_built_dashboard_is_linked_by_its_url_name_on_every_host(host):
+    """The index finds the page by its url name in the host's own urlconf: no monkeypatching here."""
+    html = Client(HTTP_HOST=host).get("/management/").content.decode()
+    assert '<a href="/management/fpgas/">FPGA hosts</a>' in html and "issues/68" not in html
     assert "SNMP on the site&#x27;s switches" in html and "The fleet registry" in html
 
 
