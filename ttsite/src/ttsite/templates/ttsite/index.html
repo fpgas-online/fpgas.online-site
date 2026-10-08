@@ -17,7 +17,9 @@
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true, "sources": [{"src": "{{ b.stream_url }}", "type": "application/x-mpegURL"}]}'></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% if b.has_commander %}<a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% else %}<p class="tt-soon">{{ b.card_status }}</p>
+          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>{% endif %}
         {% else %}
           <p class="tt-soon">not connected</p>
           {% if b.shuttle %}<a href="https://tinytapeout.com/chips/{{ b.shuttle }}/" target="_blank" rel="noopener">{{ b.shuttle }} chip page &#8599;</a>{% endif %}
@@ -37,7 +39,9 @@
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true, "sources": [{"src": "{{ b.stream_url }}", "type": "application/x-mpegURL"}]}'></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% if b.has_commander %}<a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% else %}<p class="tt-soon">{{ b.card_status }}</p>
+          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>{% endif %}
         {% else %}
           <p class="tt-soon">not connected</p>
           <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
@@ -56,7 +60,9 @@
         {% if b.live %}
           <video class="video-js tt-thumb" muted autoplay playsinline preload="none" data-setup='{"fluid":true, "sources": [{"src": "{{ b.stream_url }}", "type": "application/x-mpegURL"}]}'></video>
           <p>{{ b.blurb }}</p>
-          <a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% if b.has_commander %}<a class="tt-btn" href="/board/{{ b.slug }}/">Use this board</a>
+          {% else %}<p class="tt-soon">{{ b.card_status }}</p>
+          <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>{% endif %}
         {% else %}
           <p class="tt-soon">not connected</p>
           <a href="/board/{{ b.slug }}/">Read about it &rarr;</a>
