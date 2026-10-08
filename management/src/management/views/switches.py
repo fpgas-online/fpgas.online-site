@@ -5,15 +5,12 @@ the number of viewers does not change the number of reads. This module only lays
 server-side (complete without JavaScript), and the same rows as JSON for the page's auto-refresh. The browser
 never talks to a switch, and no community or credential is in anything built here."""
 
-import logging
 from django.core.cache import caches
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
-
-log = logging.getLogger(__name__)
 
 REFRESH_SECONDS = 15
 MACS_SHOWN = 3
