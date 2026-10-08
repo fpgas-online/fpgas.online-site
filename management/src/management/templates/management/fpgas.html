@@ -34,13 +34,13 @@ stopped checking in in the last 6 hours; it is <strong>missing</strong> when it 
       <td>{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ h.machine.hostname|default:"(no name)" }}</a>{% else %}{{ h.machine.hostname|default:"(no name)" }}{% endif %}<br>
         <span class="mgmt-soon">{{ h.machine.serial }}</span></td>
       <td>{% if h.pi and h.pi.switch %}switch {{ h.pi.switch }}, port {{ h.pi.port }}{% elif h.pi %}port {{ h.pi.port }}{% else %}&mdash;{% endif %}
-        {% if h.registered %}<br><span class="mgmt-soon">its own word at registration, {{ h.registered|date:"j M H:i T" }}</span>{% endif %}</td>
+        {% if h.registered %}<br><span class="mgmt-soon">its own word at registration, {{ h.registered|date:"j M H:i" }}</span>{% endif %}</td>
       <td>{% for b in h.boards %}{{ b.title }}{% if b.variant and b.variant != b.title %} ({{ b.variant }}){% endif %}{% if b.id %}<br><span class="mgmt-soon">{{ b.id }}</span>{% endif %}{% if not forloop.last %}<br>{% endif %}{% empty %}{{ h.board_type }}{% endfor %}</td>
       <td><span class="badge mgmt-{{ h.condition }}">{{ h.state|default:"not started" }}</span>
-        {% if h.checked %}<span class="mgmt-soon">{{ h.checked|date:"j M H:i T" }}</span>{% endif %}
+        {% if h.checked %}<span class="mgmt-soon">{{ h.checked|date:"j M H:i" }}</span>{% endif %}
         {% for b in h.boards %}{% if b.failing %}<br>failed: {{ b.failing|join:", " }}{% endif %}{% if b.reason %}<br><span class="mgmt-reason">{{ b.reason }}</span>{% endif %}{% endfor %}</td>
-      <td>{{ h.machine.last_seen|date:"j M H:i T" }}{% if not h.checked_in %} <span class="mgmt-soon">(not checking in)</span>{% endif %}
-        {% if h.machine.last_uptime_s %}<br><span class="mgmt-soon">up {{ h.machine.last_uptime_s }} s</span>{% endif %}</td>
+      <td>{{ h.machine.last_seen|date:"j M H:i" }}{% if not h.checked_in %} <span class="mgmt-soon">(not checking in)</span>{% endif %}
+        {% if h.uptime %}<br><span class="mgmt-soon">up {{ h.uptime }}</span>{% endif %}</td>
       <td>{% if h.condition == "operational" %}yes{% else %}no: {{ h.why }}{% endif %}</td>
     </tr>
   {% empty %}
@@ -49,7 +49,7 @@ stopped checking in in the last 6 hours; it is <strong>missing</strong> when it 
   </tbody>
 </table></div>
 <p class="mgmt-soon">Data: the fleet registry (each Pi's registration and its boot check events{% if fleet %}; see each
-Pi's <a href="{{ fleet }}">fleet page</a>{% endif %}). Times are UTC. The switch port is the hostname the Pi booted with, its own word at its
+Pi's <a href="{{ fleet }}">fleet page</a>{% endif %}). Times are {{ zone }}. The switch port is the hostname the Pi booted with, its own word at its
 registration; the switches' own view (LLDP) comes with the switch port dashboard (#67). A Pi's console and log
 output are not collected yet.</p>
 {% endblock %}

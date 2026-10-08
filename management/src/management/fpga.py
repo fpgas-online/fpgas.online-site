@@ -62,6 +62,29 @@ class Host:
         return CONDITION_TITLES[self.condition]
 
     @property
+    def uptime(self):
+        """The uptime the Pi last reported, as a person reads it: "1 h 0 min", "3 d 4 h", "12 min"."""
+        s = self.machine.last_uptime_s
+        if not s:
+            return ""
+        days, rest = divmod(s, 86400)
+        hours, rest = divmod(rest, 3600)
+        minutes = rest // 60
+        if days:
+            return f"{days} d {hours} h"
+        if hours:
+            return f"{hours} h {minutes} min"
+        return f"{minutes} min"
+
+    @property
+    def place(self):
+        """The sort key: switch, then port, as numbers (pi-sw2-p4 before pi-sw2-p33); a name that names no port
+        after every one that does."""
+        if self.pi is None:
+            return (1, 0, 0, self.machine.hostname, self.machine.serial)
+        return (0, self.pi.switch or 0, self.pi.port, self.machine.hostname, self.machine.serial)
+
+    @property
     def registered(self):
         """When the Pi last sent its registration (the hostname it booted with is its word from then)."""
         snap = self.machine.latest_snapshot
@@ -83,7 +106,7 @@ class Host:
 
 
 def hosts(now=None):
-    """Every registered machine, newest name first within each condition order, with its check of this boot."""
+    """Every registered machine, by switch and port, with its check of the boot it is running."""
     now = now or timezone.now()
     live = checked_in()
     checks = {}
@@ -116,7 +139,7 @@ def hosts(now=None):
         rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,
                          pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None))
-    return rows
+    return sorted(rows, key=lambda r: r.place)
 
 
 def summary(rows):

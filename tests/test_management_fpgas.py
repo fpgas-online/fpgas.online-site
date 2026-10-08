@@ -124,3 +124,48 @@ def test_the_fleet_pages_are_linked_only_where_the_host_has_them(fleet):
     assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
     assert "pi-sw2-p46" in tt and 'href="/fleet/' not in tt
+
+
+@pytest.mark.django_db
+def test_times_are_the_installations_own_with_the_zone_named_once(fleet, settings):
+    """Tim: clock times are local, never UTC. welland's gateway runs in Australia/Adelaide."""
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    m = Machine.objects.get(hostname="pi-sw2-p46")
+    m.last_seen = datetime.datetime(2026, 10, 9, 0, 15, tzinfo=datetime.timezone.utc)  # 10:45 in Adelaide
+    m.save()
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
+    assert "9 Oct 10:45" in html and "9 Oct 00:15" not in html
+    assert html.count("Australia/Adelaide") == 1 and "Times are Australia/Adelaide." in html and "UTC" not in html
+    from django.utils import timezone as tz
+
+    assert tz.get_current_timezone_name() == settings.TIME_ZONE  # nothing left behind for the next request
+
+
+def test_the_zone_is_the_host_s_own_when_the_settings_name_none(settings, tmp_path):
+    from management import localtime
+
+    settings.MANAGEMENT_TIME_ZONE = ""
+    link = tmp_path / "localtime"
+    link.symlink_to("/usr/share/zoneinfo/America/Chicago")
+    assert localtime._host_zone(str(link)) == "America/Chicago"
+    assert localtime._host_zone(str(tmp_path / "none")) == ""
+    settings.MANAGEMENT_TIME_ZONE = "Not/AZone"
+    assert localtime.zone_name() in (localtime._host_zone(), settings.TIME_ZONE)
+
+
+@pytest.mark.django_db
+def test_uptime_reads_as_hours_and_minutes(fleet):
+    m = Machine.objects.get(hostname="pi-sw2-p46")
+    for seconds, text in ((3600, "1 h 0 min"), (720, "12 min"), (3 * 86400 + 4 * 3600 + 5, "3 d 4 h"), (0, "")):
+        m.last_uptime_s = seconds
+        m.save()
+        assert next(r for r in fpga.hosts() if r.machine.pk == m.pk).uptime == text
+
+
+@pytest.mark.django_db
+def test_rows_are_in_switch_and_port_order_as_numbers(fleet):
+    pi("pi-sw1-p12", REAL["pi-sw2-p46"], serial="00000000e2eb5dbf")
+    pi("noname-host", REAL["pi-sw2-p46"], serial="0000000000000001")
+    assert [r.machine.hostname for r in fpga.hosts()] == [
+        "pi-sw1-p12", "pi-sw2-p4", "pi-sw2-p7", "pi-sw2-p10", "pi-sw2-p33", "pi-sw2-p46", "pi-sw2-p47",
+        "noname-host"]
