@@ -18,6 +18,7 @@
     <a href="/#fpga" data-section="fpga">FPGA</a>
     <a href="/#kianv" data-section="kianv">KianV</a>
     <a href="/docs/" {% if request.path == '/docs/' %}class="is-active" aria-current="page"{% endif %}>Docs</a>
+    <a href="/management/" {% if request.path|slice:":12" == '/management/' %}class="is-active" aria-current="page"{% endif %}>Management</a>
     <a class="tt-nav__ext" href="https://tinytapeout.com/" target="_blank" rel="noopener">tinytapeout.com &#8599;</a>
   </nav>
 </header>

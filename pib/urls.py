@@ -25,4 +25,5 @@ urlpatterns = [
     path('pistat/', include('pistat.urls')),
     path('pibup/', include('pibup.urls')),
     path('fleet/', include('fleet.urls')),
+    path('management/', include('management.urls')),
 ]

@@ -1,0 +1,26 @@
+{% extends "management/base.html" %}
+{% block body %}
+<h1>Management</h1>
+<p>How this fpgas.online installation is doing: its switches, its Raspberry Pis and their FPGA boards, and how
+much they are used.</p>
+<table class="mgmt-table">
+  <thead><tr><th>Page</th><th>What it shows</th><th>Where the data comes from</th></tr></thead>
+  <tbody>
+  {% for entry, url in dashboards %}
+    <tr>
+      <td>{% if url %}<a href="{{ url }}">{{ entry.title }}</a>{% else %}{{ entry.title }}
+        <span class="mgmt-soon">coming: <a href="https://github.com/fpgas-online/fpgas.online-site/issues/{{ entry.issue }}">#{{ entry.issue }}</a></span>{% endif %}</td>
+      <td>{{ entry.what }}</td>
+      <td>{{ entry.source }}</td>
+    </tr>
+  {% endfor %}
+  {% for entry, url in existing %}
+    <tr>
+      <td><a href="{{ url }}">{{ entry.title }}</a></td>
+      <td>{{ entry.what }}</td>
+      <td>{{ entry.source }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

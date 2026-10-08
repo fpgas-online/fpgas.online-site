@@ -20,9 +20,10 @@
     pre { background: #f7f7f7; padding: 0.6rem; overflow-x: auto; }
     a { color: #06c; }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
-<p><a href="/fleet/">fleet</a> · <a href="/fpgas/">boards</a></p>
+<p><a href="/fleet/">fleet</a> · <a href="/fpgas/">boards</a> · <a href="/management/">management</a></p>
 {% block content %}{% endblock %}
 </body>
 </html>

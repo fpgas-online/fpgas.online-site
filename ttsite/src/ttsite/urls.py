@@ -8,6 +8,7 @@ urlpatterns = [
     path("board/<slug:slug>/", views.board, name="ttsite-board"),
     path("board/<slug:slug>/status.json", views.board_status, name="ttsite-board-status"),
     path("docs/", views.docs, name="ttsite-docs"),
+    path("management/", include("management.urls")),
     path("ws/board/<slug:slug>/serial", views.serial_ws, name="ttsite-serial-ws"),
     path("api/board/<slug:slug>/designs", views.api_designs, name="ttsite-api-designs"),
     path("api/board/<slug:slug>/designs/<str:name>/enable", views.api_enable, name="ttsite-api-enable"),
