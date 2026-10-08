@@ -5,8 +5,10 @@ One line per page: management-index here; the dashboards add theirs (#67 managem
 
 from django.urls import path
 
-from .views import index
+from .views import index, switches
 
 urlpatterns = [
     path("", index.index, name="management-index"),
+    path("switches/", switches.switches, name="management-switches"),
+    path("switches.json", switches.switches_json, name="management-switches-json"),
 ]
