@@ -63,9 +63,9 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ forloop.counter0 }}">
-  <h2>{{ s.name }} <span class="mgmt-model">{{ s.model }}</span></h2>
+  <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
-  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.name }}">
+  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
       <th scope="col">Port</th><th scope="col">Label</th><th scope="col">Link</th><th scope="col">PoE</th>

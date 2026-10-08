@@ -164,10 +164,10 @@ def test_one_query_finds_every_fleet_pi(reader, django_assert_num_queries):
 def test_an_unreachable_switch_shows_its_error_and_last_ports(monkeypatch):
     views = make_views()
     views[0].reachable = False
-    views[0].error = "not answering since 09:59:45: 192.0.2.1 did not answer: Timeout"
+    views[0].error = "not answering since 09:59:45"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    assert "not answering since 09:59:45: 192.0.2.1 did not answer: Timeout" in html and "mgmt-dead" in html
+    assert "not answering since 09:59:45" in html and "mgmt-dead" in html
     assert 'th scope="row">1</th>' in html
 
 
@@ -243,6 +243,26 @@ def test_an_lldp_port_id_that_is_a_mac_is_not_repeated(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["lldp_port"] == "" and ports[1]["lldp_port"] == "gi1"
+
+
+@pytest.mark.django_db
+def test_each_switch_is_headed_by_its_installation_number_in_order(monkeypatch):
+    one = make_views()[0]
+    one.name = "sw-netgear-gsm7252ps-s2"
+    two = SwitchView(index=2, name="sw-netgear-s3300-1", model="s3300", reachable=True, error="", read_at=READ_AT)
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: [two, one])  # the reader's order is not trusted
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    first = "<h2>Switch 1: sw-netgear-gsm7252ps-s2 (GSM7252PS)</h2>"
+    second = "<h2>Switch 2: sw-netgear-s3300-1 (S3300)</h2>"
+    assert first in html and second in html and html.index(first) < html.index(second)
+    titles = [s["title"] for s in json.loads(c.get("/management/switches.json").content)["switches"]]
+    assert titles == ["Switch 1: sw-netgear-gsm7252ps-s2 (GSM7252PS)", "Switch 2: sw-netgear-s3300-1 (S3300)"]
+
+
+def test_a_switch_without_an_index_has_no_number():
+    legacy = SwitchView(index=None, name="switch", model="legacy", reachable=False, error="", read_at="")
+    assert page.title(legacy) == "Switch: switch (LEGACY)"
 
 
 @pytest.mark.django_db

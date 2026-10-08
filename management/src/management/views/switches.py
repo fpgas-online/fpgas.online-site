@@ -146,10 +146,20 @@ def _switches(request):
         return _switch_dicts(request)
 
 
+def title(view):
+    """"Switch 1: sw-netgear-gsm7252ps-s2 (GSM7252PS)". The number is the installation's switch index, from the
+    switches configuration the PoE views use: the number in every Pi's name (pi-sw1-p10) and port. The sysName alone
+    can mislead (welland's switch 1 calls itself "...-s2")."""
+    number = f"Switch {view.index}" if view.index is not None else "Switch"
+    return f"{number}: {view.name} ({(view.model or '').upper()})"
+
+
 def _switch_dicts(request):
-    views = _read()
+    views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
     return [{
+        "index": v.index,
+        "title": title(v),
         "name": v.name,
         "model": v.model,
         "reachable": bool(v.reachable),
