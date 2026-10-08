@@ -108,6 +108,9 @@ class Reported:
     reason: str  # why the kind is UNKNOWN
     identity: dict = field(hash=False, compare=False)
     result: str  # the check's result for this board: "pass", "fail", "error", ...
+    check_reason: str  # the check's own words for that result ("" when it gave none)
+    state: str  # the Pi's check this boot: "pass", "fail", "verifying", "" (not started), ...
+    offered: bool  # the board is named this boot and its Pi is offered (fleet.services.is_offered), as at /fpgas/
     pi: Pi  # where it is now: the Pi's own registration
     pi_serial: str
     checked_in: bool  # whether that Pi has checked in recently
@@ -172,9 +175,13 @@ def reported():
                 f"its Raspberry Pi's boot check did not name it this boot (the check's result: {machine['state'][:20]})")
         board = now.get(serial, last)
         kind, reason = kind_of(board)
+        check_reason = board.get("reason", "")
         boards[serial] = Reported(
             usb_serial=serial, kind=kind, reason=reason, identity=board.get("identity", {}),
-            result=str(board["result"])[:20], pi=pi, pi_serial=machine["serial"],
+            result=str(board["result"])[:20],
+            check_reason=check_reason[:MAX_REASON] if isinstance(check_reason, str) else "",
+            state=str(machine["state"])[:20], offered=current and bool(machine.get("offered")),
+            pi=pi, pi_serial=machine["serial"],
             checked_in=machine["checked_in"], current=current, waiting=waiting)
     return boards
 
@@ -241,13 +248,27 @@ class Page:
         A board that named no SDK gets the main one."""
         return "legacy" if LEGACY_SDK.match(self.facts.get("sdk", "")) else "main"
 
+    # The controls (the Commander and its serial bridge, the designs, the upload) are offered by the rule the
+    # /fpgas/ pages offer a Pi by (fleet.services.is_offered): the board's Pi named it this boot, checks in,
+    # and its check passed. A board whose check failed keeps its page, its camera and its power button.
     @property
     def has_commander(self):
-        return self.live is not None and self.live.current and self.live.kind in (FPGA, ASIC)
+        return self.live is not None and self.live.offered and self.live.kind in (FPGA, ASIC)
 
     @property
     def has_gallery(self):
-        return self.live is not None and self.live.current and self.live.kind == FPGA
+        return self.live is not None and self.live.offered and self.live.kind == FPGA
+
+    @property
+    def card_status(self):
+        """For the index card of a reported board with no controls: why, in two or three words."""
+        if self.live is None or self.has_commander:
+            return ""
+        if not self.live.current:
+            return "not ready"
+        if self.live.kind not in (FPGA, ASIC):
+            return "not identified"
+        return f"not offered: boot check {self.live.state or 'not run'}"
 
     @property
     def why_no_controls(self):
@@ -256,8 +277,12 @@ class Page:
             return ""
         if not self.live.current:
             return f"This board is not ready: {self.live.waiting}."
-        return ("The boot check on this board's Raspberry Pi found the board but could not read what it is: "
-                f"{self.live.reason}")
+        if self.live.kind not in (FPGA, ASIC):
+            return ("The boot check on this board's Raspberry Pi found the board but could not read what it is: "
+                    f"{self.live.reason}")
+        said = f": {self.live.check_reason}" if self.live.check_reason else ""
+        return (f"This board is not offered: its Raspberry Pi's boot check did not pass "
+                f"(its result: {self.live.state or 'none'}){said}.")
 
     # -- where it is: the Pi's own registration --
     def _pi(self, name, default=None):

@@ -386,3 +386,96 @@ def test_the_polled_routes_answer_from_their_cache_without_asking_the_fleet(c, m
         assert c.get(path).status_code == 200
         with django_assert_num_queries(0):
             assert c.get(path).status_code == 200
+
+
+# --- a board is offered only when its Pi's check passed, as at /fpgas/ (issue #70) --------------------------
+
+DIP = "dip-switches fail: switch 1 is on: set all DIP switches off"
+
+
+def checked_pi(hostname, board, result, reason=""):
+    """A Pi whose check of this boot gave `result` for its one board, with the check's reason for it."""
+    now = timezone.now()
+    m = Machine.objects.create(serial=hostname, site="welland", hostname=hostname, last_seen=now, online=True,
+                               last_boot_id="b1")
+    detail = {"result": result, "mode": "auto", **verified_detail([board], result=result)}
+    if reason:
+        detail["board0_reason"] = reason
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=now, detail=detail)
+    return m
+
+
+@pytest.fixture(params=["row", "unlisted"])
+def slug(request):
+    """The two kinds of page: a catalogue row's (fpga-4) and a board in no catalogue (tt-<serial>)."""
+    if request.param == "row":
+        Board.objects.create(slug="fpga-4", usb_serial=FPGA4, kind="fpga", title="TT FPGA emulation board 4")
+        return "fpga-4"
+    return f"tt-{FPGA4}"
+
+
+def controls(c, slug, monkeypatch):
+    """What the board's controls answer: the designs, enable and upload APIs and the serial hand-off."""
+    monkeypatch.setattr(daemon, "designs", lambda b: (200, {"enabled": None, "designs": []}))
+    monkeypatch.setattr(daemon, "enable", lambda b, name, body: (200, {"enabled": name}))
+    return [c.get(f"/api/board/{slug}/designs").status_code,
+            c.post(f"/api/board/{slug}/designs/tt_um_x/enable", data=b"{}",
+                   content_type="application/json").status_code,
+            c.post(f"/api/board/{slug}/bitstream", data={}).status_code,
+            c.get(f"/ws/board/{slug}/serial").status_code]
+
+
+@pytest.mark.django_db
+def test_a_board_whose_check_passed_is_offered(c, commander, slug, monkeypatch):
+    checked_pi("pi-sw2-p35", ("tt", "tt-fpga", REAL_FPGA), "pass")
+    assert f'href="/board/{slug}/">Use this board' in c.get("/").content.decode()
+    html = c.get(f"/board/{slug}/").content.decode()
+    assert 'id="tt-commander"' in html and 'id="tt-gallery"' in html and 'id="tt-upload"' in html
+    assert 'id="tt-no-controls"' not in html
+    designs, enable, _upload, serial = controls(c, slug, monkeypatch)
+    assert (designs, enable, serial) == (200, 200, 200)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("result, reason, said", [
+    ("fail", DIP, f"(its result: fail): {DIP}."),
+    ("error", "", "(its result: error)."),
+])
+def test_a_board_whose_check_did_not_pass_keeps_its_page_and_offers_no_controls(
+        c, commander, slug, monkeypatch, result, reason, said):
+    """9 Oct 2026: board fd1a167bd863a198 failed its DIP check and tinytapeout offered it, the Commander and the
+    upload included, while welland did not offer its Pi."""
+    m = checked_pi("pi-sw2-p33", ("tt", "tt-fpga", REAL_FPGA), result, reason)
+    index = c.get("/").content.decode()
+    assert f'href="/board/{slug}/">Use this board' not in index and f"not offered: boot check {result}" in index
+    html = c.get(f"/board/{slug}/").content.decode()
+    assert 'id="tt-commander"' not in html and 'id="tt-gallery"' not in html and 'id="tt-upload"' not in html
+    assert 'data-ws-path=""' in html and 'data-commander-js=""' in html
+    assert "This board is not offered: its Raspberry Pi&#x27;s boot check did not pass " + said in html
+    assert "/live/pi-sw2-p33.m3u8" in html and 'id="tt-power"' in html  # the camera and the power button stay
+    assert controls(c, slug, monkeypatch) == [503, 503, 503, 503]
+    from fleet.services import offered_hosts
+    assert m.serial not in offered_hosts().values()  # welland does not offer it either: the same rule
+
+
+@pytest.mark.django_db
+def test_a_board_whose_pi_has_not_reported_this_boot_is_not_ready(c, commander, slug, monkeypatch):
+    """Its Pi restarted and the check has not reported yet: the earlier boot's pass offers nothing now."""
+    m = checked_pi("pi-sw2-p35", ("tt", "tt-fpga", REAL_FPGA), "pass")
+    m.last_boot_id = "b2"
+    m.save()
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verifying", ts=timezone.now(), detail={})
+    index = c.get("/").content.decode()
+    assert f'href="/board/{slug}/">Use this board' not in index and "not ready" in index
+    html = c.get(f"/board/{slug}/").content.decode()
+    assert 'id="tt-commander"' not in html and "This board is not ready: its Raspberry Pi&#x27;s boot check is running" in html
+    assert controls(c, slug, monkeypatch) == [503, 503, 503, 503]
+
+
+@pytest.mark.parametrize("state, checked_in, offered", [
+    ("pass", True, True), ("pass", False, False), ("fail", True, False), ("error", True, False),
+    ("verifying", True, False), ("", True, False), ("unknown", True, False),
+])
+def test_one_rule_offers_a_pi_on_both_sites(state, checked_in, offered):
+    from fleet.services import is_offered
+    assert is_offered(state, checked_in) is offered

@@ -135,15 +135,24 @@ def checked_in():
                .values_list("serial", flat=True))
 
 
+def is_offered(state, has_checked_in):
+    """Whether a machine is offered to visitors: it has checked in recently
+    (checked_in) and its FPGA check passed in the boot it is running now
+    (`state` as fpga_states and fpga_reports give it). The one rule for every
+    page that offers a board: the /fpgas/ pages (offered_hosts,
+    offered_boards) and tinytapeout.fpgas.online's (reporting_machines'
+    "offered"). A check that failed, could not finish, is running again or
+    has not started this boot offers nothing."""
+    return bool(has_checked_in) and state == "pass"
+
+
 def offered_hosts():
     """{hostname: serial} of the machines the /fpgas/ pages offer: the newest
-    machine on each hostname (machine_hosts), when it has checked in
-    recently (checked_in) and its FPGA check passed in the boot it is
-    running now (fpga_states)."""
+    machine on each hostname (machine_hosts) that is_offered."""
     states = fpga_states()
     live = checked_in()
     return {host: serial for host, serial in machine_hosts().items()
-            if serial in live and states.get(serial) == "pass"}
+            if is_offered(states.get(serial, ""), serial in live)}
 
 
 def found_boards():
@@ -177,7 +186,7 @@ MAX_BOARDS = 16
 # A `board<i>` entry that is not "<board> <variant> <result>". It is kept, so
 # that a Pi whose report cannot be read is not mistaken for one that
 # reported no board.
-UNREADABLE = {"board": "", "variant": "", "result": "", "identity": {}}
+UNREADABLE = {"board": "", "variant": "", "result": "", "reason": "", "identity": {}}
 
 
 def _reported_boards(detail):
@@ -194,8 +203,10 @@ def _reported_boards(detail):
         prefix = f"board{index}_identity_"
         identity = {key[len(prefix):]: str(value) for key, value in detail.items()
                     if isinstance(key, str) and key.startswith(prefix)}
+        reason = detail.get(f"board{index}_reason", "")
         boards.append({"board": name, "variant": "" if variant == "-" else variant,
-                       "result": result, "identity": identity})
+                       "result": result, "reason": reason if isinstance(reason, str) else "",
+                       "identity": identity})
     return boards
 
 
@@ -205,7 +216,8 @@ def fpga_reports():
     gives it, and `boards` the boards its `fpga-verified` event reported
     ([] while the check is running again, or when it named none).
 
-    Each board is {"board", "variant", "result", "identity"}: `board` is the
+    Each board is {"board", "variant", "result", "reason", "identity"}:
+    `reason` is the check's `board<i>_reason` ("" when it sent none), and `board` is the
     name in `board<i>` (fpgas-verify's board module: "acorn", "tt", ...),
     `variant` is "" when none was decided, and `identity` holds the
     `board<i>_identity_*` fields. The identity's own `kind` is not used for
@@ -247,7 +259,7 @@ def offered_boards():
     reports = fpga_reports()
     live = checked_in()
     return {host: reports[serial][1] for host, serial in machine_hosts().items()
-            if serial in live and reports.get(serial, ("", []))[0] == "pass"}
+            if is_offered(reports.get(serial, ("", []))[0], serial in live)}
 
 
 def boot_event(serial, payload):
@@ -265,8 +277,11 @@ def boot_event(serial, payload):
 def reporting_machines():
     """What each registered machine's FPGA boot check reported, for the pages
     that follow the device the check found: a list of
-    {"serial", "hostname", "checked_in", "last_seen", "state", "boards",
+    {"serial", "hostname", "checked_in", "last_seen", "state", "offered", "boards",
     "last_boards", "last_report"}.
+
+    `offered` is is_offered's word for the machine: the same rule the /fpgas/
+    pages offer a Pi by.
 
     `hostname` is the short name the machine registered (pi-sw<s>-p<p> at a
     VLAN-per-port site: where it is now, by its own word; nothing here or in
@@ -301,6 +316,7 @@ def reporting_machines():
         state, boards = reports.get(serial, ("", []))
         last_report, last_boards = last.get(serial, (0, []))
         machines.append({"serial": serial, "hostname": hostname.split(".")[0], "checked_in": serial in live,
-                         "last_seen": last_seen, "state": state, "boards": boards,
+                         "last_seen": last_seen, "state": state, "offered": is_offered(state, serial in live),
+                         "boards": boards,
                          "last_boards": last_boards, "last_report": last_report})
     return machines

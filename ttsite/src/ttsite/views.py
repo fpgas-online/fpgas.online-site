@@ -117,8 +117,10 @@ def _fpga_board_or_error(slug):
         return None, JsonResponse({"error": "no such live board", "detail": ""}, status=404)
     if not b.live.current:
         return None, JsonResponse({"error": "board not ready", "detail": b.why_no_controls}, status=503)
-    if not b.has_gallery:
+    if b.live.kind != boards.FPGA:
         return None, JsonResponse({"error": "not an fpga board", "detail": b.live.reason}, status=404)
+    if not b.has_gallery:  # an FPGA board whose Pi is not offered: its check did not pass (issue #70)
+        return None, JsonResponse({"error": "board not ready", "detail": b.why_no_controls}, status=503)
     return b, None
 
 
