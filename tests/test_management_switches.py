@@ -90,7 +90,7 @@ def test_the_page_and_json_answer_without_a_login_on_every_host(host, reader):
     html = r.content.decode()
     assert "<title>Switch ports &mdash; Management &mdash; fpgas.online</title>" in html
     assert "&rsaquo; Switch ports" in html
-    assert "GSM7252PS" in html and READ_AT in html and "/accounts/login" not in html
+    assert "GSM7252PS" in html and "2026-10-09 00:30:00 UTC" in html and "/accounts/login" not in html
     assert 'class="mgmt-scroll"' in html and 'scope="col"' in html and 'scope="row"' in html
     j = c.get("/management/switches.json")
     assert j.status_code == 200 and j["Content-Type"].startswith("application/json")
@@ -220,6 +220,12 @@ def test_device_text_is_escaped_in_the_page_and_plain_in_the_json(monkeypatch):
     assert evil not in html and "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["label"] == evil and ports[1]["lldp_name"] == evil
+
+
+def test_read_times_are_shown_in_the_sites_zone(settings):
+    settings.TIME_ZONE = "Australia/Adelaide"
+    assert page.when("2026-10-08T23:29:19.735562+00:00") == "2026-10-09 09:59:19 ACDT"
+    assert page.when("") == "" and page.when("not a time") == "not a time"
 
 
 @pytest.mark.django_db

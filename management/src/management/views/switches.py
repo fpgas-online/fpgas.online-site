@@ -6,11 +6,13 @@ server-side (complete without JavaScript), and the same rows as JSON for the pag
 never talks to a switch, and no community or credential is in anything built here."""
 
 import logging
+from datetime import datetime
 
 from django.core.cache import caches
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
@@ -71,6 +73,19 @@ def rate(bps):
     return f"{bps / 1000:.0f} kbit/s"
 
 
+def when(iso):
+    """An ISO 8601 time from the reader as the site's local date and time with its zone; "" when not given."""
+    if not iso:
+        return ""
+    try:
+        moment = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if timezone.is_naive(moment):
+        return iso
+    return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def _count(n):
     return NONE if n is None else str(n)
 
@@ -127,7 +142,7 @@ def _switches(request):
         "model": v.model,
         "reachable": bool(v.reachable),
         "status": _status(v),
-        "read_at": v.read_at,
+        "read_at": when(v.read_at),
         "ports": [_row(request, p, hosts) for p in v.ports],
     } for v in views]
 
