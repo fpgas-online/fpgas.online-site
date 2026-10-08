@@ -1,0 +1,9 @@
+/* The management section (#66): shared by every management page, on both themes. */
+.mgmt { max-width: 72rem; }
+.mgmt-crumbs { margin: 0 0 0.8rem; font-size: 0.95em; }
+.mgmt-crumbs a { text-decoration: none; }
+.mgmt-table { border-collapse: collapse; width: 100%; }
+.mgmt-table th, .mgmt-table td { border: 1px solid #ccc; padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+.mgmt-table th { background: #f0f0f0; }
+.mgmt-soon { color: #777; font-size: 0.9em; margin-left: 0.4rem; }
+.mgmt-public { color: #777; font-size: 0.85em; margin-top: 1.2rem; }

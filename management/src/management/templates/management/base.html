@@ -1,0 +1,14 @@
+{% extends management_theme %}
+{% load static %}
+{# Every management page extends this (#66). It owns `content`; a page fills `title`, `extra_head` and `body`. #}
+{% block title %}{% block page_title %}Management{% endblock %} &mdash; Management &mdash; fpgas.online{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'management/management.css' %}">{% block extra_head %}{% endblock %}{% endblock %}
+{% block content %}
+<div class="mgmt">
+  <nav class="mgmt-crumbs" aria-label="Management">
+    <a href="/management/">Management</a>{% block crumb %}{% endblock %}
+  </nav>
+  {% block body %}{% endblock %}
+  <p class="mgmt-public">These pages are public: everything they show is available elsewhere without a login.</p>
+</div>
+{% endblock %}
