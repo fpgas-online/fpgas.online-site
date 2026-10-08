@@ -4,6 +4,7 @@ from django.shortcuts import render
 from django.urls import Resolver404, resolve
 from django.utils import timezone
 from fleet.services import CONDITIONS
+from pibfpgas.pis import listed
 
 from .. import fpga, localtime
 from .index import _url
@@ -44,5 +45,7 @@ def _page(request):
         "zone": localtime.zone_name(),
         "reload": request.GET.get("reload", "") != "off",
         # the visitor's page of an offered Pi, where this host has the /fpgas/ pages
-        "visitor": "/fpgas/" if _resolves(request, "/fpgas/") else "",
+        # the visitor's page of a Pi the /fpgas/ pages list, where this host has them: the same list those pages
+        # show, so a link never points at a page that is not there
+        "listed": {pi.hostname for pi in listed()} if _resolves(request, "/fpgas/") else set(),
     })

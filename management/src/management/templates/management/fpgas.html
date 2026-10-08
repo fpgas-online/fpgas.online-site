@@ -42,7 +42,7 @@ stopped checking in in the last 6 hours; it is <strong>missing</strong> when it 
         {% for b in h.boards %}{% if b.failing %}<br>failed: {{ b.failing|join:", " }}{% endif %}{% if b.reason %}<br><span class="mgmt-reason">{{ b.reason }}</span>{% endif %}{% endfor %}</td>
       <td>{{ h.machine.last_seen|date:"j M H:i" }}{% if not h.checked_in %} <span class="mgmt-soon">(not checking in)</span>{% endif %}
         {% if h.uptime %}<br><span class="mgmt-soon">up {{ h.uptime }}</span>{% endif %}</td>
-      <td>{% if h.condition == "operational" %}yes{% if visitor and h.pi %} (<a href="{{ visitor }}{{ h.machine.hostname }}.html">its page</a>){% endif %}{% else %}no: {{ h.why }}{% endif %}</td>
+      <td>{% if h.condition == "operational" %}yes{% if h.machine.hostname in listed %} (<a href="/fpgas/{{ h.machine.hostname }}.html">its page</a>){% endif %}{% else %}no: {{ h.why }}{% endif %}</td>
     </tr>
   {% empty %}
     <tr><td colspan="6">No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</td></tr>

@@ -57,6 +57,17 @@ def failing_tests(detail, index):
     return [_text(name, 40) for name, _, result in (w.partition("=") for w in words) if result and result != "pass"]
 
 
+def _snapshot_kinds(doc):
+    """The board kinds a registration document names (fpga.boards[].kind), whatever shape the document has: it
+    is what a Pi sent, and one that does not fit must not break the page."""
+    fpga_doc = doc.get("fpga") if isinstance(doc, dict) else None
+    boards = fpga_doc.get("boards") if isinstance(fpga_doc, dict) else None
+    if not isinstance(boards, list):
+        return []
+    kinds = (b.get("kind") for b in boards[:MAX_BOARDS] if isinstance(b, dict))
+    return [k for k in kinds if isinstance(k, str) and k]
+
+
 @dataclass
 class Host:
     machine: Machine
@@ -145,8 +156,7 @@ def hosts(now=None):
         if boards:
             board_type = " + ".join(dict.fromkeys(b["title"] for b in boards))
         else:
-            doc = m.latest_snapshot.document if m.latest_snapshot else {}
-            kinds = [k.get("kind", "") for k in (doc.get("fpga", {}) or {}).get("boards", []) if isinstance(k, dict)]
+            kinds = _snapshot_kinds(m.latest_snapshot.document if m.latest_snapshot else {})
             board_type = " + ".join(dict.fromkeys(SNAPSHOT_KINDS.get(k, OTHER) for k in kinds if k)) or NO_BOARD
         has_checked_in = m.serial in live
         rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,

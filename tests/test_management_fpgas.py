@@ -149,8 +149,12 @@ def test_the_zone_is_the_host_s_own_when_the_settings_name_none(settings, tmp_pa
     link.symlink_to("/usr/share/zoneinfo/America/Chicago")
     assert localtime._host_zone(str(link)) == "America/Chicago"
     assert localtime._host_zone(str(tmp_path / "none")) == ""
-    settings.MANAGEMENT_TIME_ZONE = "Not/AZone"
     assert localtime.zone_name() in (localtime._host_zone(), settings.TIME_ZONE)
+    settings.MANAGEMENT_TIME_ZONE = "Not/AZone"
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured):
+        localtime.zone_name()
 
 
 @pytest.mark.django_db
@@ -222,3 +226,31 @@ def test_an_offered_pi_links_to_its_visitor_page_where_the_host_has_one(fleet):
     assert '<a href="/fpgas/pi-sw2-p46.html">its page</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
     assert "/fpgas/pi-sw2-p46.html" not in tt
+
+
+@pytest.mark.django_db
+def test_its_page_is_linked_only_for_a_pi_the_fpgas_pages_list(fleet):
+    """Review 2 of #74: a TT chip board's Pi is offered but not listed on /fpgas/ (that page is not its own)."""
+    from pibfpgas.pis import listed
+
+    pi("pi-sw2-p20", {"result": "pass", "board0": "tt tt-asic pass", "board0_identity_chip": "asic"})
+    assert "pi-sw2-p20" not in {p.hostname for p in listed()}
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
+    assert "/fpgas/pi-sw2-p20.html" not in html
+    for hostname in {p.hostname for p in listed()}:
+        assert f'<a href="/fpgas/{hostname}.html">its page</a>' in html
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("document", [
+    {"fpga": {"boards": [{"kind": ["x"]}]}}, {"fpga": "x"}, {"fpga": {"boards": 5}}, {"kind": {"a": 1}},
+    {"fpga": {"boards": [{"kind": {"a": 1}}, "x", None]}}, [], "x",
+])
+def test_a_registration_that_does_not_fit_does_not_break_the_page(document):
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p33", verifying=True)
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document=document)
+    m.save()
+    r = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/")
+    assert r.status_code == 200 and next(h for h in fpga.hosts() if h.machine.pk == m.pk).board_type == fpga.NO_BOARD

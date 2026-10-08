@@ -8,6 +8,7 @@ import os
 import zoneinfo
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 LOCALTIME = "/etc/localtime"
 
@@ -33,7 +34,9 @@ def _valid(name):
 def zone_name():
     """The name of the zone the management pages show times in."""
     named = getattr(settings, "MANAGEMENT_TIME_ZONE", "")
-    if named and _valid(named):
+    if named:
+        if not _valid(named):  # a setting that names no zone is a mistake to say, not to step over
+            raise ImproperlyConfigured(f"MANAGEMENT_TIME_ZONE = {named!r} is not a time zone")
         return named
     return _host_zone() or settings.TIME_ZONE
 
