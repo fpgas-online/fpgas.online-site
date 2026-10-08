@@ -27,6 +27,7 @@ def test_the_index_answers_without_a_login_on_every_host(host):
     assert r.status_code == 200
     html = r.content.decode()
     assert "<h1>Management</h1>" in html and "management/management.css" in html
+    assert "<title>Management &mdash; fpgas.online</title>" in html
     assert "/accounts/login" not in html and "password" not in html.lower()
 
 
@@ -83,6 +84,6 @@ def test_every_management_page_extends_one_base_that_owns_the_header():
 
     base = (pathlib.Path(apps.get_app_config("management").path) / "templates/management/base.html").read_text()
     assert base.startswith("{% extends management_theme %}")
-    for block in ("page_title", "extra_head", "crumb", "body"):
+    for block in ("title", "extra_head", "crumb", "body"):
         assert "{% block " + block + " %}" in base
     assert '<nav class="mgmt-crumbs"' in base

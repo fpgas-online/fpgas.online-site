@@ -1,7 +1,8 @@
 {% extends management_theme %}
 {% load static %}
-{# Every management page extends this (#66). It owns `content`; a page fills `title`, `extra_head` and `body`. #}
-{% block title %}{% block page_title %}Management{% endblock %} &mdash; Management &mdash; fpgas.online{% endblock %}
+{# Every management page extends this (#66). It owns `content`; a page fills `title` (its whole title, e.g.
+   "Switch ports &mdash; Management &mdash; fpgas.online"), `extra_head`, `crumb` (" &rsaquo; Switch ports") and `body`. #}
+{% block title %}Management &mdash; fpgas.online{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'management/management.css' %}">{% block extra_head %}{% endblock %}{% endblock %}
 {% block content %}
 <div class="mgmt">
