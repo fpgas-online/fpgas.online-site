@@ -1,6 +1,6 @@
 {% extends "management/base.html" %}
 {% block title %}Switch ports &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}{% if switches %}<script>
+{% block extra_head %}<script>
 /* Refresh the tables in place every {{ refresh_seconds }} s. The page is complete without this. */
 (function () {
   var url = "{{ json_url }}";
@@ -21,7 +21,16 @@
     tr.appendChild(cell("td", p.macs));
     tr.appendChild(cell("td", p.rx)); tr.appendChild(cell("td", p.tx)); tr.appendChild(cell("td", p.errors));
   }
+  function say(text) {
+    var p = document.getElementById("mgmt-live");
+    p.textContent = text; p.hidden = !text;
+  }
   function update(data) {
+    if (data.switches.length !== document.querySelectorAll(".mgmt-switch").length) {
+      location.reload();  /* a switch came or went: draw the page afresh */
+      return;
+    }
+    say("");
     data.switches.forEach(function (s, n) {
       var box = document.getElementById("switch-" + n);
       if (!box) { return; }
@@ -34,23 +43,29 @@
     });
   }
   function tick() {
-    fetch(url, {headers: {"Accept": "application/json"}}).then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d) { update(d); } }).catch(function () {});
+    fetch(url, {headers: {"Accept": "application/json"}})
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (d.switches && d.switches.length && !d.error) { update(d); }
+        else { say((d.error || "The switches could not be read just now.") + " The tables below are from earlier."); }
+      })
+      .catch(function () { say("This page cannot reach the site just now. The tables below are from earlier."); });
   }
   setInterval(tick, {{ refresh_seconds }} * 1000);
 })();
-</script>{% endif %}{% endblock %}
+</script>{% endblock %}
 {% block crumb %} &rsaquo; Switch ports{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
 <p>Every switch and every port, read from the switches by the gateway at most every {{ refresh_seconds }} seconds.
 This page refreshes itself; without JavaScript, reload it.</p>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
+<p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ forloop.counter0 }}">
   <h2>{{ s.name }} <span class="mgmt-model">{{ s.model }}</span></h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
-  <div class="mgmt-scroll">
+  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.name }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
       <th scope="col">Port</th><th scope="col">Label</th><th scope="col">Link</th><th scope="col">PoE</th>

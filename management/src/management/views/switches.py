@@ -5,6 +5,8 @@ the number of viewers does not change the number of reads. This module only lays
 server-side (complete without JavaScript), and the same rows as JSON for the page's auto-refresh. The browser
 never talks to a switch, and no community or credential is in anything built here."""
 
+import logging
+
 from django.core.cache import caches
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -16,6 +18,9 @@ REFRESH_SECONDS = 15
 MACS_SHOWN = 3
 NONE = "–"  # shown for a value that is not known
 NOT_INSTALLED = "The switch reader is not installed on this site yet."
+READ_FAILED = "The switches could not be read just now. This page tries again by itself."
+
+logger = logging.getLogger(__name__)
 
 
 class _Unavailable(Exception):
@@ -52,6 +57,9 @@ def _read():
         return read(caches["poe"])
     except _config_error() as exc:
         raise _Unavailable(str(exc)) from exc
+    except Exception as exc:  # any other failure of the reader or the cache: a message, never a 500
+        logger.exception("switch dashboard: the reader failed")
+        raise _Unavailable(READ_FAILED) from exc
 
 
 def rate(bps):

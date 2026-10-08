@@ -194,6 +194,35 @@ def test_a_config_error_is_shown_as_its_message(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_any_other_reader_failure_is_a_message_not_a_500(monkeypatch):
+    def read(cache):
+        raise RuntimeError("redis went away")
+
+    monkeypatch.setattr(page, "_reader", lambda: read)
+    c = Client(HTTP_HOST=HOSTS[0])
+    r = c.get("/management/switches/")
+    assert r.status_code == 200 and page.READ_FAILED in r.content.decode()
+    assert "redis went away" not in r.content.decode()
+    j = c.get("/management/switches.json")
+    assert j.status_code == 503 and json.loads(j.content)["error"] == page.READ_FAILED
+
+
+@pytest.mark.django_db
+def test_device_text_is_escaped_in_the_page_and_plain_in_the_json(monkeypatch):
+    evil = '<script>alert("x")</script>'
+    views = make_views()
+    views[0].ports[0].label = evil
+    views[0].ports[1].lldp_name = evil
+    views[0].ports[1].lldp_port = evil
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    assert evil not in html and "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["label"] == evil and ports[1]["lldp_name"] == evil
+
+
+@pytest.mark.django_db
 def test_get_only(reader):
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches/").status_code == 405
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches.json").status_code == 405
