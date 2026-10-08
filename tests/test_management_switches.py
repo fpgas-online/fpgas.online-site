@@ -266,6 +266,15 @@ def test_a_switch_without_an_index_has_no_number():
 
 
 @pytest.mark.django_db
+def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
+    views = make_views()
+    views[0].ports[2].poe_watts = 0.0  # port 3, searching
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["poe"] == "delivering 3.5 W" and ports[2]["poe"] == "searching"
+
+
+@pytest.mark.django_db
 def test_get_only(reader):
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches/").status_code == 405
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches.json").status_code == 405

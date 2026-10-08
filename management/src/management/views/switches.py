@@ -115,7 +115,8 @@ def _row(request, port, hosts):
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
     shown = ", ".join(macs[:MACS_SHOWN]) + (f" +{len(macs) - MACS_SHOWN}" if len(macs) > MACS_SHOWN else "")
-    watts = "" if port.poe_watts is None else f" {port.poe_watts:.1f} W"
+    # watts only where power flows: "searching 0.0 W" on every empty port says nothing
+    watts = f" {port.poe_watts:.1f} W" if port.poe_state == "delivering" and port.poe_watts is not None else ""
     speed = f" {port.speed_mbps} Mbit/s" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
