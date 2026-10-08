@@ -20,9 +20,9 @@ DASHBOARDS = [
           "Every switch and every port: PoE, link, LLDP neighbour and traffic, with PoE on and off per port.",
           "SNMP on the site's switches, read by the gateway."),
     Entry("FPGA hosts", "management-fpgas", 68,
-          "Every Raspberry Pi: its switch port, the FPGA board it found, its latest boot check, its last check-in "
-          "and console; a summary by board type.",
-          "The fleet registry (each Pi's registration and boot check events) and the gateway's view of the ports."),
+          "Every Raspberry Pi: its switch port, the FPGA board its boot check found, how that check went and its "
+          "last check-in; a summary by board type.",
+          "The fleet registry: each Pi's registration and its boot check events."),
     Entry("Visitor and usage stats", "management-stats", 69,
           "Anonymised visitor and board-use reports for the last day, week and month.",
           "The gateway's logs, with nothing that identifies a visitor."),

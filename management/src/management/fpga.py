@@ -7,13 +7,15 @@ from dataclasses import dataclass, field
 from django.db.models import F
 from django.utils import timezone
 from fleet.models import BootEvent, Machine
-from fleet.services import CONDITIONS, FPGA_STAGES, _reported_boards, checked_in, condition
+from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
 
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
 TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card"}
+OTHER = "other"  # a board name this page does not know: one bucket, so a Pi cannot make a row per name it sends
+SNAPSHOT_TT = "TT, not checked this boot"
 # What a registration's hardware document calls a board kind, for a machine whose check reported none this boot.
-SNAPSHOT_KINDS = {"tt-demo-board": "TT demo board", "arty-a7": "Arty A7", "xilinx-pcie": "PCIe card",
+SNAPSHOT_KINDS = {"tt-demo-board": SNAPSHOT_TT, "arty-a7": "Arty A7", "xilinx-pcie": "PCIe card",
                   "netv2": "NeTV2", "fomu": "Fomu", "acorn": "Acorn"}
 NO_BOARD = "no board"
 CONDITION_TITLES = {"operational": "operational", "attention": "needs attention", "missing": "missing",
@@ -28,15 +30,24 @@ def _text(value, limit=MAX_TEXT):
 def board_title(board):
     """A reported board's type, for the summary: a Tiny Tapeout board by what it said it carries."""
     if board["board"] == "tt":
-        chip = board["identity"].get("chip", "").lower()
+        chip = _text(board["identity"].get("chip", ""), 20).lower()
         return {"fpga": "TT FPGA", "asic": "TT chip"}.get(chip, "TT (not identified)")
-    return TYPE_TITLES.get(board["board"], board["board"] or "not readable")
+    if not board["board"]:
+        return "not readable"
+    return TYPE_TITLES.get(board["board"], OTHER)
 
 
 def board_id(board):
     """The value on the board's label that its check read: a USB serial, a DNA, a serial."""
     ids = board["identity"]
     return _text(ids.get("usb_serial") or ids.get("dna") or ids.get("serial") or "", 40)
+
+
+def board_indices(detail):
+    """The `i` of each board<i> entry, in the order _reported_boards reads them (the check's own numbering, which
+    need not be 0, 1, 2, ...)."""
+    found = sorted(int(m[1]) for key in detail if isinstance(key, str) and (m := _BOARD_KEY.fullmatch(key)))
+    return found[:MAX_BOARDS]
 
 
 def failing_tests(detail, index):
@@ -51,7 +62,7 @@ class Host:
     machine: Machine
     condition: str
     state: str  # the check of the boot it is running: "pass", "fail", "verifying", "" (not started), ...
-    checked: object  # when that check reported (its event's arrival), or None
+    checked: object  # when that check reported: its event's time, as the Pi stamped it; or None
     boards: list = field(default_factory=list)  # [{"title", "variant", "id", "result", "reason", "failing"}]
     board_type: str = NO_BOARD
     checked_in: bool = False
@@ -65,7 +76,7 @@ class Host:
     def uptime(self):
         """The uptime the Pi last reported, as a person reads it: "1 h 0 min", "3 d 4 h", "12 min"."""
         s = self.machine.last_uptime_s
-        if not s:
+        if not s or not self.checked_in:  # the uptime of a Pi that stopped checking in says nothing now
             return ""
         days, rest = divmod(s, 86400)
         hours, rest = divmod(rest, 3600)
@@ -102,7 +113,9 @@ class Host:
         if self.state == "verifying":
             return "its boot check is running"
         reasons = "; ".join(b["reason"] for b in self.boards if b["reason"])
-        return f"its boot check gave {self.state}" + (f": {reasons}" if reasons else "")
+        said = {"fail": "its boot check failed", "error": "its boot check could not finish"}.get(
+            self.state, f"its boot check gave {self.state}")
+        return said + (f": {reasons}" if reasons else "")
 
 
 def hosts(now=None):
@@ -123,7 +136,7 @@ def hosts(now=None):
     for m in Machine.objects.select_related("latest_snapshot").order_by("hostname", "serial"):
         state, detail, ts = checks.get(m.serial, ("", {}, None))
         boards = []
-        for i, b in enumerate(_reported_boards(detail) if detail else []):
+        for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
             # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
             variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
             boards.append({"title": board_title(b), "variant": variant, "id": board_id(b),
@@ -134,7 +147,7 @@ def hosts(now=None):
         else:
             doc = m.latest_snapshot.document if m.latest_snapshot else {}
             kinds = [k.get("kind", "") for k in (doc.get("fpga", {}) or {}).get("boards", []) if isinstance(k, dict)]
-            board_type = " + ".join(dict.fromkeys(SNAPSHOT_KINDS.get(k, k) for k in kinds if k)) or NO_BOARD
+            board_type = " + ".join(dict.fromkeys(SNAPSHOT_KINDS.get(k, OTHER) for k in kinds if k)) or NO_BOARD
         has_checked_in = m.serial in live
         rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,

@@ -70,7 +70,7 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     row = next(r for r in fpga.hosts() if r.machine.hostname == "pi-sw2-p33")
     assert row.state == "fail" and row.board_type.startswith("TT")
     assert row.boards[0]["failing"] == ["pin-id", "spiflash"]
-    assert row.why == "its boot check gave fail: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
+    assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
     assert "failed: pin-id, spiflash" in html and "pin-id fail: the test exited 1" in html
 
@@ -169,3 +169,56 @@ def test_rows_are_in_switch_and_port_order_as_numbers(fleet):
     assert [r.machine.hostname for r in fpga.hosts()] == [
         "pi-sw1-p12", "pi-sw2-p4", "pi-sw2-p7", "pi-sw2-p10", "pi-sw2-p33", "pi-sw2-p46", "pi-sw2-p47",
         "noname-host"]
+
+
+@pytest.mark.django_db
+def test_board_names_a_pi_sends_are_cut_and_unknown_ones_share_one_row():
+    """Review 1 of #74: a Pi's board names make the summary's rows, so one cannot make a row per name it sends."""
+    for i in range(5):
+        pi(f"pi-sw2-p{20 + i}", {"result": "pass", "board0": f"forged{i}{'y' * 400} - pass"})
+    rows = fpga.hosts()
+    table, _total, _n = fpga.summary(rows)
+    assert [t for t, _, _ in table] == [fpga.OTHER] and all(len(r.board_type) < 50 for r in rows)
+
+
+@pytest.mark.django_db
+def test_failing_tests_are_read_by_the_checks_own_board_number():
+    """board0 and board2, no board1: the second board's tests are board2's."""
+    detail = {"result": "fail", "board0": "acorn cle-215+ pass", "board0_tests": "jtag=pass",
+              "board2": "arty a7-35t fail", "board2_tests": "jtag=fail ddr=pass", "board2_reason": "jtag fail: no idcode"}
+    pi("pi-sw2-p40", detail)
+    row = next(r for r in fpga.hosts() if r.machine.hostname == "pi-sw2-p40")
+    assert [b["failing"] for b in row.boards] == [[], ["jtag"]]
+    assert row.board_type == "Acorn + Arty A7" and row.why == "its boot check failed: jtag fail: no idcode"
+
+
+@pytest.mark.django_db
+def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p33", verifying=True)
+    snap = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
+        "fpga": {"boards": [{"kind": "tt-demo-board"}, {"kind": "<b>" + "z" * 300}]}})
+    m.latest_snapshot = snap
+    m.save()
+    row = next(r for r in fpga.hosts() if r.machine.pk == m.pk)
+    assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
+    assert row.registered is not None
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
+    assert "its own word at registration" in html and "<b>" not in html
+
+
+@pytest.mark.django_db
+def test_the_page_can_stop_reloading_and_ignores_a_filter_it_has_not(fleet):
+    c = Client(HTTP_HOST="welland.fpgas.online")
+    assert '<meta http-equiv="refresh"' not in c.get("/management/fpgas/?reload=off").content.decode()
+    odd = c.get("/management/fpgas/?condition=bogus").content.decode()
+    assert "pi-sw2-p46" in odd and "show all" not in odd
+
+
+@pytest.mark.django_db
+def test_an_offered_pi_links_to_its_visitor_page_where_the_host_has_one(fleet):
+    welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/").content.decode()
+    assert '<a href="/fpgas/pi-sw2-p46.html">its page</a>' in welland
+    tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
+    assert "/fpgas/pi-sw2-p46.html" not in tt
