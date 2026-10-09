@@ -57,13 +57,26 @@ def test_the_index_headers_are_short(c):
 def _rules(css):
     """(selectors, declarations) for every rule in a stylesheet without @-blocks, comments removed."""
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    # this parse reads flat rules only: an @media or @supports block would hide its rules from the checks below
+    assert "@" not in css, "management.css has an @-block: teach _rules to read nested rules first"
     return [([s.strip() for s in sel.split(",")], body) for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css)]
 
 
 def _may_hit_a_header(selector):
-    """Whether a selector can match a column header (a th in a thead) of a management table."""
-    last = selector.split()[-1] if selector.split() else ""
-    return re.match(r"th\b", last) is not None and "tbody" not in selector and selector.startswith(".mgmt-")
+    """Whether a selector can match a column header (a th in a thead): its last compound names th, or matches any
+    element (*, an attribute such as [scope], :is()/:where() with th), and nothing confines it to a tbody."""
+    # spaces inside :is( ) / :where( ) are not combinators
+    selector = re.sub(r"\([^)]*\)", lambda m: m.group(0).replace(" ", ""), selector.strip())
+    compounds = re.split(r"\s*[>+~]\s*|\s+", selector)
+    last = compounds[-1] if compounds else ""
+    if "tbody" in selector or not last:
+        return False
+    if re.match(r"th\b", last) or re.search(r":(is|where)\([^)]*\bth\b", last):
+        return True
+    # a compound with no element name at all (".x", "*", "[scope=col]", ":first-child") can be a th, but only
+    # where the selector is about a table, or is bare: a class on its own names other elements of this app
+    no_element = re.match(r"[a-z]", last) is None
+    return no_element and (last.startswith(("*", "[")) or re.search(r"\b(table|thead|tr)\b|\.mgmt-table", selector[:-len(last)]) is not None)
 
 
 def test_the_shared_rule_lets_headers_wrap_and_never_widen_a_column():
@@ -79,13 +92,33 @@ def test_the_shared_rule_lets_headers_wrap_and_never_widen_a_column():
     for sels, body in rules:
         for sel in sels:
             if _may_hit_a_header(sel):
-                assert not re.search(r"(^|[;\s])(min-)?width\s*:|white-space\s*:\s*nowrap", body), (sel, body)
+                widen = r"(^|[;\s])(min-)?(width|inline-size)\s*:|white-space\s*:\s*nowrap"
+                assert not re.search(widen, body), (sel, body)
 
 
-def test_the_selector_check_sees_what_it_must():
-    assert _may_hit_a_header(".mgmt-table th") and _may_hit_a_header(".mgmt-ports thead th:first-child")
-    assert not _may_hit_a_header(".mgmt-ports tbody th") and not _may_hit_a_header(".mgmt-table td")
-    assert not _may_hit_a_header(".mgmt-table th abbr") and not _may_hit_a_header(".mgmt-path")
+@pytest.mark.parametrize("selector", [
+    ".mgmt-table th", ".mgmt-ports thead th:first-child", "th", "table th", "th.x", ":is(th)", ":where(th, td)",
+    "thead > tr > *", "tr > *", "[scope=col]", ".mgmt-table *", "*", ".mgmt-table thead > tr > th",
+])
+def test_the_selector_check_sees_a_selector_that_can_reach_a_header(selector):
+    assert _may_hit_a_header(selector)
+
+
+@pytest.mark.parametrize("selector", [
+    ".mgmt-ports tbody th", ".mgmt-table td", ".mgmt-table th abbr", ".mgmt-path", ".mgmt-sr",
+    ".mgmt-ports tbody th, .x",
+])
+def test_the_selector_check_leaves_what_cannot(selector):
+    assert not _may_hit_a_header(selector.split(",")[0])
+
+
+def test_the_width_check_catches_every_way_to_widen_a_header():
+    widen = r"(^|[;\s])(min-)?(width|inline-size)\s*:|white-space\s*:\s*nowrap"
+    for body in (" width: 4em", " min-width:4em", "a: b; width : 1px", " inline-size: 3em", " min-inline-size: 3em",
+                 " white-space: nowrap"):
+        assert re.search(widen, body), body
+    for body in (" max-width: 4em", " border-width: 1px", " white-space: normal", " max-inline-size: 2em"):
+        assert not re.search(widen, body), body
 
 
 def test_screen_reader_text_has_one_definition_that_hides_it():
