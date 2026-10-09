@@ -10,6 +10,7 @@ import logging
 import re
 import socket
 from datetime import datetime
+from pathlib import Path
 
 from django.core.cache import caches
 from django.core.exceptions import ImproperlyConfigured
@@ -273,18 +274,27 @@ def _can_power(request, view, spec):
     return board_ports(request, view.index, ports) if ports else set()
 
 
-def _row(request, port, hosts, spec=None, can_power=False):
+def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
     shown = ", ".join(macs[:MACS_SHOWN]) + (f" +{len(macs) - MACS_SHOWN}" if len(macs) > MACS_SHOWN else "")
     poe, poe_title = poe_cell(port.poe_state, port.poe_watts)
     speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
+    vlan, vlan_title = vlan_cell(port, vlan_names)
+    # the gateway's interface for the port's VLAN belongs to a board port; an infrastructure port carries many
+    # VLANs (all in the VLAN cell's title), and where the inventory is unknown a trunk cannot be told from a board
+    board = spec is not NO_INVENTORY and port_role(spec, port.port) is None
+    gw, gw_title = gw_cell(getattr(port, "pvid", None), netdevs) if board else (NONE, "not a board port")
     return {
         "port": port.port,
         "label": "" if spec is NO_INVENTORY else (port_role(spec, port.port) or label(port.label)),
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
+        "vlan": vlan,
+        "vlan_title": vlan_title,
+        "gw": gw,
+        "gw_title": gw_title,
         "poe": poe,
         "poe_title": poe_title,
         "poe_symbol": len(poe) == 1,  # one symbol: hidden from screen readers, whose text is the title's words
@@ -299,6 +309,93 @@ def _row(request, port, hosts, spec=None, can_power=False):
         "tx": rate(port.tx_bps),
         "errors": f"{_count(port.rx_errors)} / {_count(port.tx_errors)}",
     }
+
+
+# --- VLANs (Tim, 2026-10-09): the port's VLAN, and the gateway's interface that carries it ---
+
+SYS_CLASS_NET = Path("/sys/class/net")  # the gateway's network devices (a constant so tests can point it elsewhere)
+VLAN_NETDEV = re.compile(r"^v(\d+)$")  # the gateway names its VLAN interfaces v<VLAN id>
+TAGGED_SHOWN = 12  # tagged VLANs listed in a title before "… (+N)"
+_netdev_failed = False  # whether the failure to read SYS_CLASS_NET has been logged (once per run of failures)
+
+
+def gateway_vlan_netdevs():
+    """{VLAN id: operstate} of the gateway's VLAN interfaces, read from SYS_CLASS_NET (the site runs on the gateway,
+    and /proc/net/vlan is root-only). A device is a VLAN interface when it is named v<id> and its uevent says
+    DEVTYPE=vlan. None when the directory cannot be read (logged once until it can be)."""
+    global _netdev_failed
+    try:
+        found = {}
+        for entry in SYS_CLASS_NET.iterdir():
+            match = VLAN_NETDEV.match(entry.name)
+            if not match:
+                continue
+            try:
+                lines = (entry / "uevent").read_text().split()
+                state = (entry / "operstate").read_text().strip()
+            except OSError:  # a device that went away between the listing and the read
+                continue
+            if "DEVTYPE=vlan" in lines:
+                found[int(match.group(1))] = state or "unknown"
+    except OSError:
+        if not _netdev_failed:
+            logger.exception("switch dashboard: the gateway's network devices could not be read")
+            _netdev_failed = True
+        return None
+    _netdev_failed = False
+    return found
+
+
+def _vlan_names(views):
+    """{VLAN id: name} for the names the page may show (SHOWN_NAME: a board's or a switch's name); every other
+    VLAN name is left out, as every other host name is masked."""
+    names = {}
+    for view in views:
+        for vlan in getattr(view, "vlans", None) or []:
+            name = vlan.get("name") or ""
+            if SHOWN_NAME.match(name):
+                names[vlan["vlan_id"]] = name
+    return names
+
+
+def _vlan_list(ids, names):
+    return ", ".join(f"{v} ({names[v]})" if v in names else str(v) for v in ids)
+
+
+def vlan_cell(port, names=None):
+    """(text, title) of a port's VLAN cell: its PVID ("2110"), "+21" for other untagged VLANs, "+88t" for 88 tagged
+    ones. NONE when the reader gave no VLAN data. The title lists them all (tagged cut at TAGGED_SHOWN)."""
+    names = names or {}
+    pvid = getattr(port, "pvid", None)
+    untagged = list(getattr(port, "untagged_vlans", None) or [])
+    tagged = list(getattr(port, "tagged_vlans", None) or [])
+    if pvid is None and not untagged and not tagged:
+        return NONE, "no VLAN data for this port"
+    extra = [v for v in untagged if v != pvid]
+    parts = [str(pvid)] if pvid is not None else []
+    if extra:
+        parts.append("+" + ",".join(map(str, extra)))
+    if tagged:
+        parts.append(f"+{len(tagged)}t")
+    shown = _vlan_list(tagged[:TAGGED_SHOWN], names) + (f", … (+{len(tagged) - TAGGED_SHOWN})" if len(tagged) > TAGGED_SHOWN else "")
+    title = "; ".join([
+        f"PVID {_vlan_list([pvid], names)}" if pvid is not None else "no PVID",
+        f"untagged {_vlan_list(untagged, names)}" if untagged else "untagged none",
+        f"tagged {shown}" if tagged else "tagged none",
+    ])
+    return " ".join(parts), title
+
+
+def gw_cell(pvid, netdevs):
+    """(text, title) of a board port's GW cell: the gateway's interface for its PVID with its state ("v2110 ↑"),
+    "none" when the gateway has no such interface. NONE where the port has no PVID or the devices could not be
+    read."""
+    if pvid is None or netdevs is None:
+        return NONE, "not known"
+    if pvid not in netdevs:
+        return "none", f"the gateway has no interface for VLAN {pvid}"
+    state = netdevs[pvid]
+    return f"v{pvid} {'↑' if state == 'up' else '↓'}", f"gateway interface v{pvid}, {state}"
 
 
 def _status(view):
@@ -327,6 +424,8 @@ def _switch_dicts(request):
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
     inventory = _inventory()
     specs = {id(v): _spec(inventory, v.index) for v in views}
+    vlan_names = _vlan_names(views)
+    netdevs = gateway_vlan_netdevs()  # once per request, not per port
     powered = {id(v): _can_power(request, v, specs[id(v)]) for v in views}
     return [{
         "index": v.index,
@@ -336,7 +435,7 @@ def _switch_dicts(request):
         "reachable": bool(v.reachable),
         "status": _status(v) + (f" ({NO_INVENTORY_NOTE})" if specs[id(v)] is NO_INVENTORY else ""),
         "read_at": when(v.read_at),
-        "ports": [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)]) for p in v.ports],
+        "ports": [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs) for p in v.ports],
     } for v in views]
 
 
