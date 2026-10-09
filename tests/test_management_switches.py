@@ -69,6 +69,17 @@ def make_views():
         ])]
 
 
+@pytest.fixture(autouse=True)
+def welland_inventory(monkeypatch):
+    """Switch 1 described as welland's is (40 board ports; gateway trunk 47, house uplink 48, switch trunk 50), so
+    the page knows which ports are boards. A test that needs another inventory sets page._inventory itself."""
+    from types import SimpleNamespace
+
+    switch_1 = SimpleNamespace(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,),
+                               house_uplink_port=48)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: switch_1})
+
+
 @pytest.fixture
 def reader(monkeypatch):
     views = make_views()
@@ -415,6 +426,40 @@ def test_the_page_labels_infrastructure_ports_by_role_whatever_the_switch_says(m
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[2]["label"] == "house uplink" and ports[0]["label"] == "uplink"  # port 1 keeps its own label
+    assert "a-private-device" not in c.get("/management/switches/").content.decode()
+
+
+@pytest.mark.parametrize("port, role", [(3, "gateway trunk"), (5, "switch trunk"), (7, "house uplink"), (4, None)])
+def test_a_trunk_inside_the_board_range_is_never_a_board_port(port, role):
+    """The review of #84: poe's bound excludes the named ports even inside 1..access_ports, so the page must too."""
+    inner = spec(access_ports=40, gateway_trunk_port=3, downstream_trunk_ports=(5,), house_uplink_port=7)
+    assert page.port_role(inner, port) == role
+
+
+@pytest.mark.django_db
+def test_no_button_on_a_trunk_inside_the_board_range_even_when_registered(monkeypatch):
+    machine("100000002d8aa803", "pi-sw1-p3")  # a forged registration on the gateway trunk
+    views = make_views()
+    views[0].ports[2].port = 3
+    views[0].ports[2].poe_state = "delivering"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec(gateway_trunk_port=3)})
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert (ports[2]["label"], ports[2]["can_power"]) == ("gateway trunk", False)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("inventory", [None, {}])  # unreadable; or read, with no entry for this switch
+def test_a_switch_the_inventory_cannot_describe_fails_closed(monkeypatch, inventory):
+    machine("100000002d8aa801", "pi-sw1-p1")
+    views = make_views()
+    views[0].ports[0].label = "a-private-device"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: inventory)
+    c = Client(HTTP_HOST=HOSTS[0])
+    sw = json.loads(c.get("/management/switches.json").content)["switches"][0]
+    assert all(p["label"] == "" and not p["can_power"] for p in sw["ports"])
+    assert page.NO_INVENTORY_NOTE in sw["status"]
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
