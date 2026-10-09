@@ -214,7 +214,7 @@ TTSITE_COMMANDER_LEGACY_VERSION = ""
 # DEFAULT_LOGGING, whose console handler carries a require_debug_true filter.
 # Production runs DEBUG = False (local_settings.py sets it), so that handler
 # drops everything and the only remaining route for a 500 is mail_admins --
-# and ADMINS is empty. The result was 298 HTTP 500s on tweed with not one
+# and ADMINS is empty. The result was 298 HTTP 500s on welland's gateway with not one
 # traceback anywhere. Everything below exists to make that impossible again.
 #
 # WHAT YOU WILL SEE IN THE JOURNAL

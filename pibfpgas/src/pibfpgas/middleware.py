@@ -1,8 +1,8 @@
-"""Inject the under-construction banner into the pages tweed serves.
+"""Inject the under-construction banner into the pages welland serves.
 
-Welland (tweed) is where new work lands first, so its pages carry a banner
+Welland is where new work lands first, so its pages carry a banner
 pointing visitors at the stable PS1 site when something is broken. The banner
-is gated on the UNDER_CONSTRUCTION setting rather than on a hostname: tweed
+is gated on the UNDER_CONSTRUCTION setting rather than on a hostname: welland's gateway
 answers to both welland.fpgas.online and tinytapeout.fpgas.online and both
 should carry it, while ps1.fpgas.online runs this same code and must not.
 fpgas.online-infra writes the setting per host into local_settings.py.

@@ -15,7 +15,7 @@ differ, this page says which one it describes.
 
 ```
 fpgas-verify ──> fleet-event ──> fleet_consumer ──> BootEvent table
-(every Pi boot)  (MQTT, QoS 1)   (on tweed)         (every event kept)
+(every Pi boot)  (MQTT, QoS 1)   (on the gateway)   (every event kept)
                                                           │
              ┌──────────────────────────┬─────────────────┴──────────┐
              v                          v                            v
@@ -155,5 +155,5 @@ hostname, never from anything a message says.
 - fpgas.online-setup-pi main: `fleet-scripts/fleet_event.py`.
 - fpgas.online-site `e00e8dc` (main): `fleet/consumer.py`,
   `fleet/services.py`, `fleet/hwid.py`, `fleet/views.py`, `pibfpgas/views.py`.
-- welland (tweed) on 2026-10-03: the `BootEvent` table, read through
+- welland's gateway on 2026-10-03: the `BootEvent` table, read through
   `manage.py shell`, and the NFS root's dpkg database.
