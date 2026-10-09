@@ -96,7 +96,7 @@ def when(iso):
 
 
 # Tim, 2026-10-09: the PoE column is "8.6W" where power flows, else one character; the word is in the cell's
-# title, and the legend (POE_LEGEND) is once under each table.
+# title, and the legend (POE_LEGEND) is once in each switch's key line, above its table.
 POE_SYMBOLS = {
     "delivering": ("●", "delivering power"),  # only when the switch gives no watts
     "searching": ("⋯", "searching: PoE on, nothing drawing power"),
