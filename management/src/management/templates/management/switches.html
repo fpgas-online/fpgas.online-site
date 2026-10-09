@@ -6,11 +6,38 @@
   var url = "{{ json_url }}";
   var cols = ["port", "label", "link", "poe", "lldp", "macs", "rx", "tx", "errors"];
   function cell(tag, text) { var c = document.createElement(tag); c.textContent = text; return c; }
-  function fill(tr, p) {
+  /* The PoE button (#67). There is no login (#66): the guard is the server, which answers /snmp/power only for a board
+     port (403 for any other) and at most once per interval per port. The confirm() below is a courtesy so that nobody
+     switches a board off by a stray click; it is not a check, and nothing here decides which ports may be switched. */
+  var powerUrl = "{{ power_url }}";
+  var results = {};  /* "switch/port" -> {text, at}: what the last press said, kept across the table refresh */
+  var RESULT_SECONDS = 60;
+  function key(sw, port) { return sw + "/" + port; }
+  function resultFor(sw, port) {
+    var r = results[key(sw, port)];
+    if (r && Date.now() - r.at > RESULT_SECONDS * 1000) { delete results[key(sw, port)]; r = null; }
+    return r ? r.text : "";
+  }
+  var busy = {};
+  function powerButton(sw, p) {
+    var b = cell("button", p.poe_action);
+    b.type = "button"; b.className = "mgmt-poe-button";
+    b.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
+    b.dataset.port = String(p.port); b.dataset.action = p.poe_action; b.dataset.powers = p.lldp_name;
+    b.disabled = !!busy[key(b.dataset.switch, p.port)];
+    return b;
+  }
+  function fill(tr, p, sw) {
     var th = cell("th", p.port); th.scope = "row"; tr.appendChild(th);
     tr.appendChild(cell("td", p.label));
     var link = cell("td", p.link); link.className = p.link_up ? "mgmt-up" : "mgmt-down"; tr.appendChild(link);
-    var poe = cell("td", p.poe); poe.title = p.poe_title; poe.className = "mgmt-poe"; tr.appendChild(poe);
+    var poe = cell("td", p.poe); poe.title = p.poe_title; poe.className = "mgmt-poe";
+    if (p.can_power) {
+      if (p.poe_action) { poe.appendChild(document.createTextNode(" ")); poe.appendChild(powerButton(sw, p)); }
+      var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
+      poe.appendChild(msg);
+    }
+    tr.appendChild(poe);
     var l = document.createElement("td");
     if (p.lldp_name) {
       if (p.lldp_url) { var a = cell("a", p.lldp_name); a.href = p.lldp_url; l.appendChild(a); }
@@ -38,7 +65,7 @@
       box.querySelector(".mgmt-readat").textContent = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
       var body = box.querySelector("tbody"), fresh = document.createElement("tbody");
-      s.ports.forEach(function (p) { var tr = document.createElement("tr"); fill(tr, p); fresh.appendChild(tr); });
+      s.ports.forEach(function (p) { var tr = document.createElement("tr"); fill(tr, p, s.index); fresh.appendChild(tr); });
       body.replaceWith(fresh);
     });
   }
@@ -51,6 +78,37 @@
       })
       .catch(function () { say("This page cannot reach the site just now. The tables below are from earlier."); });
   }
+  function show(k, text) {
+    results[k] = {text: text, at: Date.now()};
+    document.querySelectorAll(".mgmt-poe-button").forEach(function (b) {
+      if (key(b.dataset.switch, b.dataset.port) === k) { b.parentNode.querySelector(".mgmt-poe-msg").textContent = text; }
+    });
+  }
+  function press(b) {
+    var sw = b.dataset.switch, port = b.dataset.port, action = b.dataset.action, k = key(sw, port);
+    var where = (sw === "" ? "" : "switch " + sw + " ") + "port " + port;
+    var powers = b.dataset.powers || "nothing seen";
+    if (!confirm("Turn PoE " + action + " on " + where + "? It powers " + powers + ".")) { return; }
+    busy[k] = true; b.disabled = true; show(k, "");
+    var body = {switch: sw === "" ? null : Number(sw), port: String(port), on: action === "on"};
+    fetch(powerUrl, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (r.ok && d.state) { return "PoE is now " + d.state; }
+          if (r.status === 429) {
+            var wait = r.headers.get("Retry-After");
+            return "wait " + (wait || "a few") + " s, this port was switched a moment ago";
+          }
+          return (d.error || "refused") + " (HTTP " + r.status + ")";
+        });
+      })
+      .catch(function (e) { return "failed: " + e; })
+      .then(function (text) { delete busy[k]; show(k, text); tick(); });
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest(".mgmt-poe-button") : null;
+    if (b && !b.disabled) { press(b); }
+  });
   setInterval(tick, {{ refresh_seconds }} * 1000);
 })();
 </script>{% endblock %}
@@ -66,7 +124,7 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
   <p class="mgmt-key"># port number; LLDP the neighbour the port sees; In / Out traffic; Err errors in / out.
-  PoE: watts drawn{% for symbol, title in poe_legend %}; {{ symbol }} {{ title }}{% endfor %}.</p>
+  PoE: watts drawn{% for symbol, title in poe_legend %}; {{ symbol }} {{ title }}{% endfor %}; off/on: switches the board's PoE (board ports only).</p>
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
@@ -82,7 +140,7 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
         <th scope="row">{{ p.port }}</th>
         <td>{{ p.label }}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
-        <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}</td>
+        <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}{% if p.can_power %}{% if p.poe_action %} <button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
         <td>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %} port {{ p.lldp_port }}{% endif %}{% endif %}</td>
         <td>{{ p.macs }}</td>
         <td>{{ p.rx }}</td>
