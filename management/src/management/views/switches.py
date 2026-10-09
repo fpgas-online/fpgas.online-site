@@ -5,12 +5,14 @@ the number of viewers does not change the number of reads. This module only lays
 server-side (complete without JavaScript), and the same rows as JSON for the page's auto-refresh. The browser
 never talks to a switch, and no community or credential is in anything built here."""
 
+import functools
 import logging
 import re
 import socket
 from datetime import datetime
 
 from django.core.cache import caches
+from django.core.exceptions import ImproperlyConfigured
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
@@ -148,12 +150,18 @@ DEVICE = "device"
 SHOWN_NAME = re.compile(r"^(pi-sw\d+-p\d+|sw-[\w-]+)$", re.IGNORECASE)
 
 
+@functools.cache
 def _gateway_names():
     """The host names this site's gateway goes by: its fully qualified name and its short name. The site runs on the
-    gateway, so they are its own."""
+    gateway, so they are its own. Read once per process (a resolver call). With none, the page cannot keep the
+    gateway's name off it, so it refuses rather than guess."""
     names = {socket.getfqdn(), socket.gethostname()}
     names |= {n.split(".")[0] for n in names}
-    return {n.lower() for n in names if n and not n.startswith("localhost")}
+    names = frozenset(n.lower() for n in names if n and not n.startswith("localhost"))
+    if not names:
+        raise ImproperlyConfigured("switch dashboard: this host reports no name of its own, so the gateway's name "
+                                   "cannot be kept off the public page")
+    return names
 
 
 def _host(name):
@@ -180,18 +188,54 @@ def label(text):
     if not text:
         return ""
     role, dot, host = text.partition(".")
+    if _host(role) == GATEWAY:  # a host-first label ("<gateway>.eth0")
+        role = GATEWAY
     if not dot:
-        return GATEWAY if _host(text) == GATEWAY else text
+        return role
     shown = _host(host)
     return f"{role}.{shown}" if shown else role
 
 
 def switch_name(name):
-    """A switch's own sysName is shown; the gateway's names never are."""
-    return GATEWAY if name and _host(name) == GATEWAY else (name or "")
+    """A switch's own sysName under the same rule as a neighbour's: shown when it is a switch's name (its domain
+    dropped), "gateway" for the gateway's, else "switch"."""
+    if not name:
+        return ""
+    return _host(name) or "switch"
 
 
-def _row(request, port, hosts):
+INFRASTRUCTURE = "infrastructure"
+
+
+def _inventory():
+    """{switch index: SwitchSpec} from the switches configuration the PoE views use (switches.yml); {} where there is
+    none (the legacy switch) or the installed poe cannot read it."""
+    try:
+        from snmp_switch.switches import configured_specs
+
+        return {spec.index: spec for spec in configured_specs()}
+    except Exception:  # no inventory: every port's label is masked as a board port's
+        logger.exception("switch dashboard: the switches configuration could not be read")
+        return {}
+
+
+def port_role(spec, port):
+    """The inventory's role of a port that is not a board port ("gateway trunk", "switch trunk", "house uplink",
+    "infrastructure"), or None for a board port (1..access_ports) or a switch with no inventory. The coordinator,
+    2026-10-09: an infrastructure port is labelled by its role, whatever the switch's own label says (it can name a
+    private device)."""
+    if spec is None or port <= spec.access_ports:
+        return None
+    if port == spec.gateway_trunk_port:
+        return "gateway trunk"
+    if port in tuple(spec.downstream_trunk_ports or ()):
+        return "switch trunk"
+    if port == spec.house_uplink_port:
+        return "house uplink"
+    return INFRASTRUCTURE
+
+
+def _row(request, port, hosts, spec=None):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
@@ -200,7 +244,7 @@ def _row(request, port, hosts):
     speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
-        "label": label(port.label),
+        "label": port_role(spec, port.port) or label(port.label),
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
         "poe": poe,
@@ -239,6 +283,7 @@ def title(view):
 def _switch_dicts(request):
     views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
+    inventory = _inventory()
     return [{
         "index": v.index,
         "title": title(v),
@@ -247,7 +292,7 @@ def _switch_dicts(request):
         "reachable": bool(v.reachable),
         "status": _status(v),
         "read_at": when(v.read_at),
-        "ports": [_row(request, p, hosts) for p in v.ports],
+        "ports": [_row(request, p, hosts, inventory.get(v.index)) for p in v.ports],
     } for v in views]
 
 

@@ -305,6 +305,32 @@ def test_headers_are_short_so_values_set_the_column_widths(reader):
 def gateway_host(monkeypatch):
     monkeypatch.setattr(page.socket, "gethostname", lambda: "gwhost")
     monkeypatch.setattr(page.socket, "getfqdn", lambda: "gwhost.example.org")
+    page._gateway_names.cache_clear()
+    yield
+    page._gateway_names.cache_clear()
+
+
+def test_a_host_with_no_name_of_its_own_is_refused(monkeypatch):
+    from django.core.exceptions import ImproperlyConfigured
+
+    monkeypatch.setattr(page.socket, "gethostname", lambda: "localhost")
+    monkeypatch.setattr(page.socket, "getfqdn", lambda: "localhost.localdomain")
+    page._gateway_names.cache_clear()
+    try:
+        with pytest.raises(ImproperlyConfigured):
+            page.label("bmc.anything")
+    finally:
+        page._gateway_names.cache_clear()
+
+
+@pytest.mark.parametrize("given, shown", [
+    ("sw-netgear-s3300-1", "sw-netgear-s3300-1"),
+    ("sw-netgear-s3300-1.example.org", "sw-netgear-s3300-1"),
+    ("gwhost", "gateway"),
+    ("core-router", "switch"),
+])
+def test_a_switch_name_follows_the_same_rule(gateway_host, given, shown):
+    assert page.switch_name(given) == shown
 
 
 @pytest.mark.parametrize("given, shown", [
@@ -316,6 +342,8 @@ def gateway_host(monkeypatch):
     ("eth0.pi-sw1-p10", "eth0.pi-sw1-p10"),              # a fleet Pi
     ("eth-uplink.gwhost2", "eth-uplink"),                # a host whose name only starts like the gateway's
     ("gwhost", "gateway"),
+    ("gwhost.eth0", "gateway"),                          # host-first: the host is masked, the rest is a name too
+    ("GWHOST", "gateway"),
     ("", ""),
 ])
 def test_a_label_shows_its_role_and_only_names_that_may_be_shown(gateway_host, given, shown):
@@ -357,6 +385,36 @@ def test_a_fleet_pi_is_still_linked_by_its_lldp_name(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["lldp_name"] == "pi-sw1-p1" and ports[0]["lldp_url"].endswith("/100000002d8aa80c/")
+
+
+def spec(**kw):
+    from types import SimpleNamespace
+
+    base = dict(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,), house_uplink_port=48)
+    return SimpleNamespace(**{**base, **kw})
+
+
+@pytest.mark.parametrize("port, role", [
+    (1, None), (40, None),                    # board ports: their own (masked) label
+    (47, "gateway trunk"), (50, "switch trunk"), (48, "house uplink"),
+    (42, "infrastructure"), (52, "infrastructure"),
+])
+def test_an_infrastructure_port_is_labelled_by_its_inventory_role(port, role):
+    assert page.port_role(spec(), port) == role
+    assert page.port_role(None, port) is None  # no inventory (the legacy switch)
+
+
+@pytest.mark.django_db
+def test_the_page_labels_infrastructure_ports_by_role_whatever_the_switch_says(monkeypatch):
+    views = make_views()
+    views[0].ports[2].port = 48
+    views[0].ports[2].label = "a-private-device"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[2]["label"] == "house uplink" and ports[0]["label"] == "uplink"  # port 1 keeps its own label
+    assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
 @pytest.mark.django_db
