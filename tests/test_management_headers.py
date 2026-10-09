@@ -86,3 +86,17 @@ def test_the_selector_check_sees_what_it_must():
     assert _may_hit_a_header(".mgmt-table th") and _may_hit_a_header(".mgmt-ports thead th:first-child")
     assert not _may_hit_a_header(".mgmt-ports tbody th") and not _may_hit_a_header(".mgmt-table td")
     assert not _may_hit_a_header(".mgmt-table th abbr") and not _may_hit_a_header(".mgmt-path")
+
+
+def test_screen_reader_text_has_one_definition_that_hides_it():
+    """.mgmt-sr serves the summary's symbol headers (#81) and the switch page's PoE cells (#85): one rule, clipped,
+    out of the flow, so it takes no width."""
+    import pathlib
+
+    from django.apps import apps
+
+    css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
+    sr = [body for sels, body in _rules(css) if ".mgmt-sr" in sels]
+    assert len(sr) == 1
+    for decl in ("position: absolute", "width: 1px", "height: 1px", "overflow: hidden", "clip: rect(0 0 0 0)"):
+        assert decl in sr[0]

@@ -21,9 +21,9 @@
 .mgmt-table th abbr { text-decoration: none; cursor: help; }
 /* a one-symbol header over a column of one-digit counts: no wider than the digit */
 .mgmt-table th abbr.mgmt-sym { font-size: 0.8em; }
-/* A symbol header's full name, for a screen reader (which does not always read an abbr's title) and a touch
-   screen (which cannot hover): read, never seen, and taking no width, so the column stays as wide as its
-   values (#81). */
+/* Text for screen readers only, read and never seen, taking no width: a one-symbol header's full name (#81;
+   a screen reader does not always read an abbr's title, and a touch screen cannot hover) and a one-symbol
+   cell's words (the switch page's PoE cells, #85). One definition for both. */
 .mgmt-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
            clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* a table whose columns are short values (counts): as wide as they are, not stretched to the page */
@@ -52,6 +52,4 @@
 .mgmt-poe-button:disabled { cursor: progress; }
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
 .mgmt-poe-msg:empty { display: none; }
-/* text for screen readers only: a one-symbol cell says its words this way */
-.mgmt-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
-  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* (screen-reader text in a one-symbol cell: .mgmt-sr, defined once above) */
