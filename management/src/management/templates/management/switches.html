@@ -31,7 +31,11 @@
     var th = cell("th", p.port); th.scope = "row"; tr.appendChild(th);
     tr.appendChild(cell("td", p.label));
     var link = cell("td", p.link); link.className = p.link_up ? "mgmt-up" : "mgmt-down"; tr.appendChild(link);
-    var poe = cell("td", p.poe); poe.title = p.poe_title; poe.className = "mgmt-poe";
+    var poe = cell("td", ""); poe.title = p.poe_title; poe.className = "mgmt-poe";
+    if (p.poe_symbol) {  /* one symbol: hidden from screen readers, which get the title's words instead */
+      var sym = cell("span", p.poe); sym.setAttribute("aria-hidden", "true"); poe.appendChild(sym);
+      var words = cell("span", p.poe_title); words.className = "mgmt-sr"; poe.appendChild(words);
+    } else { poe.appendChild(document.createTextNode(p.poe)); }
     if (p.can_power) {
       if (p.poe_action) { poe.appendChild(document.createTextNode(" ")); poe.appendChild(powerButton(sw, p)); }
       var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
@@ -140,7 +144,7 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
         <th scope="row">{{ p.port }}</th>
         <td>{{ p.label }}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
-        <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}{% if p.can_power %}{% if p.poe_action %} <button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
+        <td class="mgmt-poe" title="{{ p.poe_title }}">{% if p.poe_symbol %}<span aria-hidden="true">{{ p.poe }}</span><span class="mgmt-sr">{{ p.poe_title }}</span>{% else %}{{ p.poe }}{% endif %}{% if p.can_power %}{% if p.poe_action %} <button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
         <td>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %} port {{ p.lldp_port }}{% endif %}{% endif %}</td>
         <td>{{ p.macs }}</td>
         <td>{{ p.rx }}</td>

@@ -585,3 +585,18 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
     assert "innerHTML" not in script and "insertAdjacentHTML" not in script and "outerHTML" not in script
     assert 'createElement("td")' in script and "confirm(" in script and "Retry-After" in script
     assert "/snmp/power" in script and '"on": ' not in script
+
+
+@pytest.mark.django_db
+def test_a_one_symbol_poe_cell_reaches_screen_readers(reader):
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
+    assert ('<span aria-hidden="true">⋯</span><span class="mgmt-sr">searching: PoE on, nothing drawing power</span>'
+            in row)
+    row1 = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
+    assert "3.5W" in row1 and "aria-hidden" not in row1  # watts are text already
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert 'setAttribute("aria-hidden", "true")' in script and "mgmt-sr" in script
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert [p["poe_symbol"] for p in ports] == [False, False, True]

@@ -287,6 +287,7 @@ def _row(request, port, hosts, spec=None, can_power=False):
         "link_up": bool(port.link_up),
         "poe": poe,
         "poe_title": poe_title,
+        "poe_symbol": len(poe) == 1,  # one symbol: hidden from screen readers, whose text is the title's words
         "can_power": can_power,
         # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
         "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
