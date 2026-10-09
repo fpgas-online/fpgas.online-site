@@ -38,7 +38,7 @@ an empty port. A flat site has no switches file and so no such bound.
 """
 
 from fleet.models import Machine
-from ttsite.boards import reported_port
+from ttsite.boards import reported_port, reported_ports
 from ttsite.middleware import serves_ttsite
 
 from .pis import Pi
@@ -64,3 +64,24 @@ def board_port(request, switch, port):
     if serves_ttsite(request):
         return reported_port(switch, port)
     return registered_on(switch, port)
+
+
+def registered_ports(switch):
+    """The ports of `switch` that registered_on() accepts, from ONE query (registered_on asks one per port)."""
+    prefix = "pi" if switch is None else Pi(port=0, switch=switch).hostname[:-1]
+    ports = set()
+    for hostname in Machine.objects.filter(hostname__startswith=prefix).values_list("hostname", flat=True):
+        pi = Pi.from_hostname(hostname.split(".")[0])
+        if pi is not None and pi.switch == switch:
+            ports.add(pi.port)
+    return ports
+
+
+def board_ports(request, switch, ports):
+    """{port for port in ports if board_port(request, switch, port)}, answered from one pass over the registry
+    instead of one per port: the switch dashboard asks for every port of every switch on each refresh."""
+    if serves_ttsite(request):
+        reported = reported_ports()
+        return {port for port in ports if (switch, port) in reported}
+    registered = registered_ports(switch)
+    return {port for port in ports if port in registered}

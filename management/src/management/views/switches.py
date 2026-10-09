@@ -207,16 +207,32 @@ def switch_name(name):
 INFRASTRUCTURE = "infrastructure"
 
 
+# A switch the inventory should describe but does not (the configuration could not be read, or has no entry for
+# it): its ports are shown with no label and no PoE button, rather than guess which are boards (fail closed).
+NO_INVENTORY = object()
+NO_INVENTORY_NOTE = "the switch inventory could not be read: port labels and PoE buttons are hidden"
+
+
 def _inventory():
-    """{switch index: SwitchSpec} from the switches configuration the PoE views use (switches.yml); {} where there is
-    none (the legacy switch) or the installed poe cannot read it."""
+    """{switch index: SwitchSpec} from the switches configuration the PoE views use (switches.yml): {} where there is
+    none by design (the legacy single switch), None when it is configured but cannot be read."""
     try:
         from snmp_switch.switches import configured_specs
 
         return {spec.index: spec for spec in configured_specs()}
-    except Exception:  # no inventory: every port's label is masked as a board port's
+    except Exception:
         logger.exception("switch dashboard: the switches configuration could not be read")
-        return {}
+        return None
+
+
+def _spec(inventory, index):
+    """The SwitchSpec of switch `index`; None for the legacy switch (no index, no inventory by design); NO_INVENTORY
+    when the inventory should describe the switch and cannot."""
+    if index is None:
+        return None
+    if inventory is None or index not in inventory:
+        return NO_INVENTORY
+    return inventory[index]
 
 
 def port_role(spec, port):
@@ -224,18 +240,40 @@ def port_role(spec, port):
     "infrastructure"), or None for a board port (1..access_ports) or a switch with no inventory. The coordinator,
     2026-10-09: an infrastructure port is labelled by its role, whatever the switch's own label says (it can name a
     private device)."""
-    if spec is None or port <= spec.access_ports:
+    if spec is None or spec is NO_INVENTORY:
         return None
+    # the named ports first: a trunk or uplink can sit inside 1..access_ports, and is never a board port (poe's own
+    # bound, is_access_port, excludes them the same way)
     if port == spec.gateway_trunk_port:
         return "gateway trunk"
     if port in tuple(spec.downstream_trunk_ports or ()):
         return "switch trunk"
     if port == spec.house_uplink_port:
         return "house uplink"
-    return INFRASTRUCTURE
+    return None if port <= spec.access_ports else INFRASTRUCTURE
 
 
-def _row(request, port, hosts, spec=None):
+# The PoE button's action by the port's state: off while it delivers or searches, on while it is disabled. A port in
+# any other state (fault, not known, no PoE) gets no button.
+POWER_ACTION = {"delivering": "off", "searching": "off", "disabled": "on"}
+# Both urlconfs include snmp_switch.urls under snmp/; its paths have no names to reverse, as the board pages' own
+# "/snmp/toggle" has none.
+POWER_URL = "/snmp/power"
+
+
+def _can_power(request, view, spec):
+    """{port numbers of `view` that get a PoE button}: the board ports, as the site's PoE policy (the one /snmp/power
+    enforces, pibfpgas.poe.board_port) says. ONE pass over the registry per switch, not one per port. A port the
+    inventory names as an uplink, trunk or other infrastructure is not asked at all."""
+    from pibfpgas.poe import board_ports
+
+    if spec is NO_INVENTORY:
+        return set()
+    ports = [p.port for p in view.ports if port_role(spec, p.port) is None]
+    return board_ports(request, view.index, ports) if ports else set()
+
+
+def _row(request, port, hosts, spec=None, can_power=False):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
@@ -244,11 +282,14 @@ def _row(request, port, hosts, spec=None):
     speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
-        "label": port_role(spec, port.port) or label(port.label),
+        "label": "" if spec is NO_INVENTORY else (port_role(spec, port.port) or label(port.label)),
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
         "poe": poe,
         "poe_title": poe_title,
+        "can_power": can_power,
+        # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
+        "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
         "lldp_name": neighbour(name),
         "lldp_url": _fleet_url(request, serial) if serial else "",
         "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
@@ -284,15 +325,17 @@ def _switch_dicts(request):
     views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
     inventory = _inventory()
+    specs = {id(v): _spec(inventory, v.index) for v in views}
+    powered = {id(v): _can_power(request, v, specs[id(v)]) for v in views}
     return [{
         "index": v.index,
         "title": title(v),
         "name": switch_name(v.name),
         "model": v.model,
         "reachable": bool(v.reachable),
-        "status": _status(v),
+        "status": _status(v) + (f" ({NO_INVENTORY_NOTE})" if specs[id(v)] is NO_INVENTORY else ""),
         "read_at": when(v.read_at),
-        "ports": [_row(request, p, hosts, inventory.get(v.index)) for p in v.ports],
+        "ports": [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)]) for p in v.ports],
     } for v in views]
 
 
@@ -305,6 +348,7 @@ def switches(request):
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
         "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(), "poe_legend": POE_LEGEND,
+        "power_url": POWER_URL,
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
 

@@ -40,3 +40,8 @@
 .mgmt-up { color: #1b7a1b; }
 .mgmt-poe { text-align: center; }
 .mgmt-down { color: #666; }
+/* The PoE button on a board port (#67): small, beside the PoE symbol; the result of the press follows it. */
+.mgmt-poe-button { font-size: 0.85em; padding: 0 0.45rem; margin-left: 0.2rem; cursor: pointer; }
+.mgmt-poe-button:disabled { cursor: progress; }
+.mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
+.mgmt-poe-msg:empty { display: none; }

@@ -69,6 +69,17 @@ def make_views():
         ])]
 
 
+@pytest.fixture(autouse=True)
+def welland_inventory(monkeypatch):
+    """Switch 1 described as welland's is (40 board ports; gateway trunk 47, house uplink 48, switch trunk 50), so
+    the page knows which ports are boards. A test that needs another inventory sets page._inventory itself."""
+    from types import SimpleNamespace
+
+    switch_1 = SimpleNamespace(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,),
+                               house_uplink_port=48)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: switch_1})
+
+
 @pytest.fixture
 def reader(monkeypatch):
     views = make_views()
@@ -156,7 +167,7 @@ def test_one_query_finds_every_fleet_pi(reader, django_assert_num_queries):
         machine(f"10000000aaaa000{n}", f"pi-sw1-p{n + 1}")
     reader[0].ports[1].lldp_name = "pi-sw1-p2"
     reader[0].ports[2].lldp_name = "pi-sw1-p3"
-    with django_assert_num_queries(1):
+    with django_assert_num_queries(2):  # the fleet hosts, and the PoE policy for the whole switch
         Client(HTTP_HOST=HOSTS[0]).get("/management/switches/")
 
 
@@ -388,6 +399,7 @@ def test_a_fleet_pi_is_still_linked_by_its_lldp_name(monkeypatch):
 
 
 def spec(**kw):
+
     from types import SimpleNamespace
 
     base = dict(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,), house_uplink_port=48)
@@ -417,6 +429,40 @@ def test_the_page_labels_infrastructure_ports_by_role_whatever_the_switch_says(m
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
+@pytest.mark.parametrize("port, role", [(3, "gateway trunk"), (5, "switch trunk"), (7, "house uplink"), (4, None)])
+def test_a_trunk_inside_the_board_range_is_never_a_board_port(port, role):
+    """The review of #84: poe's bound excludes the named ports even inside 1..access_ports, so the page must too."""
+    inner = spec(access_ports=40, gateway_trunk_port=3, downstream_trunk_ports=(5,), house_uplink_port=7)
+    assert page.port_role(inner, port) == role
+
+
+@pytest.mark.django_db
+def test_no_button_on_a_trunk_inside_the_board_range_even_when_registered(monkeypatch):
+    machine("100000002d8aa803", "pi-sw1-p3")  # a forged registration on the gateway trunk
+    views = make_views()
+    views[0].ports[2].port = 3
+    views[0].ports[2].poe_state = "delivering"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec(gateway_trunk_port=3)})
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert (ports[2]["label"], ports[2]["can_power"]) == ("gateway trunk", False)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("inventory", [None, {}])  # unreadable; or read, with no entry for this switch
+def test_a_switch_the_inventory_cannot_describe_fails_closed(monkeypatch, inventory):
+    machine("100000002d8aa801", "pi-sw1-p1")
+    views = make_views()
+    views[0].ports[0].label = "a-private-device"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: inventory)
+    c = Client(HTTP_HOST=HOSTS[0])
+    sw = json.loads(c.get("/management/switches.json").content)["switches"][0]
+    assert all(p["label"] == "" and not p["can_power"] for p in sw["ports"])
+    assert page.NO_INVENTORY_NOTE in sw["status"]
+    assert "a-private-device" not in c.get("/management/switches/").content.decode()
+
+
 @pytest.mark.django_db
 def test_get_only(reader):
     assert Client(HTTP_HOST=HOSTS[0]).post("/management/switches/").status_code == 405
@@ -430,3 +476,112 @@ def test_a_community_never_reaches_the_page_or_the_json(reader, monkeypatch):
     c = Client(HTTP_HOST=HOSTS[0])
     for url in ("/management/switches/", "/management/switches.json"):
         assert COMMUNITY not in c.get(url).content.decode()
+
+
+# --- the PoE button (#67, toggle part) ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("host, switch, hostnames", [
+    (HOSTS[0], 1, ["pi-sw1-p1", "pi-sw1-p10.welland.example", "pi-sw2-p3", "pi4", "not-a-pi", "pi-sw1-p100x"]),
+    (HOSTS[0], None, ["pi4", "pi40.welland.example", "pi-sw1-p2", "not-a-pi"]),
+])
+def test_board_ports_agrees_with_board_port_and_asks_the_registry_once(host, switch, hostnames,
+                                                                       django_assert_num_queries):
+    from django.test import RequestFactory
+    from pibfpgas.poe import board_port, board_ports
+
+    for n, name in enumerate(hostnames):
+        machine(f"2000000000000{n:03d}", name)
+    request = RequestFactory().get("/", HTTP_HOST=host)
+    ports = range(0, 60)
+    with django_assert_num_queries(1):
+        batch = board_ports(request, switch, ports)
+    assert batch == {p for p in ports if board_port(request, switch, p)} and batch
+
+
+def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch):
+
+    from django.test import RequestFactory
+    from pibfpgas.pis import Pi
+    from pibfpgas.poe import board_port, board_ports
+
+    from ttsite import boards
+
+    named = [(None, Pi(port=p, switch=s), None, None) for s, p in ((1, 3), (2, 7), (1, 9))]
+    monkeypatch.setattr(boards, "_named", lambda: iter(named))
+    request = RequestFactory().get("/", HTTP_HOST=TT)
+    batch = board_ports(request, 1, range(0, 20))
+    assert batch == {3, 9} == {p for p in range(0, 20) if board_port(request, 1, p)}
+
+
+def row_of(html, port):
+    return html.split(f'<th scope="row">{port}</th>')[1].split("</tr>")[0]
+
+
+@pytest.mark.django_db
+def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
+    machine("3000000000000001", "pi-sw1-p1")  # port 1 is registered; port 2 and 3 are not
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert [p["can_power"] for p in ports] == [True, False, False]
+    assert [p["poe_action"] for p in ports] == ["off", "", ""]
+    html = c.get("/management/switches/").content.decode()
+    assert html.split("</script>")[1].count("<button") == 1  # the one button (the script only builds them)
+    assert 'class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">off</button>' \
+        in row_of(html, 1)
+    for port in (2, 3):  # a non-board port: the cell is as it was, no button and no hint of one
+        assert "button" not in row_of(html, port) and "mgmt-poe-msg" not in row_of(html, port)
+
+
+@pytest.mark.django_db
+def test_an_infrastructure_port_never_gets_a_button_even_if_a_machine_claims_it(monkeypatch):
+    views = make_views()
+    views[0].ports[2].port = 48
+    machine("3000000000000002", "pi-sw1-p48")  # a forged registration on the house uplink
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[2]["port"] == 48 and ports[2]["can_power"] is False
+    assert "button" not in row_of(c.get("/management/switches/").content.decode(), 48)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state, action", [("delivering", "off"), ("searching", "off"), ("disabled", "on"),
+                                           ("fault", ""), ("other", ""), (None, "")])
+def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
+    views = make_views()
+    views[0].ports[0].poe_state = state
+    machine("3000000000000001", "pi-sw1-p1")
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    c = Client(HTTP_HOST=HOSTS[0])
+    port = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"][0]
+    assert port["can_power"] is True and port["poe_action"] == action
+    assert (f">{action}</button>" in row_of(c.get("/management/switches/").content.decode(), 1)) == bool(action)
+
+
+@pytest.mark.django_db
+def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypatch):
+    calls = []
+    import pibfpgas.poe as poe
+
+    monkeypatch.setattr(poe, "board_ports", lambda request, switch, ports: calls.append((switch, list(ports))) or set())
+    Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json")
+    assert calls == [(1, [1, 2, 3])]
+
+
+@pytest.mark.django_db
+def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert 'var powerUrl = "/snmp/power";' in html
+    assert "off/on: switches the board&#x27;s PoE (board ports only)" in html or \
+        "off/on: switches the board's PoE (board ports only)" in html
+
+
+@pytest.mark.django_db
+def test_the_script_builds_the_button_without_innerhtml(reader):
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert "innerHTML" not in script and "insertAdjacentHTML" not in script and "outerHTML" not in script
+    assert 'createElement("td")' in script and "confirm(" in script and "Retry-After" in script
+    assert "/snmp/power" in script and '"on": ' not in script
