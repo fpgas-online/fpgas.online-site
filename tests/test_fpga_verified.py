@@ -160,7 +160,7 @@ def test_a_flat_site_hostname_names_its_port(c):
 @pytest.mark.django_db
 def test_a_machine_with_no_port_hostname_is_not_offered(c):
     verified(machine("old-agent"), "pass")  # registered no hostname: on no port
-    verified(machine("other", "tweed"), "pass")  # not a Pi's name
+    verified(machine("other", "gateway"), "pass")  # not a Pi's name
     assert "Use this FPGA" not in c.get("/fpgas/").content.decode()  # no board card
 
 
