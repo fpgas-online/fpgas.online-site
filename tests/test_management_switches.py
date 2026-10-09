@@ -34,6 +34,9 @@ except ImportError:  # poe without the dashboard module: stand-ins with the same
         tx_bps: float | None = None
         rx_errors: int | None = None
         tx_errors: int | None = None
+        pvid: int | None = None
+        untagged_vlans: list = field(default_factory=list)
+        tagged_vlans: list = field(default_factory=list)
 
     @dataclass
     class SwitchView:
@@ -45,6 +48,7 @@ except ImportError:  # poe without the dashboard module: stand-ins with the same
         read_at: str
         ports: list = field(default_factory=list)
         good_at: str | None = None
+        vlans: list = field(default_factory=list)
 
 from fleet.models import Machine
 from management.views import switches as page
@@ -124,10 +128,10 @@ def test_the_names_reverse_on_both_urlconfs():
 
 
 @pytest.mark.django_db
-def test_a_port_with_nothing_connected_reads_down_searching_and_empty(reader):
+def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and "searching" in row and row.count("<td></td>") >= 2
+    assert ">down<" in row and "⋯" in row and row.count("<td></td>") >= 2
 
 
 @pytest.mark.django_db
@@ -308,8 +312,10 @@ def test_headers_are_short_so_values_set_the_column_widths(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     thead = html[html.index("<thead>"):html.index("</thead>")]
     headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', thead)]
-    assert headers == ["#", "Label", "Link", "PoE", "LLDP", "MACs", "In", "Out", "Err"]
+    assert headers == ["#", "Label", "Link", "VLAN", "GW", "PoE", "LLDP", "MACs", "In", "Out", "Err"]
     assert 'title="Errors in / out"' in thead and 'title="Port"' in thead
+    assert 'title="the gateway\'s interface for the port\'s VLAN"' in thead
+    assert "nowrap" not in thead
 
 
 @pytest.fixture
@@ -585,3 +591,168 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
     assert "innerHTML" not in script and "insertAdjacentHTML" not in script and "outerHTML" not in script
     assert 'createElement("td")' in script and "confirm(" in script and "Retry-After" in script
     assert "/snmp/power" in script and '"on": ' not in script
+
+
+@pytest.mark.django_db
+def test_a_one_symbol_poe_cell_reaches_screen_readers(reader):
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
+    assert ('<span aria-hidden="true">⋯</span><span class="mgmt-sr">searching: PoE on, nothing drawing power</span>'
+            in row)
+    row1 = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
+    assert "3.5W" in row1 and "aria-hidden" not in row1  # watts are text already
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert 'setAttribute("aria-hidden", "true")' in script and "mgmt-sr" in script
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert [p["poe_symbol"] for p in ports] == [False, False, True]
+
+
+# --- VLAN and GW columns ---
+
+
+def vlan_port(port=10, pvid=2110, untagged=(2110,), tagged=()):
+    p = PortView(port=port, link_up=True, speed_mbps=1000)
+    p.pvid, p.untagged_vlans, p.tagged_vlans = pvid, list(untagged), list(tagged)
+    return p
+
+
+def make_netdevs(root, devices):
+    """A fake /sys/class/net: {name: (operstate, uevent text)}."""
+    root.mkdir()
+    for name, (state, uevent) in devices.items():
+        (root / name).mkdir()
+        (root / name / "operstate").write_text(state + "\n")
+        (root / name / "uevent").write_text(uevent)
+    return root
+
+
+VLAN_UEVENT = "DEVTYPE=vlan\nINTERFACE=x\n"
+
+
+@pytest.fixture
+def netdevs(tmp_path, monkeypatch):
+    root = make_netdevs(tmp_path / "net", {
+        "v2110": ("up", VLAN_UEVENT), "v2111": ("down", VLAN_UEVENT), "lo": ("unknown", "INTERFACE=lo\n"),
+        "v9999": ("up", "INTERFACE=v9999\n"),  # named like a VLAN interface but not one
+        "vethabc": ("up", "DEVTYPE=veth\n"),
+    })
+    monkeypatch.setattr(page, "SYS_CLASS_NET", root)
+    return root
+
+
+def vlan_json(monkeypatch, ports, vlans=None, name="sw-test-1"):
+    view = SwitchView(index=1, name=name, model="X", reachable=True, error="", read_at=READ_AT, good_at=READ_AT,
+                      ports=ports)
+    view.vlans = vlans or []
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: [view])
+    j = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)
+    return j["switches"][0]["ports"]
+
+
+def test_a_vlan_netdev_is_named_v_id_and_says_devtype_vlan(netdevs):
+    assert page.gateway_vlan_netdevs() == {2110: "up", 2111: "down"}
+
+
+def test_vlan_cell_of_a_board_port():
+    assert page.vlan_cell(vlan_port()) == ("2110", "PVID 2110; untagged 2110; tagged none")
+
+
+def test_vlan_cell_shows_an_extra_untagged_vlan():
+    text, title = page.vlan_cell(vlan_port(untagged=(21, 2110)))
+    assert text == "2110 +21" and title == "PVID 2110; untagged 21, 2110; tagged none"
+
+
+def test_vlan_cell_of_a_trunk_counts_the_tagged_vlans_and_cuts_the_title():
+    tagged = list(range(2101, 2141)) + list(range(2201, 2249))
+    text, title = page.vlan_cell(vlan_port(port=47, pvid=21, untagged=(21,), tagged=tagged))
+    assert text == "21 +88t"
+    assert title.startswith("PVID 21; untagged 21; tagged 2101, 2102, ")
+    assert title.endswith("2112, … (+76)") and "2201" not in title
+    assert page.vlan_cell(vlan_port(pvid=None, untagged=(), tagged=tagged))[0] == "+88t"
+
+
+def test_vlan_cell_names_only_names_the_page_may_show():
+    names = page._vlan_names([SwitchView(index=1, name="s", model="m", reachable=True, error="", read_at="",
+                                         vlans=[{"vlan_id": 2110, "name": "pi-sw1-p10"},
+                                                {"vlan_id": 21, "name": "secrethost.example.org"}])])
+    assert names == {2110: "pi-sw1-p10"}
+    assert page.vlan_cell(vlan_port(untagged=(21, 2110)), names)[1] == \
+        "PVID 2110 (pi-sw1-p10); untagged 21, 2110 (pi-sw1-p10); tagged none"
+
+
+def test_vlan_cell_without_data_and_with_an_older_poe():
+    assert page.vlan_cell(vlan_port(pvid=None, untagged=())) [0] == "–"
+    assert page.vlan_cell(PortView.__new__(PortView))[0] == "–"  # no pvid attribute at all
+    assert page.vlan_cell(object())[0] == "–"
+
+
+def test_gw_cell_states():
+    devs = {2110: "up", 2111: "down"}
+    assert page.gw_cell(2110, devs) == ("v2110 ↑", "gateway interface v2110, up")
+    assert page.gw_cell(2111, devs) == ("v2111 ↓", "gateway interface v2111, down")
+    assert page.gw_cell(2112, devs)[0] == "none"
+    assert page.gw_cell(None, devs)[0] == "–" and page.gw_cell(2110, None)[0] == "–"
+
+
+@pytest.mark.django_db
+def test_columns_in_the_json(monkeypatch, netdevs):
+    ports = vlan_json(monkeypatch, [vlan_port(10), vlan_port(11, 2111, (2111,)), vlan_port(12, 2112, (2112,)),
+                                    vlan_port(13, None, ()), vlan_port(47, 21, (21,), [2110, 2111])])
+    got = [(p["vlan"], p["gw"]) for p in ports]
+    assert got == [("2110", "v2110 ↑"), ("2111", "v2111 ↓"), ("2112", "none"), ("–", "–"), ("21 +2t", "–")]
+    assert ports[0]["vlan_title"] and ports[0]["gw_title"] == "gateway interface v2110, up"
+    assert ports[4]["vlan_title"].endswith("tagged 2110, 2111")
+
+
+@pytest.mark.django_db
+def test_gw_is_a_dash_when_the_devices_cannot_be_read(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(page, "SYS_CLASS_NET", tmp_path / "missing")
+    monkeypatch.setattr(page, "_netdev_failed", False)
+    for _ in range(2):
+        ports = vlan_json(monkeypatch, [vlan_port()])
+        assert (ports[0]["vlan"], ports[0]["gw"]) == ("2110", "–")
+    assert len([r for r in caplog.records if "network devices" in r.getMessage()]) == 1
+
+
+@pytest.mark.django_db
+def test_the_devices_are_read_once_per_request(monkeypatch, netdevs):
+    calls = []
+    real = page.gateway_vlan_netdevs
+    monkeypatch.setattr(page, "gateway_vlan_netdevs", lambda: calls.append(1) or real())
+    vlan_json(monkeypatch, [vlan_port(n) for n in range(1, 6)])
+    assert calls == [1]
+
+
+@pytest.mark.django_db
+def test_an_older_poe_without_vlan_fields_shows_dashes(monkeypatch, netdevs):
+    class Old:  # a PortView from a poe before the VLAN fields
+        port, label, link_up, speed_mbps, poe_state, poe_watts = 1, None, False, None, None, None
+        lldp_name = lldp_port = rx_bps = tx_bps = rx_errors = tx_errors = None
+        macs = []
+    ports = vlan_json(monkeypatch, [Old()])
+    assert (ports[0]["vlan"], ports[0]["gw"]) == ("–", "–")
+
+
+@pytest.mark.django_db
+def test_no_inventory_means_no_gw(monkeypatch, netdevs):
+    monkeypatch.setattr(page, "_inventory", lambda: None)
+    assert vlan_json(monkeypatch, [vlan_port()])[0]["gw"] == "–"
+
+
+@pytest.mark.django_db
+def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, netdevs):
+    view = SwitchView(index=1, name="gwhost.example.org", model="X", reachable=True, error="", read_at=READ_AT,
+                      ports=[vlan_port()])
+    view.vlans = [{"vlan_id": 2110, "name": "gwhost"}]
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: [view])
+    c = Client(HTTP_HOST=HOSTS[0])
+    html = c.get("/management/switches/").content.decode()
+    assert '<td title="PVID 2110; untagged 2110; tagged none">2110</td>' in html
+    assert '<td title="gateway interface v2110, up">v2110 ↑</td>' in html
+    assert "VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down)" \
+        in html
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert "p.vlan_title" in script and "p.gw_title" in script and "innerHTML" not in script
+    for body in (html, c.get("/management/switches.json").content.decode()):
+        assert "gwhost" not in body.lower() and "example.org" not in body
