@@ -311,9 +311,13 @@ def test_headers_are_short_so_values_set_the_column_widths(reader):
 
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     thead = html[html.index("<thead>"):html.index("</thead>")]
-    headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', thead)]
+    # what a viewer sees: the visually hidden screen-reader text (.mgmt-sr) takes no width
+    seen = re.sub(r'<span class="mgmt-sr">[^<]*</span>', "", thead)
+    headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', seen)]
     assert headers == ["#", "Label", "Link", "VLAN", "GW", "PoE", "LLDP", "MACs", "In", "Out", "Err"]
     assert 'title="Errors in / out"' in thead and 'title="Port"' in thead
+    # the one-symbol header is read as a word: the symbol hidden from screen readers, the word given to them
+    assert '<abbr title="Port" aria-hidden="true">#</abbr><span class="mgmt-sr">Port</span>' in thead
     assert 'title="the gateway\'s interface for the port\'s VLAN"' in thead
     assert "nowrap" not in thead
 
