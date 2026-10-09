@@ -271,7 +271,16 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     views[0].ports[2].poe_watts = 0.0  # port 3, searching
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[0]["poe"] == "delivering 3.5 W" and ports[2]["poe"] == "searching"
+    assert (ports[0]["poe"], ports[0]["poe_title"]) == ("3.5W", "delivering power")
+    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("⋯", "searching: PoE on, nothing drawing power")
+
+
+def test_poe_cells_are_watts_or_one_symbol():
+    assert page.poe_cell("delivering", 8.6) == ("8.6W", "delivering power")
+    for state in ("delivering", "searching", "disabled", "fault", "other", "something new"):
+        text, title = page.poe_cell(state, None)
+        assert len(text) == 1 and title and state not in text
+    assert page.poe_cell(None, None) == ("", "no PoE on this port")
 
 
 def test_link_speeds_are_short():

@@ -29,4 +29,5 @@
 .mgmt-ports tbody th { background: #fff; font-weight: normal; }
 .mgmt-ports tbody th, .mgmt-ports thead th:first-child { position: sticky; left: 0; z-index: 1; }
 .mgmt-up { color: #1b7a1b; }
+.mgmt-poe { text-align: center; }
 .mgmt-down { color: #666; }
