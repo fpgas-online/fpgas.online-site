@@ -37,7 +37,7 @@ def _page(request):
              and (not want_type or r.board_type == want_type)]
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
-        "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
+        "conditions": [(c, fpga.CONDITION_TITLES[c], fpga.CONDITION_SYMBOLS[c]) for c in CONDITIONS],
         "want_condition": want_condition, "want_type": want_type,
         "filtered": bool(want_condition or want_type),
         # the fleet pages, where this host has them (tinytapeout.fpgas.online's urlconf does not)

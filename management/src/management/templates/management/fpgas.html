@@ -12,23 +12,24 @@ stopped checking in in the last 6 hours; it is <strong>missing</strong> when it 
 {% if reload %}This page reloads every minute (<a href="?reload=off">stop reloading</a>).{% else %}This page does not reload (<a href="?">reload every minute</a>).{% endif %}</p>
 
 <h2>Summary by board type</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-summary">
-  <thead><tr><th scope="col">Board type</th>{% for c, title in conditions %}<th scope="col">{{ title }}</th>{% endfor %}<th scope="col">total</th></tr></thead>
+<p class="mgmt-key">{% for c, title, symbol in conditions %}{{ symbol }} {{ title }} &middot; {% endfor %}&Sigma; total</p>
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-summary mgmt-fit">
+  <thead><tr><th scope="col">Type</th>{% for c, title, symbol in conditions %}<th scope="col"><abbr class="mgmt-sym" title="{{ title }}">{{ symbol }}</abbr></th>{% endfor %}<th scope="col"><abbr class="mgmt-sym" title="total">&Sigma;</abbr></th></tr></thead>
   <tbody>
   {% for type, counts, n in summary %}
     <tr><td>{{ type }}</td>
-      {% for c, title in conditions %}<td class="mgmt-n mgmt-{{ c }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      {% for c, title, symbol in conditions %}<td class="mgmt-n mgmt-{{ c }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
       <td class="mgmt-n"><a href="?type={{ type|urlencode }}">{{ n }}</a></td></tr>
   {% endfor %}
     <tr class="mgmt-total"><td>all</td>
-      {% for c, title in conditions %}<td class="mgmt-n">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      {% for c, title, symbol in conditions %}<td class="mgmt-n">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
       <td class="mgmt-n"><a href="?">{{ everything }}</a></td></tr>
   </tbody>
 </table></div>
 
-<h2>Raspberry Pis{% if filtered %} <span class="mgmt-soon">({% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %}; <a href="?">show all</a>)</span>{% endif %}</h2>
+<h2>Raspberry Pis{% if filtered %} <span class="mgmt-soon">({% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title, symbol in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %}; <a href="?">show all</a>)</span>{% endif %}</h2>
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-hosts">
-  <thead><tr><th scope="col">Pi</th><th scope="col">Switch port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Last check-in</th><th scope="col">Offered</th></tr></thead>
+  <thead><tr><th scope="col">Pi</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Check</th><th scope="col"><abbr title="last check-in">Seen</abbr></th><th scope="col">Offered</th></tr></thead>
   <tbody>
   {% for h in rows %}
     <tr class="mgmt-{{ h.condition }}">
