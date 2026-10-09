@@ -235,7 +235,25 @@ def port_role(spec, port):
     return INFRASTRUCTURE
 
 
-def _row(request, port, hosts, spec=None):
+# The PoE button's action by the port's state: off while it delivers or searches, on while it is disabled. A port in
+# any other state (fault, not known, no PoE) gets no button.
+POWER_ACTION = {"delivering": "off", "searching": "off", "disabled": "on"}
+# Both urlconfs include snmp_switch.urls under snmp/; its paths have no names to reverse, as the board pages' own
+# "/snmp/toggle" has none.
+POWER_URL = "/snmp/power"
+
+
+def _can_power(request, view, spec):
+    """{port numbers of `view` that get a PoE button}: the board ports, as the site's PoE policy (the one /snmp/power
+    enforces, pibfpgas.poe.board_port) says. ONE pass over the registry per switch, not one per port. A port the
+    inventory names as an uplink, trunk or other infrastructure is not asked at all."""
+    from pibfpgas.poe import board_ports
+
+    ports = [p.port for p in view.ports if port_role(spec, p.port) is None]
+    return board_ports(request, view.index, ports) if ports else set()
+
+
+def _row(request, port, hosts, spec=None, can_power=False):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
@@ -249,6 +267,9 @@ def _row(request, port, hosts, spec=None):
         "link_up": bool(port.link_up),
         "poe": poe,
         "poe_title": poe_title,
+        "can_power": can_power,
+        # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
+        "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
         "lldp_name": neighbour(name),
         "lldp_url": _fleet_url(request, serial) if serial else "",
         "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
@@ -284,6 +305,7 @@ def _switch_dicts(request):
     views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
     inventory = _inventory()
+    powered = {id(v): _can_power(request, v, inventory.get(v.index)) for v in views}
     return [{
         "index": v.index,
         "title": title(v),
@@ -292,7 +314,7 @@ def _switch_dicts(request):
         "reachable": bool(v.reachable),
         "status": _status(v),
         "read_at": when(v.read_at),
-        "ports": [_row(request, p, hosts, inventory.get(v.index)) for p in v.ports],
+        "ports": [_row(request, p, hosts, inventory.get(v.index), p.port in powered[id(v)]) for p in v.ports],
     } for v in views]
 
 
@@ -305,6 +327,7 @@ def switches(request):
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
         "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(), "poe_legend": POE_LEGEND,
+        "power_url": POWER_URL,
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
 
