@@ -15,6 +15,15 @@
 .badge.mgmt-unknown { background: #f7ecc9; }
 .mgmt-reason { color: #933; font-size: 0.9em; }
 .mgmt-public { color: #666; font-size: 0.85em; margin-top: 1.2rem; }
+/* Tim, 9 Oct 2026: a column is as wide as its values, never its header: headers are short and may wrap; a column
+   of one or two characters gets a one-symbol header in <abbr title>, explained in a .mgmt-key line. */
+.mgmt-table th { white-space: normal; font-size: 0.85em; vertical-align: bottom; }
+.mgmt-table th abbr { text-decoration: none; cursor: help; }
+/* a one-symbol header over a column of one-digit counts: no wider than the digit */
+.mgmt-table th abbr.mgmt-sym { font-size: 0.8em; }
+/* a table whose columns are short values (counts): as wide as they are, not stretched to the page */
+.mgmt-table.mgmt-fit { width: auto; }
+.mgmt-key { font-size: 0.85em; color: #666; margin: 0.2rem 0 0.6rem; }
 /* The tables scroll sideways on a phone instead of widening the page. */
 .mgmt-scroll { overflow-x: auto; max-width: 100%; }
 

@@ -20,6 +20,9 @@ SNAPSHOT_KINDS = {"tt-demo-board": SNAPSHOT_TT, "arty-a7": "Arty A7", "xilinx-pc
 NO_BOARD = "no board"
 CONDITION_TITLES = {"operational": "operational", "attention": "needs attention", "missing": "missing",
                     "unknown": "unknown"}
+# The summary's count columns hold one or two digits: their headers are one symbol each (its title the full name,
+# and a key beside the table), so a column is as wide as its counts, not its header (Tim, 9 Oct 2026).
+CONDITION_SYMBOLS = {"operational": "\u2713", "attention": "!", "missing": "\u2717", "unknown": "?"}
 MAX_TEXT = 300
 
 
