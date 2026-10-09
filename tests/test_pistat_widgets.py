@@ -59,7 +59,7 @@ def test_ping_a_flat_site_pi_uses_the_legacy_address(ping_argv):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("name", ["pi-sw3-p34", "pi-sw2-p99", "pi34", "pi-sw2-p034", "tweed"])
+@pytest.mark.parametrize("name", ["pi-sw3-p34", "pi-sw2-p99", "pi34", "pi-sw2-p034", "gateway"])
 def test_ping_only_reaches_a_pi_the_pages_offer(ping_argv, name):
     verified_pi("pi-sw2-p34")
     assert ping(name).status_code == 404

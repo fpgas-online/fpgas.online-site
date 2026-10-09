@@ -98,7 +98,7 @@ This package is deployed by the [fpgas.online-infra](https://github.com/fpgas-on
 3. Configures nginx, gunicorn, daphne, and uvicorn systemd services
 4. Sets up SSL via Let's Encrypt
 
-The app runs at `/srv/www/pib/` on the server (tweed).
+The app runs at `/srv/www/pib/` on the site's gateway.
 
 The wheel ships the `pib` project package (`settings.py`, `urls.py`, `asgi.py`, `asgi.base.py`) alongside the five Django apps; infra copies `settings.py`/`urls.py`/`asgi.py` into `/srv/www/pib/pib/` next to the Ansible-written `local_settings.py`. `pib/local_settings.py` is gitignored and is never packaged -- it only ever exists on the deploy host. `tests/` is excluded from the wheel.
 

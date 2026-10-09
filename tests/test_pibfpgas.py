@@ -54,7 +54,7 @@ def test_vlan_per_port_single_digit_port_pads_ssh_port():
 
 
 @pytest.mark.parametrize("hostname", [
-    "", "tweed", "pi", "pi-sw2", "pi-sw2-p", "opi21", "pi9x",
+    "", "gateway", "pi", "pi-sw2", "pi-sw2-p", "opi21", "pi9x",
     # only the one spelling of each port: no alias for another Pi's page
     "pi-sw2-p046", "pi-sw02-p46", "pi09", "pi-sw2-p46\n", "pi9\n", "PI9", "pi-sw2-p０",
 ])

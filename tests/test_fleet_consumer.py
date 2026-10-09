@@ -25,7 +25,7 @@ def test_dispatch_routes_registration_status_event():
 
 @pytest.mark.django_db
 def test_dispatch_ignores_foreign_topics_and_garbage():
-    assert consumer.dispatch("sensors/tweed/cpu_temp", b"41.2") == "ignored"
+    assert consumer.dispatch("sensors/gateway/cpu_temp", b"41.2") == "ignored"
     assert consumer.dispatch("fpgas/welland/pi/abc/registration", b"{nope") \
         == "ignored"
 
@@ -65,7 +65,7 @@ def test_events_bridge_into_the_board_page_channel_group():
     ("pi-sw2-p9.welland.fpgas.online", "pistat_pi-sw2-p9"),
     ("pi9", "pistat_pi9"),
     ("pi-sw2-p09", None),  # not the one spelling of that port
-    ("tweed", None),
+    ("gateway", None),
     ("", None),
     (None, None),
 ])
