@@ -311,11 +311,11 @@ def test_the_ssh_connection_is_closed_even_when_the_transfer_fails(c, board, fak
 # (what ?pino= used to carry), another machine, an address, one port spelled
 # a second way.
 NOT_OFFERED = ["pi-sw2-p99", "pi42", "pi9999999999999999999999",
-               "42", "tweed", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
+               "42", "gateway", "10.21.2.42", "pi-sw2-p42;rm", "pi-1", "pi-sw2-p042"]
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("host", ["pi-sw2-p99", "pi42", "tweed", "10.21.2.42"])
+@pytest.mark.parametrize("host", ["pi-sw2-p99", "pi42", "gateway", "10.21.2.42"])
 def test_upload_to_a_pi_that_is_not_offered_is_404(c, fake_ssh, host):
     # only to a Pi that registered with that name, checked in and passed this boot
     verified_pi("pi-sw2-p42")

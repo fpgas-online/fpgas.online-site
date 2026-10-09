@@ -27,7 +27,7 @@ def test_ttsite_installed_and_defaults():
 #
 # Regression cover for a real production failure: with DEBUG False and no
 # ADMINS, Django's stock config routes django.request errors to mail_admins
-# alone, so 298 HTTP 500s on tweed left no traceback anywhere in the journal.
+# alone, so 298 HTTP 500s on welland's gateway left no traceback anywhere in the journal.
 # These tests assert on the handlers settings.LOGGING actually installs, not
 # on the shape of the dict -- a dict-shape assertion would have passed against
 # the broken configuration too.
@@ -158,7 +158,7 @@ import django
 django.setup()
 from django.conf import settings
 # Production runs DEBUG False (local_settings.py sets it). RequireDebugTrue
-# reads settings.DEBUG per record, so flipping it here reproduces tweed.
+# reads settings.DEBUG per record, so flipping it here reproduces welland's gateway.
 settings.DEBUG = False
 try:
     raise RuntimeError("kaboom-subprocess")
@@ -254,7 +254,7 @@ def test_existing_server_loggers_are_not_disabled():
 # default socket_timeout from None to 5 s. RedisChannelLayer.receive() blocks
 # in BZPOPMIN for brpop_timeout (also 5 s), so every idle websocket consumer
 # died with "redis.exceptions.TimeoutError: Timeout reading from
-# 127.0.0.1:6379" about 5 s after connecting (tweed and ps1, 2026-09). Built
+# 127.0.0.1:6379" about 5 s after connecting (welland's and ps1's gateways, 2026-09). Built
 # from the real layer class so the check sees the kwargs redis-py will
 # actually get, not the shape of the settings dict.
 # ---------------------------------------------------------------------------

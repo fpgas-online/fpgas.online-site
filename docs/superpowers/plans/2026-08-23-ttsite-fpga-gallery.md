@@ -4,7 +4,7 @@
 
 **Goal:** FPGA emulation board pages get the demo gallery (cards from the daemon's `/designs` with "Run" buttons), an "Upload your own bitstream" form, and the thin Django proxies to the Pi daemon the embedded Commander and the page use: `/api/board/<slug>/designs`, `…/designs/<name>/enable`, `…/bitstream`.
 
-**Architecture:** `ttsite/daemon.py` grows three helpers (`designs`, `enable`, `upload`) next to `health`, all `requests`-based with a 30 s timeout, never raising into views; `ttsite/views.py` adds `api_designs`, `api_enable`, `api_bitstream` (JSON pass-through of the daemon's status + body, CSRF-protected POSTs via the normal Django middleware, multipart forwarded as a stream); `board.html` + `board.js` render the gallery/upload for `board.kind == "fpga"` and call `window.ttCommander.refreshDesigns()` (the embed 0.2.0 handle) after a successful upload or Run. Everything proxies at the Django layer — nothing but the web UI runs on tweed.
+**Architecture:** `ttsite/daemon.py` grows three helpers (`designs`, `enable`, `upload`) next to `health`, all `requests`-based with a 30 s timeout, never raising into views; `ttsite/views.py` adds `api_designs`, `api_enable`, `api_bitstream` (JSON pass-through of the daemon's status + body, CSRF-protected POSTs via the normal Django middleware, multipart forwarded as a stream); `board.html` + `board.js` render the gallery/upload for `board.kind == "fpga"` and call `window.ttCommander.refreshDesigns()` (the embed 0.2.0 handle) after a successful upload or Run. Everything proxies at the Django layer — nothing but the web UI runs on the gateway.
 
 **Tech Stack:** Django 5 (pytest-django), `requests`, vanilla JS module (`board.js`), existing TT theme CSS.
 

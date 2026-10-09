@@ -32,7 +32,7 @@ Each Django app uses a `src/` layout: e.g., `pibfpgas/src/pibfpgas/`. The top-le
 
 ### Deployment
 
-Deployed at `/srv/www/pib/` on tweed by the infra repo's `site` ansible role.
+Deployed at `/srv/www/pib/` on the site's gateway by the infra repo's `site` ansible role.
 Runs behind nginx with gunicorn (WSGI), daphne (ASGI/WebSocket), and uvicorn workers.
 Redis provides the Django Channels layer backend.
 

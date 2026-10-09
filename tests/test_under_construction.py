@@ -1,6 +1,6 @@
 """The under-construction banner injected by UnderConstructionMiddleware.
 
-Welland (tweed) is the in-development site; PS1 is the stable public one, so
+Welland is the in-development site; PS1 is the stable public one, so
 the banner is gated on a per-deployment setting rather than on a hostname --
 both welland.fpgas.online and tinytapeout.fpgas.online are served by the same
 Django process, and ps1.fpgas.online is served by the same *code*.
