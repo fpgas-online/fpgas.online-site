@@ -92,6 +92,35 @@ def when(iso):
     return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S")
 
 
+# Tim, 2026-10-09: the PoE column is "8.6W" where power flows, else one character; the word is in the cell's
+# title, and the legend (POE_LEGEND) is once under each table.
+POE_SYMBOLS = {
+    "delivering": ("●", "delivering power"),  # only when the switch gives no watts
+    "searching": ("⋯", "searching: PoE on, nothing drawing power"),
+    "disabled": ("○", "PoE off"),
+    "fault": ("⚠", "PoE fault"),
+    "other": ("?", "PoE state not known"),
+}
+NO_POE = ("", "no PoE on this port")
+POE_LEGEND = [(symbol, title) for symbol, title in POE_SYMBOLS.values()]
+
+
+def poe_cell(state, watts):
+    """(text, title) of a port's PoE cell: "8.6W" on a delivering port, else one symbol from POE_SYMBOLS."""
+    if state == "delivering" and watts is not None:
+        return f"{watts:.1f}W", "delivering power"
+    if not state:
+        return NO_POE
+    return POE_SYMBOLS.get(state, POE_SYMBOLS["other"])
+
+
+def link_speed(mbps):
+    """A link speed as Tim asked (2026-10-09): "10M", "100M", "1G", "10G"; "2.5G" for a speed between."""
+    if mbps >= 1000:
+        return f"{mbps / 1000:g}G"
+    return f"{mbps}M"
+
+
 def _count(n):
     return NONE if n is None else str(n)
 
@@ -115,15 +144,15 @@ def _row(request, port, hosts):
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
     shown = ", ".join(macs[:MACS_SHOWN]) + (f" +{len(macs) - MACS_SHOWN}" if len(macs) > MACS_SHOWN else "")
-    # watts only where power flows: "searching 0.0 W" on every empty port says nothing
-    watts = f" {port.poe_watts:.1f} W" if port.poe_state == "delivering" and port.poe_watts is not None else ""
-    speed = f" {port.speed_mbps} Mbit/s" if port.link_up and port.speed_mbps else ""
+    poe, poe_title = poe_cell(port.poe_state, port.poe_watts)
+    speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
         "label": port.label or "",
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
-        "poe": (port.poe_state + watts) if port.poe_state else NONE,
+        "poe": poe,
+        "poe_title": poe_title,
         "lldp_name": name,
         "lldp_url": _fleet_url(request, serial) if serial else "",
         "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
@@ -178,7 +207,7 @@ def switches(request):
     except _Unavailable as exc:
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
-        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(),
+        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(), "poe_legend": POE_LEGEND,
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
 
