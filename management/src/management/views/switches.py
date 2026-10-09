@@ -7,6 +7,7 @@ never talks to a switch, and no community or credential is in anything built her
 
 import logging
 import re
+import socket
 from datetime import datetime
 
 from django.core.cache import caches
@@ -139,6 +140,57 @@ def _fleet_hosts():
     return machine_hosts()
 
 
+GATEWAY = "gateway"
+DEVICE = "device"
+# Names the public page may show (the coordinator, 2026-10-09): a fleet Pi's hostname, and a switch's own sysName
+# (welland's switches are sw-<make>-<model>-<n>). Every other host name is masked by its role word: the page never
+# names the gateway, the upstream host or any other machine.
+SHOWN_NAME = re.compile(r"^(pi-sw\d+-p\d+|sw-[\w-]+)$", re.IGNORECASE)
+
+
+def _gateway_names():
+    """The host names this site's gateway goes by: its fully qualified name and its short name. The site runs on the
+    gateway, so they are its own."""
+    names = {socket.getfqdn(), socket.gethostname()}
+    names |= {n.split(".")[0] for n in names}
+    return {n.lower() for n in names if n and not n.startswith("localhost")}
+
+
+def _host(name):
+    """A host name as the page may show it: kept when SHOWN_NAME allows it (its domain dropped), "gateway" for the
+    gateway's own names, else None."""
+    short = name.split(".")[0]
+    if name.lower() in _gateway_names() or short.lower() in _gateway_names():
+        return GATEWAY
+    return short if SHOWN_NAME.match(short) else None
+
+
+def neighbour(name):
+    """An LLDP neighbour's system name for the public page: a fleet Pi or a switch by name, the gateway as "gateway",
+    any other machine as "device"."""
+    if not name:
+        return ""
+    return _host(name) or DEVICE
+
+
+def label(text):
+    """A port label (ifAlias, "<role>.<host>") for the public page: the role, and the host only when it may be shown
+    ("eth-uplink.gateway", "1/0/50.sw-netgear-gsm7252ps-s1"); otherwise the role alone ("eth-uplink"). A label with no
+    host part is shown unless it is one of the gateway's names."""
+    if not text:
+        return ""
+    role, dot, host = text.partition(".")
+    if not dot:
+        return GATEWAY if _host(text) == GATEWAY else text
+    shown = _host(host)
+    return f"{role}.{shown}" if shown else role
+
+
+def switch_name(name):
+    """A switch's own sysName is shown; the gateway's names never are."""
+    return GATEWAY if name and _host(name) == GATEWAY else (name or "")
+
+
 def _row(request, port, hosts):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
@@ -148,12 +200,12 @@ def _row(request, port, hosts):
     speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     return {
         "port": port.port,
-        "label": port.label or "",
+        "label": label(port.label),
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
         "poe": poe,
         "poe_title": poe_title,
-        "lldp_name": name,
+        "lldp_name": neighbour(name),
         "lldp_url": _fleet_url(request, serial) if serial else "",
         "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
         "macs": shown,
@@ -181,7 +233,7 @@ def title(view):
     switches configuration the PoE views use: the number in every Pi's name (pi-sw1-p10) and port. The sysName alone
     can mislead (welland's switch 1 calls itself "...-s2")."""
     number = f"Switch {view.index}" if view.index is not None else "Switch"
-    return f"{number}: {view.name} ({(view.model or '').upper()})"
+    return f"{number}: {switch_name(view.name)} ({(view.model or '').upper()})"
 
 
 def _switch_dicts(request):
@@ -190,7 +242,7 @@ def _switch_dicts(request):
     return [{
         "index": v.index,
         "title": title(v),
-        "name": v.name,
+        "name": switch_name(v.name),
         "model": v.model,
         "reachable": bool(v.reachable),
         "status": _status(v),
