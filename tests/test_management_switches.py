@@ -388,6 +388,7 @@ def test_a_fleet_pi_is_still_linked_by_its_lldp_name(monkeypatch):
 
 
 def spec(**kw):
+
     from types import SimpleNamespace
 
     base = dict(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,), house_uplink_port=48)
@@ -430,3 +431,39 @@ def test_a_community_never_reaches_the_page_or_the_json(reader, monkeypatch):
     c = Client(HTTP_HOST=HOSTS[0])
     for url in ("/management/switches/", "/management/switches.json"):
         assert COMMUNITY not in c.get(url).content.decode()
+
+
+# --- the PoE button (#67, toggle part) ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("host, switch, hostnames", [
+    (HOSTS[0], 1, ["pi-sw1-p1", "pi-sw1-p10.welland.example", "pi-sw2-p3", "pi4", "not-a-pi", "pi-sw1-p100x"]),
+    (HOSTS[0], None, ["pi4", "pi40.welland.example", "pi-sw1-p2", "not-a-pi"]),
+])
+def test_board_ports_agrees_with_board_port_and_asks_the_registry_once(host, switch, hostnames,
+                                                                       django_assert_num_queries):
+    from django.test import RequestFactory
+    from pibfpgas.poe import board_port, board_ports
+
+    for n, name in enumerate(hostnames):
+        machine(f"2000000000000{n:03d}", name)
+    request = RequestFactory().get("/", HTTP_HOST=host)
+    ports = range(0, 60)
+    with django_assert_num_queries(1):
+        batch = board_ports(request, switch, ports)
+    assert batch == {p for p in ports if board_port(request, switch, p)} and batch
+
+
+def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch):
+
+    from django.test import RequestFactory
+    from pibfpgas.pis import Pi
+    from pibfpgas.poe import board_port, board_ports
+
+    from ttsite import boards
+
+    named = [(None, Pi(port=p, switch=s), None, None) for s, p in ((1, 3), (2, 7), (1, 9))]
+    monkeypatch.setattr(boards, "_named", lambda: iter(named))
+    request = RequestFactory().get("/", HTTP_HOST=TT)
+    batch = board_ports(request, 1, range(0, 20))
+    assert batch == {3, 9} == {p for p in range(0, 20) if board_port(request, 1, p)}

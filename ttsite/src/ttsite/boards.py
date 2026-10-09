@@ -333,4 +333,9 @@ def reported_port(switch, port):
     """Whether the Pi registered on this switch and port is one whose boot check named a Tiny Tapeout board
     (in its last report that named any board, whatever the Pi is doing now). Every such Pi counts, also one
     whose board another Pi has named since: until its own check says otherwise the board may still be there."""
-    return any((pi.switch, pi.port) == (switch, port) for _, pi, _, _ in _named())
+    return (switch, port) in reported_ports()
+
+
+def reported_ports():
+    """{(switch, port)} of every Pi that reported_port() would accept: the same rule for all ports in one pass."""
+    return {(pi.switch, pi.port) for _, pi, _, _ in _named()}
