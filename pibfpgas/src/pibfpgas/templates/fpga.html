@@ -93,6 +93,7 @@
 	 </tr>
 	</table>
 
+{% if pi.has_demos %}
   <table class="buttons">
 	 <tr>
 	  <td><h2>Demos:</h2></td>
@@ -104,6 +105,7 @@
      </td>
 	 </tr>
 	</table>
+{% endif %}
     </td>
   </tr><tr height="80%">
     <td>
@@ -170,28 +172,24 @@
 
 <script src="https://f4pga-examples.readthedocs.io/en/latest/_static/javascripts/f4pga.js"></script>
 <script>PiStatus("{{pi.port}}", {{ pi.switch|default_if_none:"null" }}, "{{pi.hostname}}")</script>
-<script src="/demos.js"></script>
+{% if pi.has_demos %}<script src="/demos.js"></script>{% endif %}
 
 
+{% if pi.link_sections %}
 <h1>Useful links</h1>
 <ul>
+{% for heading, links in pi.link_sections %}
   <li>
-    <h2>Toolchains</h2>
-    <p>The Arty A7 development boards have an AMD/Xilinx Artix 7 FPGA which is supported by multiple different toolchains.</p>
+    <h2>{{ heading }}</h2>
     <ul>
-      <li><a href="https://f4pga.org">F4PGA open source toolchain for Xilinx 7 series (found on Arty A7 FPGAs)</a></li>
-      <li><a href="">OpenXC7 open source toolchain for Xilinx 7 series (found on Arty A7 FPGAs)</a></li>
-      <li><a href="">AMD / Xilinx official Vitis / Vivado toolchain for Xilinx 7 series.</a></li>
-    </ul>
-   </li>
-  <li>
-    <h2>Arty Development Board</h2>
-    <ul>
-      <li><a href="https://f4pga.org">Demos for Arty A7 FPGA board using the F4PGA open source toolchain</a></li>
-      <li><a href="https://digilent.com/reference/programmable-logic/arty-a7/start">Digilent Reference for Arty A7 FPGA board</a></li>
+{% for text, url in links %}
+      <li><a href="{{ url }}">{{ text }}</a></li>
+{% endfor %}
     </ul>
   </li>
+{% endfor %}
 </ul>
+{% endif %}
 
 </body>
 </html>
