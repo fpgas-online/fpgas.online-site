@@ -16,7 +16,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
-from management.views.fpgas import pis
+from management.views.fpgas import pis, registry_json
 from management.views.machine import machine
 
 urlpatterns = [
@@ -28,6 +28,8 @@ urlpatterns = [
     path('pibup/', include('pibup.urls')),
     # the Raspberry Pi dashboard is the fleet's front page (#94)
     path('fleet/', pis, name='fleet-list'),
+    # the same hosts for programs; the page above may change its layout, this is the contract
+    path('fleet/registry.json', registry_json, name='fleet-registry-json'),
     # each host's own page (#93), management's as the dashboard is; the fleet app keeps the label input download
     path('fleet/<str:serial>/', machine, name='fleet-detail'),
     path('fleet/', include('fleet.urls')),

@@ -8,7 +8,7 @@ the fleet pages (tinytapeout.fpgas.online's urlconf) /management/fpgas/ is the p
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.urls import Resolver404, resolve
 from django.utils import timezone
@@ -17,7 +17,7 @@ from fleet.timeago import ago_time
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import fpga, localtime
+from .. import e2e, fpga, localtime
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -147,3 +147,48 @@ def _page(request):
         "zone": localtime.zone_name(),
         "reload": request.GET.get("reload", "") != "off",
     })
+
+
+def _cameras(machine):
+    """The cameras the host's newest registration lists (peripherals.cameras), or None when it lists none at all:
+    None is "not said", never "no camera"."""
+    doc = machine.latest_snapshot.document if machine.latest_snapshot else None
+    peripherals = doc.get("peripherals") if isinstance(doc, dict) else None
+    cameras = peripherals.get("cameras") if isinstance(peripherals, dict) else None
+    return cameras if isinstance(cameras, list) else None
+
+
+# The condition as a key for programs (the review of #107): stable words, not the page's titles; "checking" for the
+# condition fleet.services calls "unknown" (a check that has not finished this boot), as the page says.
+CONDITION_KEYS = {OPERATIONAL: "operational", ATTENTION: "attention", MISSING: "missing", UNKNOWN: "checking"}
+
+
+def registry_json(request):
+    """/fleet/registry.json: every registered host, for programs (the e2e suite's protection check and camera step,
+    the coordinator's probe). The page /fleet/ is for people and may change its layout; this is the contract.
+    Times are ISO 8601 with their offset (UTC). A field the site does not know is null, never guessed.
+
+    {"site", "generated_at", "machines": [{"serial", "hostname", "label", "port" | null,
+      "condition": "operational" | "attention" | "missing" | "checking", "offered",
+      "boards": [{"label", "type", "id" | null, "result", "tests": {name: result}}],
+      "check": {"result": "pass" | "fail" | "error" | "missing" | "verifying" | "unknown" (unreadable) | ... | null,
+                "at" | null},
+      "last_seen" | null, "cameras": [as the registration lists them] | null}]}"""
+    now = timezone.now()
+    machines = []
+    for host in fpga.hosts(now):
+        m = host.machine
+        machines.append({
+            "serial": m.serial,
+            "hostname": m.hostname,
+            "label": fpga.pi_label(m),
+            "port": fpga.port_text(m) if host.pi else None,
+            "condition": CONDITION_KEYS[host.condition],
+            "offered": host.condition == OPERATIONAL,
+            "boards": [{"label": b["label"], "type": b["title"], "id": b["id"] or None, "result": b["result"],
+                        "tests": dict(b["tests"])} for b in host.boards],
+            "check": {"result": host.state or None, "at": host.checked.isoformat() if host.checked else None},
+            "last_seen": m.last_seen.isoformat() if m.last_seen else None,
+            "cameras": _cameras(m),
+        })
+    return JsonResponse({"site": e2e.site_name(), "generated_at": now.isoformat(), "machines": machines})
