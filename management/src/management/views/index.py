@@ -208,14 +208,13 @@ def _boot_checks(request, now):
     results = [(machine, event, _result(event)) for machine, event in checks]
     machine, event, result = results[-1]  # the newest by arrival
     name = machine.hostname.split(".")[0] or machine.serial
-    failed = [m for m, _, r in results if r != "pass"]
+    failed = sorted(m.hostname.split(".")[0] or m.serial for m, _, r in results if r != "pass")
     when = event.ts
     return [
         _row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
              "newest check", f"{name}: {result}", _url(request, "fleet-detail", machine.serial), "", when),
         _row(CHECK_FAILED if failed else FINE, FAILING if failed else OK, "Boot checks", "Pis whose newest check failed",
-             str(len(failed)), _url(request, "management-fpgas"),
-             ", ".join(sorted(m.hostname.split(".")[0] or m.serial for m in failed))),
+             f"{len(failed)}: {', '.join(failed)}" if failed else "0", _url(request, "management-fpgas")),
     ]
 
 

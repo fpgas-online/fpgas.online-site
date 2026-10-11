@@ -249,8 +249,8 @@ def test_the_newest_boot_check_and_the_count_of_pis_whose_newest_check_failed(fl
     newest = find(rows, area="Boot checks", item="newest check")
     assert newest["value"].startswith("pi-sw2-p10: pass") and newest["state"] == "ok"
     count = find(rows, area="Boot checks", item="Pis whose newest check failed")
-    assert (count["state"], count["value"], count["href"]) == ("failing", "1", "/management/fpgas/")
-    assert count["title"] == "pi-sw2-p33"
+    # the cell names the Pis, not only a count (a long list is cut to MAX_VALUE, the whole of it in the title)
+    assert (count["state"], count["value"], count["href"]) == ("failing", "1: pi-sw2-p33", "/management/fpgas/")
 
 
 @pytest.mark.django_db
