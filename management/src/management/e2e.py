@@ -102,8 +102,11 @@ def latest(site):
 
 
 def _read(cache, key, site):
-    """Read the API as the lock's holder; store the answer (and, for a run, the last answer) for the others."""
+    """Read the API as the lock's holder; store the answer (and, for a run, the last answer) for the others. A
+    request that stored its answer between this one's look and its lock has read already: that answer stands."""
     try:
+        if (hit := cache.get(key)) is not None:
+            return hit
         try:
             hit, seconds = {"run": _fetch(site)}, CACHE_SECONDS
             cache.set(f"{key}-last", hit, LAST_SECONDS)
