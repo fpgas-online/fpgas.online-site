@@ -6,16 +6,18 @@ of the two, and a scheduled run that was not due has no matrix jobs at all, only
 completed run for this site is the newest run that has a completed "shared (<site>)" job with a result of success or
 failure; its job is what the row reports and links to.
 
-Read server-side from the public GitHub API with no token (the repository is public), cached in the default cache, with
-a short timeout. Unauthenticated reads are limited per address, which is why the answer is cached for CACHE_SECONDS and
-a failure for FAILURE_SECONDS, so that a down API is asked about once a minute, not once a page view."""
+Read server-side from the public GitHub API with no token (the repository is public), with a short timeout.
+Unauthenticated reads are limited to 60 an hour per address, so the answer goes in the SHARED cache (the redis
+"poe" cache every worker reads; the default cache is per process, so each worker would ask on its own): an answer
+for CACHE_SECONDS, a failure for FAILURE_SECONDS, and an add-lock so that one worker reads while the others wait for
+its answer instead of asking too."""
 
 import re
 from datetime import datetime
 
 import requests
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.exceptions import ImproperlyConfigured
 
 API = "https://api.github.com"
@@ -28,6 +30,7 @@ RUNS_LOOKED_AT = 10
 TIMEOUT = 5  # seconds, per request
 CACHE_SECONDS = 600
 FAILURE_SECONDS = 60
+LOCK_SECONDS = 30  # longer than the reads can take: 1 + RUNS_LOOKED_AT requests of TIMEOUT each at worst
 SITE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -76,14 +79,19 @@ def _fetch(site):
 def latest(site):
     """{"result": "passed" | "failed", "completed_at": datetime, "url"} of the newest completed run for `site`.
     Raises E2EError (the reason) when it cannot be told; the answer, or the reason, is cached."""
-    key = f"management-e2e-{site}"
+    cache, key = caches["poe"], f"management-e2e-{site}"
     hit = cache.get(key)
     if hit is None:
+        if not cache.add(f"{key}-lock", 1, LOCK_SECONDS):
+            raise E2EError("another request is reading the GitHub API just now")
         try:
-            hit, seconds = {"run": _fetch(site)}, CACHE_SECONDS
-        except E2EError as exc:
-            hit, seconds = {"error": str(exc)}, FAILURE_SECONDS
-        cache.set(key, hit, seconds)
+            try:
+                hit, seconds = {"run": _fetch(site)}, CACHE_SECONDS
+            except E2EError as exc:
+                hit, seconds = {"error": str(exc)}, FAILURE_SECONDS
+            cache.set(key, hit, seconds)
+        finally:
+            cache.delete(f"{key}-lock")
     if "error" in hit:
         raise E2EError(hit["error"])
     return {**hit["run"], "completed_at": datetime.fromisoformat(hit["run"]["completed_at"])}

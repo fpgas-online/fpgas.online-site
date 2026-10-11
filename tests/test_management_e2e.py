@@ -87,9 +87,9 @@ def test_an_unreachable_api_and_an_unexpected_answer_are_errors(monkeypatch):
         e2e.latest("welland")
     monkeypatch.setattr("management.e2e.requests.get", lambda *a, **k: SimpleNamespace(
         status_code=200, json=lambda: {"unexpected": 1}))
-    from django.core.cache import cache
+    from django.core.cache import caches
 
-    cache.clear()
+    caches["poe"].clear()  # the shared cache holds the failure above
     with pytest.raises(e2e.E2EError, match="shape this page does not know"):
         e2e.latest("welland")
 
@@ -97,17 +97,21 @@ def test_an_unreachable_api_and_an_unexpected_answer_are_errors(monkeypatch):
 def test_an_answer_is_cached_ten_minutes_and_a_failure_one(github, monkeypatch):
     fake = github({1: [job("shared (welland)", "success")]})
     stored = {}
-    from django.core.cache import cache as real
+    from django.core.cache import caches
+
+    real = caches["poe"]  # the SHARED cache (redis in production): every worker reads the one answer
 
     class Recording:
         get = staticmethod(real.get)
+        add = staticmethod(real.add)
+        delete = staticmethod(real.delete)
 
-
+        @staticmethod
         def set(key, value, timeout=None):
             stored[key] = timeout
             real.set(key, value, timeout)
 
-    monkeypatch.setattr(e2e, "cache", Recording)
+    monkeypatch.setattr(e2e, "caches", {"poe": Recording})
     e2e.latest("welland")
     asked = len(fake.calls)
     e2e.latest("welland")
@@ -117,6 +121,17 @@ def test_an_answer_is_cached_ten_minutes_and_a_failure_one(github, monkeypatch):
     with pytest.raises(e2e.E2EError):
         e2e.latest("ps1")
     assert stored["management-e2e-ps1"] == 60
+    assert real.get("management-e2e-welland-lock") is None  # the lock is released after a read
+
+
+def test_while_another_request_reads_the_api_this_one_does_not_ask_too(github):
+    from django.core.cache import caches
+
+    fake = github({1: [job("shared (welland)", "success")]})
+    caches["poe"].add("management-e2e-welland-lock", 1, 30)
+    with pytest.raises(e2e.E2EError, match="another request is reading"):
+        e2e.latest("welland")
+    assert fake.calls == []
 
 
 def test_the_site_name_is_a_setting_else_the_first_label_of_the_domain(settings):
