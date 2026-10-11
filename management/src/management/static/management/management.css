@@ -146,3 +146,8 @@
   .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
+/* #91: every test of a Pi's check, after the check's word: the name, then a mark that is coloured and said */
+.mgmt-tests { display: block; font-size: 0.85em; }
+.mgmt-tests .mgmt-test { white-space: nowrap; }
+.mgmt-test-pass { color: #1b7a1b; }
+.mgmt-test-fail { color: #b00020; }

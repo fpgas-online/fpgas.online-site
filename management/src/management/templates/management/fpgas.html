@@ -31,21 +31,20 @@
       <td title="{% if line.model %}model {{ line.model }}; {% endif %}host name {{ h.machine.hostname|default:'none' }}{% if h.uptime %}; up {{ h.uptime }}{% endif %}">{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
       <td title="{% if h.pi %}the port its host name says it booted on{% if h.registered %}, as it registered {{ h.registered|date:'j M H:i' }}{% endif %}{% else %}its host name names no port{% endif %}">{{ line.port }}</td>
       <td>{{ h.board_text }}</td>
-      <td{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
+      <td{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}{% if line.tests %}<span class="mgmt-tests">{% for name, result, passed in line.tests %} <span class="mgmt-test mgmt-test-{% if passed %}pass{% else %}fail{% endif %}" title="{{ name }}: {{ result }}">{{ name }}<span aria-hidden="true"> {% if passed %}✓{% else %}✗{% endif %}</span><span class="mgmt-sr"> {{ result }}</span></span>{% endfor %}</span>{% endif %}</td>
       <td data-sort="{{ line.sort_seen }}">{% if line.seen_error %}<span class="mgmt-reason">{{ line.seen_error }}</span>{% else %}{{ line.seen }}{% endif %}</td>
       <td>{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
     </tr>
-  {% endwith %}{% empty %}
-    <tr><td colspan="7">No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</td></tr>
-  {% endfor %}
+  {% endwith %}{% endfor %}
   </tbody>
 </table></div>
+{% if not rows %}<p>No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</p>{% endif %}
 
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
   <li>Pi: its label (model, memory, serial). Port: the port its host name says it booted on. Board: each board's label where its check read one.</li>
-  <li>Boot check: the check of the boot it is running, and the tests that did not pass; every test's result is in the cell's title.</li>
+  <li>Boot check: the check of the boot it is running as a word, then every test of it: ✓ passed, ✗ did not (the result in the test's title); the check's reasons are in the cell's title.</li>
   <li>Seen: its last status beat. Times are {{ zone }}.</li>
   <li>Offered: "yes" links its visitor page; "no" says why not.</li>
   <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>
