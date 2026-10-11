@@ -916,7 +916,8 @@ def test_the_house_device_is_masked_on_every_switch(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader):
+def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader, settings):
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"  # the installation's zone, whatever the test host's is
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     # READ_AT is 10:00 at +09:30 on 9 Oct: 11:00 in Adelaide (+10:30), days ago now
     assert re.search(r'Read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span>\.', html)
