@@ -4,7 +4,7 @@
 /* Refresh the tables in place every {{ refresh_seconds }} s. The page is complete without this. */
 (function () {
   var url = "{{ json_url }}";
-  var cols = ["port", "label", "link", "vlan", "gw", "poe", "lldp", "macs", "rx", "tx", "errors"];
+  var cols = ["port", "label", "link", "vlan", "gw", "poe", "power", "lldp", "macs", "rx", "tx", "errors"];
   function cell(tag, text) { var c = document.createElement(tag); c.textContent = text; return c; }
   /* The PoE button (#67). There is no login (#66): the guard is the server, which answers /snmp/power only for a board
      port (403 for any other) and at most once per interval per port. The confirm() below is a courtesy so that nobody
@@ -29,29 +29,39 @@
   }
   function fill(tr, p, sw) {
     var th = cell("th", p.port); th.scope = "row"; tr.appendChild(th);
-    tr.appendChild(cell("td", p.label));
+    /* the label, breakable after each dot only (as the served table) */
+    var lab = document.createElement("td"); lab.className = "mgmt-label";
+    if (p.label_title) { lab.title = p.label_title; }
+    p.label_parts.forEach(function (part, i) {
+      if (i) { lab.appendChild(document.createElement("wbr")); }
+      lab.appendChild(cell("span", part));
+    });
+    tr.appendChild(lab);
     var link = cell("td", p.link); link.className = p.link_up ? "mgmt-up" : "mgmt-down"; tr.appendChild(link);
     var vlan = cell("td", p.vlan); vlan.title = p.vlan_title; tr.appendChild(vlan);
     var gw = cell("td", p.gw); gw.title = p.gw_title; tr.appendChild(gw);
-    var poe = cell("td", ""); poe.title = p.poe_title; poe.className = "mgmt-poe";
-    if (p.poe_symbol) {  /* one symbol: hidden from screen readers, which get the title's words instead */
-      var sym = cell("span", p.poe); sym.setAttribute("aria-hidden", "true"); poe.appendChild(sym);
-      var words = cell("span", p.poe_title); words.className = "mgmt-sr"; poe.appendChild(words);
-    } else { poe.appendChild(document.createTextNode(p.poe)); }
-    if (p.can_power) {
-      if (p.poe_action) { poe.appendChild(document.createTextNode(" ")); poe.appendChild(powerButton(sw, p)); }
-      var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
-      poe.appendChild(msg);
-    }
+    var poe = cell("td", p.poe); poe.title = p.poe_title; poe.className = "mgmt-poe";
     tr.appendChild(poe);
+    /* the PoE button in a column of its own (#89), with what the last press said */
+    var power = document.createElement("td"); power.className = "mgmt-power";
+    if (p.can_power) {
+      if (p.poe_action) { power.appendChild(powerButton(sw, p)); }
+      var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
+      power.appendChild(msg);
+    }
+    tr.appendChild(power);
     var l = document.createElement("td");
+    if (p.lldp_title) { l.title = p.lldp_title; }
     if (p.lldp_name) {
       if (p.lldp_url) { var a = cell("a", p.lldp_name); a.href = p.lldp_url; l.appendChild(a); }
       else { l.appendChild(document.createTextNode(p.lldp_name)); }
-      if (p.lldp_port) { l.appendChild(document.createTextNode(" port " + p.lldp_port)); }
+      if (p.lldp_port) {
+        l.appendChild(document.createElement("br"));
+        var lp = cell("span", p.lldp_port); lp.className = "mgmt-soon"; l.appendChild(lp);
+      }
     }
     tr.appendChild(l);
-    tr.appendChild(cell("td", p.macs));
+    var macs = cell("td", p.macs); if (p.macs_title) { macs.title = p.macs_title; } tr.appendChild(macs);
     tr.appendChild(cell("td", p.rx)); tr.appendChild(cell("td", p.tx)); tr.appendChild(cell("td", p.errors));
   }
   function say(text) {
@@ -68,7 +78,7 @@
       var box = document.getElementById("switch-" + (s.index !== null ? s.index : n));
       if (!box) { return; }
       box.querySelector(".mgmt-status").textContent = s.status;
-      box.querySelector(".mgmt-readat").textContent = s.read_at;
+      var readat = box.querySelector(".mgmt-readat"); readat.textContent = s.read_ago; readat.title = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
       var body = box.querySelector("tbody"), fresh = document.createElement("tbody");
       s.ports.forEach(function (p) { var tr = document.createElement("tr"); fill(tr, p, s.index); fresh.appendChild(tr); });
@@ -121,24 +131,20 @@
 {% block crumb %} &rsaquo; Switch ports{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
-<p>Every switch and every port, read from the switches by the gateway at most every {{ refresh_seconds }} seconds.
-This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.</p>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.counter0 }}{% endif %}">
   <h2>{{ s.title }}</h2>
-  <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
-  <p class="mgmt-key"># port number; LLDP the neighbour the port sees; In / Out traffic; Err errors in / out.
-  VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down).
-  PoE: watts drawn{% for symbol, title in poe_legend %}; {{ symbol }} {{ title }}{% endfor %}; off/on: switches the board's PoE (board ports only).</p>
+  <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span>.</p>
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
       <th scope="col"><abbr title="Port" aria-hidden="true">#</abbr><span class="mgmt-sr">Port</span></th><th scope="col">Label</th><th scope="col">Link</th>
       <th scope="col"><abbr title="the port's VLAN (PVID); + other untagged VLANs; +Nt tagged VLANs">VLAN</abbr></th>
       <th scope="col"><abbr title="the gateway's interface for the port's VLAN">GW</abbr></th>
-      <th scope="col">PoE</th><th scope="col"><abbr title="LLDP neighbour">LLDP</abbr></th>
+      <th scope="col">PoE</th><th scope="col"><abbr title="Power: switch the board's PoE off or on" aria-hidden="true">⏻</abbr><span class="mgmt-sr">Power</span></th>
+      <th scope="col"><abbr title="LLDP neighbour, and the port it reports">LLDP</abbr></th>
       <th scope="col"><abbr title="MAC addresses seen on the port">MACs</abbr></th>
       <th scope="col"><abbr title="Traffic in">In</abbr></th><th scope="col"><abbr title="Traffic out">Out</abbr></th>
       <th scope="col"><abbr title="Errors in / out">Err</abbr></th>
@@ -147,23 +153,33 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
     {% for p in s.ports %}
       <tr>
         <th scope="row">{{ p.port }}</th>
-        <td>{{ p.label }}</td>
+        <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}<span>{{ part }}</span>{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
         <td title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td title="{{ p.gw_title }}">{{ p.gw }}</td>
-        <td class="mgmt-poe" title="{{ p.poe_title }}">{% if p.poe_symbol %}<span aria-hidden="true">{{ p.poe }}</span><span class="mgmt-sr">{{ p.poe_title }}</span>{% else %}{{ p.poe }}{% endif %}{% if p.can_power %}{% if p.poe_action %} <button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
-        <td>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %} port {{ p.lldp_port }}{% endif %}{% endif %}</td>
-        <td>{{ p.macs }}</td>
+        <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}</td>
+        <td class="mgmt-power">{% if p.can_power %}{% if p.poe_action %}<button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
+        <td{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %}<br><span class="mgmt-soon">{{ p.lldp_port }}</span>{% endif %}{% endif %}</td>
+        <td{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
         <td>{{ p.rx }}</td>
         <td>{{ p.tx }}</td>
         <td>{{ p.errors }}</td>
       </tr>
     {% empty %}
-      <tr><td colspan="11">No ports were read from this switch.</td></tr>
+      <tr><td colspan="12">No ports were read from this switch.</td></tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
 </section>
 {% endfor %}
+<details class="mgmt-key-box"><summary>Key</summary>
+<ul>
+  <li># port number; Label the switch's own label for the port (its role in the title); LLDP the neighbour the port sees and the port it reports; MACs one address and how many more (all in the title); In / Out traffic; Err errors in / out.</li>
+  <li>VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down).</li>
+  <li>PoE: the watts drawn, else the state: on (power, no watts given), searching (PoE on, nothing drawing), off, fault, not known; no PoE on a port without it. ⏻ Power: off/on switches the board's PoE (board ports only).</li>
+  <li>On a phone the MACs, In, Out and Err columns are left out; a wider screen shows them.</li>
+  <li>Read from the switches by the gateway at most every {{ refresh_seconds }} seconds; the page refreshes itself (without JavaScript, reload it). Times are {{ zone }}.</li>
+</ul>
+</details>
 {% endblock %}
