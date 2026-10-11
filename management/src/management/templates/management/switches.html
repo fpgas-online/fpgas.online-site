@@ -34,7 +34,7 @@
     if (p.label_title) { lab.title = p.label_title; }
     p.label_parts.forEach(function (part, i) {
       if (i) { lab.appendChild(document.createElement("wbr")); }
-      lab.appendChild(document.createTextNode(part));
+      lab.appendChild(cell("span", part));
     });
     tr.appendChild(lab);
     var link = cell("td", p.link); link.className = p.link_up ? "mgmt-up" : "mgmt-down"; tr.appendChild(link);
@@ -153,7 +153,7 @@
     {% for p in s.ports %}
       <tr>
         <th scope="row">{{ p.port }}</th>
-        <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}{{ part }}{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
+        <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}<span>{{ part }}</span>{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
         <td title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td title="{{ p.gw_title }}">{{ p.gw }}</td>
