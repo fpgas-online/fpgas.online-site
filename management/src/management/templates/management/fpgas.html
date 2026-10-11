@@ -44,7 +44,7 @@
 <ul>
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
   <li>Pi: its label (model, memory, serial). Port: the port its host name says it booted on. Board: each board's label where its check read one.</li>
-  <li>Boot check: the check of the boot it is running, and the tests that did not pass; every test's result is in the cell's title.</li>
+  <li>Boot check: the check of the boot it is running as a word, then every test of it: ✓ passed, ✗ did not (the result in the test's title); the check's reasons are in the cell's title.</li>
   <li>Seen: its last status beat. Times are {{ zone }}.</li>
   <li>Offered: "yes" links its visitor page; "no" says why not.</li>
   <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>

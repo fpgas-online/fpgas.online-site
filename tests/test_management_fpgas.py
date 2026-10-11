@@ -502,3 +502,18 @@ def test_a_host_whose_name_names_no_port_has_a_null_port(settings):
 def test_the_registry_json_answers_without_a_login_and_is_not_on_tinytapeout():
     assert Client(HTTP_HOST="welland.fpgas.online").get("/fleet/registry.json").status_code == 200
     assert Client(HTTP_HOST="tinytapeout.fpgas.online").get("/fleet/registry.json").status_code == 404
+
+
+
+@pytest.mark.django_db
+def test_a_filter_that_matches_nothing_says_so_under_the_table(fleet):
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/?type=Arty+A7").content.decode()
+    assert "<p>No Raspberry Pi matches.</p>" in html and "colspan" not in html
+
+
+@pytest.mark.django_db
+def test_with_two_boards_each_test_names_its_board(fleet):
+    pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "pin-id=pass",
+                      "board1": "tt tt-fpga pass", "board1_identity_chip": "fpga", "board1_tests": "pin-id=pass"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert 'title="Acorn pin-id: pass">Acorn pin-id' in html and 'title="TT FPGA pin-id: pass">TT FPGA pin-id' in html

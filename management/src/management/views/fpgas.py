@@ -87,7 +87,10 @@ def _check(host):
 def _tests(host):
     """[(name, result, passed)] of every test of the check of this boot, board by board (#91 item 2: each check's
     state, not only the failing ones)."""
-    return [(name, result, result == "pass") for b in host.boards for name, result in b["tests"]]
+    # with more than one board, each test names its board, so two boards' tests of one name are told apart
+    several = len(host.boards) > 1
+    return [(f"{b['title']} {name}" if several else name, result, result == "pass")
+            for b in host.boards for name, result in b["tests"]]
 
 
 def _offered(host, now, pages):
