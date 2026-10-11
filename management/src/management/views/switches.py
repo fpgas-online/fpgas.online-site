@@ -491,7 +491,7 @@ def _switch_dicts(request):
     # {a switch's own name, lower case: "switch N"}: a neighbour that is one of these is shown by its number
     switches = {(v.name or "").split(".")[0].lower(): f"switch {v.index}" for v in views if v.name and v.index is not None}
     out = []
-    for v in views:
+    for position, v in enumerate(views):
         rows = [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs, switches, house)
                 for p in v.ports]
         out.append({
@@ -504,17 +504,26 @@ def _switch_dicts(request):
             "read_at": when(v.read_at),
             "read_ago": _ago(v.read_at),
             "ports": rows,
-            **_panel(v, specs[id(v)], rows),
+            **_panel(v, specs[id(v)], rows, position),
         })
     return out
 
 
-def _panel(view, spec, rows):
-    """{"panel": [port dicts], "panel_width", "panel_height"} of a switch that answers (#90): its front panel. Each
-    port marked where the inventory check (management.inventory_check) says it is not as the inventory says; with no
-    inventory for the switch, nothing is marked (the page says the inventory could not be read)."""
+def _panel(view, spec, rows, position):
+    """{"panel": [port dicts], "panel_width", "panel_height", "panel_label", "panel_problem"} of a switch that answers
+    (#90): its front panel, laid out by its model in the switch registry. Each port marked where the inventory check
+    (management.inventory_check) says it is not as the inventory says; with no inventory for the switch, nothing is
+    marked (the page says the inventory could not be read). A model the registry does not know, or a reading that does
+    not fit the model, draws no panel and says why in `panel_problem`."""
+    out = {"panel": [], "panel_width": 0, "panel_height": 0, "panel_label": "", "panel_problem": ""}
     if not view.reachable or not view.ports:
-        return {"panel": [], "panel_width": 0, "panel_height": 0}
+        return out
+    from netgear_switch import UnknownModelError, get_model
+
+    try:
+        model = get_model(view.model)
+    except UnknownModelError as exc:
+        return {**out, "panel_problem": f"No front panel: {exc}."}
     failures, causes = {}, {}
     if spec is not None and spec is not NO_INVENTORY:
         for failure in inventory_check.check(spec, view):
@@ -523,11 +532,16 @@ def _panel(view, spec, rows):
             causes.setdefault(failure.port, []).append(cause[0] if cause else None)
     # a port whose every failure has a known cause (poe #16, #18): marked apart, so a new fault stands out
     known = {port: ", ".join(dict.fromkeys(c)) for port, c in causes.items() if all(c)}
-    # the section and row anchors use the switch index, or the list position for the legacy single switch (0)
-    anchor = f"switch-{view.index if view.index is not None else 0}"
-    ports = panel.panel(view, {r["port"]: r for r in rows}, failures, anchor, known)
+    # the section and row anchors use the switch index, or the list position for the legacy single switch
+    anchor = f"switch-{view.index if view.index is not None else position}"
+    try:
+        ports = panel.panel(view, {r["port"]: r for r in rows}, failures, anchor, model.port_count,
+                            model.poe_port_count, known)
+    except panel.LayoutError as exc:
+        return {**out, "panel_problem": f"No front panel: the reading does not fit the {model.display_name}: {exc}."}
     width, height = panel.size(ports)
-    return {"panel": [dataclasses.asdict(p) for p in ports], "panel_width": width, "panel_height": height}
+    return {**out, "panel": [dataclasses.asdict(p) for p in ports], "panel_width": width, "panel_height": height,
+            "panel_label": f"Front panel of {title(view)}: {panel.summary(ports)}"}
 
 
 @require_GET

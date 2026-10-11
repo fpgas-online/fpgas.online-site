@@ -154,20 +154,26 @@
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail { color: #b00020; }
 
-/* A switch's front panel (#90): a port's fill says its state (the key under the panel says each in words, the
-   port's title says all of it); a port not as the inventory says has a red dashed edge as well. */
+/* A switch's front panel (#90): a port's fill and glyph say its state (the key under the panel says each in words,
+   the port's title and accessible name say all of it); a port not as the inventory says has a red dashed edge. */
 .mgmt-panel { display: block; margin: 0.4rem 0; }
 .mgmt-port rect, .mgmt-swatch { stroke: #555; stroke-width: 1; }
-.mgmt-port text { font-size: 10px; fill: #222; pointer-events: none; }
+.mgmt-port text, .mgmt-glyph { font-size: 10px; fill: #222; pointer-events: none; }
+.mgmt-glyph { font-weight: 700; }
+.mgmt-panel-key .mgmt-glyph { font-size: 9px; }
 .mgmt-port-power { fill: #4caf50; }
+.mgmt-port-starting { fill: #c5e1a5; }
 .mgmt-port-up { fill: #90caf9; }
 .mgmt-port-searching { fill: #fff3c4; }
 .mgmt-port-off { fill: #cfcfcf; }
 .mgmt-port-down { fill: #f4f4f4; }
 .mgmt-port-fault { fill: #ef9a9a; }
+.mgmt-port-unknown { fill: #d1c4e9; }
 .mgmt-port-wrong rect, rect.mgmt-port-wrong { stroke: #b00020; stroke-width: 2.5; stroke-dasharray: 3 2; }
-.mgmt-port-known rect, rect.mgmt-port-known { stroke: #c77700; stroke-width: 1.5; stroke-dasharray: 1 2; }
-.mgmt-panel a:hover rect, .mgmt-panel a:focus rect { stroke: #000; stroke-width: 2; }
+.mgmt-port-known rect, rect.mgmt-port-known { stroke: #b36b00; stroke-width: 2.5; stroke-dasharray: 1.5 1.5; }
+/* hover and focus thicken the edge and keep its colour, so a red or amber mark stays visible */
+.mgmt-panel a:hover rect { stroke-width: 3; }
+.mgmt-panel a:focus-visible { outline: 2px solid #0b4f8a; outline-offset: 1px; }
 .mgmt-panel-key { list-style: none; padding: 0; margin: 0 0 0.6rem; display: flex; flex-wrap: wrap; gap: 0.2rem 1rem;
                   font-size: 0.85em; color: #444; }
 /* the row a panel port links to */
