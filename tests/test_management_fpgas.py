@@ -29,6 +29,12 @@ def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None):
     return m
 
 
+@pytest.fixture(autouse=True)
+def site_address(settings):
+    """The site's own address, as the infra site role always writes it (DOMAIN_NAME): the /fpgas/ pages' host."""
+    settings.DOMAIN_NAME = "welland.fpgas.online"
+
+
 @pytest.fixture
 def fleet():
     pi("pi-sw2-p46", REAL["pi-sw2-p46"])
@@ -227,8 +233,9 @@ def test_the_page_can_stop_reloading_and_ignores_a_filter_it_has_not(fleet):
 def test_an_offered_pi_links_to_its_visitor_page_where_the_host_has_one(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert '<a href="/fpgas/pi-sw2-p46.html">yes</a>' in welland
+    # tinytapeout.fpgas.online has no /fpgas/ pages: its Acorns are offered at the site's own address
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "/fpgas/pi-sw2-p46.html" not in tt
+    assert '<a href="https://welland.fpgas.online/fpgas/pi-sw2-p46.html">yes</a>' in tt
 
 
 @pytest.mark.django_db
@@ -342,7 +349,9 @@ def test_a_pi_is_named_by_its_label_from_its_registered_revision():
         "machine": {"serial": m.serial, "revision_code": "c04170"}})  # a Pi 5, 4 GB
     m.save()
     assert fpga.pi_label(m) == "Pi 5 4 GB 285df3f84af242d0"
-    m.latest_snapshot.document = {"machine": {"revision_code": "zz"}}  # one rpi-hwid cannot read: the serial alone
+    m.latest_snapshot.document = {"machine": {"revision_code": "zz"}}  # one rpi-hwid cannot read: said
+    assert fpga.pi_label(m) == "Pi 285df3f84af242d0 (revision 'zz' not readable)"
+    m.latest_snapshot.document = {"machine": {}}  # none registered: the serial alone
     assert fpga.pi_label(m) == "Pi 285df3f84af242d0"
 
 
@@ -358,6 +367,8 @@ def test_a_board_is_named_by_its_label_where_its_check_read_one():
     assert fpga.board_label(board("tt", chip="fpga", usb_serial="4df39a7a6856f86f")) == "TT FPGA 4df39a7a6856f86f"
     assert fpga.board_label(board("tt")) == "TT board, not identified"
     assert fpga.board_label(board("arty", serial="210319A8C1F3")) == "Arty A7 210319A8C1F3"
+    # a DNA rpi-hwid cannot read: its type and what the check sent
+    assert fpga.board_label(board("acorn", dna="not-a-dna")) == "Acorn not-a-dna"
 
 
 @pytest.mark.django_db

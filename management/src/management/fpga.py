@@ -63,15 +63,18 @@ def board_label(board):
 
 def pi_label(machine):
     """A Pi as its label names it: "Pi 5 2 GB 285df3f84af242d0", from the revision code its registration sent
-    (rpi-hwid's decode_revision) and its serial. Without a revision it can read: "Pi" and the serial."""
+    (rpi-hwid's decode_revision) and its serial. With no revision registered: "Pi" and the serial; with one
+    rpi-hwid cannot read, that is said in the label (fail loud: the page does not quietly lose it)."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
     code = facts.get("revision_code") if isinstance(facts, dict) else None
+    if not isinstance(code, str) or not code:
+        return f"Pi {machine.serial}"
     try:
-        rev = decode_revision(code) if isinstance(code, str) and code else None
+        rev = decode_revision(code)
     except (ValueError, KeyError):
-        rev = None
-    return f"Pi {rev.model} {rev.memory} {machine.serial}" if rev else f"Pi {machine.serial}"
+        return f"Pi {machine.serial} (revision {_text(code, 20)!r} not readable)"
+    return f"Pi {rev.model} {rev.memory} {machine.serial}"
 
 
 def board_id(board):

@@ -103,9 +103,10 @@ def _port(host):
 def _visitor_pages(request):
     """{("pi", hostname): its /fpgas/ page, ("tt", usb serial): its Tiny Tapeout board page}: the visitor pages of
     this installation, as those pages list them."""
-    pages = {}
-    if _resolves(request, "/fpgas/"):
-        pages.update({("pi", pi.hostname): f"/fpgas/{pi.hostname}.html" for pi in listed()})
+    # the /fpgas/ pages: by path on a host that has them, else at the site's own address (DOMAIN_NAME, which the
+    # /fpgas/ pages need too): tinytapeout.fpgas.online's Acorns are offered at welland.fpgas.online
+    base = "" if _resolves(request, "/fpgas/") else f"https://{settings.DOMAIN_NAME}"
+    pages = {("pi", pi.hostname): f"{base}/fpgas/{pi.hostname}.html" for pi in listed()}
     from ttsite.boards import pages as tt_pages
 
     # tinytapeout.fpgas.online's board pages: on its own host by path, from any other by its address
