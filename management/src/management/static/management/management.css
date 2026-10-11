@@ -83,3 +83,39 @@
   .mgmt-glance td:nth-child(4) { grid-area: value; }
   .mgmt-glance td:nth-child(5) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
 }
+/* The Pi dashboard (#94): the filter shown as one line above the table; the explanations in one collapsed key
+   after the tables. */
+.mgmt-filter { margin: 0.8rem 0 0.3rem; font-size: 0.9em; }
+.mgmt-key-box { margin-top: 1rem; font-size: 0.9em; color: #444; }
+.mgmt-key-box summary { cursor: pointer; }
+.mgmt-key-box ul { margin: 0.4rem 0; padding-left: 1.2rem; }
+.mgmt-hosts .badge { white-space: nowrap; }
+.mgmt-summary { margin-bottom: 1rem; }
+/* a time and a port are one value each: they do not break */
+.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6) { white-space: nowrap; }
+/* On a phone each Pi is a block: the state and the Pi; its port and board; its check; whether offered, when seen. */
+@media (max-width: 40rem) {
+  .mgmt-hosts thead { display: none; }
+  .mgmt-hosts, .mgmt-hosts tbody { display: block; }
+  .mgmt-hosts tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
+                   grid-template-areas: "state pi pi" "port board board" "check check check" "offered offered seen";
+                   border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
+  .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
+  .mgmt-table.mgmt-hosts td { border: 0; padding: 0.1rem 0; }
+  .mgmt-hosts td:nth-child(1) { grid-area: state; }
+  .mgmt-hosts td:nth-child(2) { grid-area: pi; font-weight: 600; }
+  .mgmt-hosts td:nth-child(3) { grid-area: port; font-size: 0.85em; color: #666; }
+  .mgmt-hosts td:nth-child(4) { grid-area: board; }
+  .mgmt-hosts td:nth-child(5) { grid-area: check; }
+  .mgmt-hosts td:nth-child(6) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
+  .mgmt-hosts td:nth-child(7) { grid-area: offered; font-size: 0.85em; }
+  /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
+  .mgmt-summary thead { display: none; }
+  .mgmt-summary, .mgmt-summary tbody { display: block; }
+  .mgmt-summary tr { display: flex; flex-wrap: wrap; gap: 0.1rem 0.8rem; padding: 0.3rem 0.6rem;
+                     border: 1px solid #ccc; border-top: 0; }
+  .mgmt-summary tr:first-child { border-top: 1px solid #ccc; }
+  .mgmt-table.mgmt-summary td { border: 0; padding: 0; text-align: left; }
+  .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
+  .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
+}

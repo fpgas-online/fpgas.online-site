@@ -1,57 +1,54 @@
 {% extends "management/base.html" %}
-{% block title %}FPGA hosts &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}{% if reload %}<meta http-equiv="refresh" content="60">{% endif %}{% endblock %}
-{% block crumb %} &rsaquo; FPGA hosts{% endblock %}
+{% load static %}
+{% block title %}Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
+{% block extra_head %}{% if reload %}<meta http-equiv="refresh" content="60">{% endif %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
+{% block crumb %} &rsaquo; Raspberry Pis{% endblock %}
 {% block body %}
-<h1>FPGA hosts</h1>
-<p>Every Raspberry Pi registered at this installation, the FPGA board its boot check found, and how that check
-went. A Pi is <strong>operational</strong> when it is offered to visitors: it checks in and its boot check of the
-boot it is running passed. It <strong>needs attention</strong> when its check failed or could not finish, or it
-stopped checking in in the last 6 hours; it is <strong>missing</strong> when it has not checked in for longer;
-<strong>unknown</strong> while its check has not finished this boot.
-{% if reload %}This page reloads every minute (<a href="?reload=off">stop reloading</a>).{% else %}This page does not reload (<a href="?">reload every minute</a>).{% endif %}</p>
+<h1>Raspberry Pis</h1>
 
-<h2>Summary by board type</h2>
-<p class="mgmt-key">{% for c, title, symbol in conditions %}{{ symbol }} {{ title }} &middot; {% endfor %}&Sigma; total</p>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-summary mgmt-fit">
-  <thead><tr><th scope="col">Type</th>{% for c, title, symbol in conditions %}<th scope="col"><abbr class="mgmt-sym" title="{{ title }}" aria-hidden="true">{{ symbol }}</abbr><span class="mgmt-sr">{{ title }}</span></th>{% endfor %}<th scope="col"><abbr class="mgmt-sym" title="total" aria-hidden="true">&Sigma;</abbr><span class="mgmt-sr">total</span></th></tr></thead>
+{# the count columns' headers are the State badges the rows below carry: the header explains itself (the coordinator, 11 Oct 2026) #}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-summary mgmt-fit mgmt-striped">
+  <thead><tr><th scope="col">Type</th>{% for c, title in conditions %}<th scope="col"><span class="badge mgmt-{{ c }}">{{ title }}</span></th>{% endfor %}<th scope="col">all</th></tr></thead>
   <tbody>
   {% for type, counts, n in summary %}
     <tr><td>{{ type }}</td>
-      {% for c, title, symbol in conditions %}<td class="mgmt-n mgmt-{{ c }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
-      <td class="mgmt-n"><a href="?type={{ type|urlencode }}">{{ n }}</a></td></tr>
+      {% for c, title in conditions %}<td class="mgmt-n mgmt-{{ c }}" data-label="{{ title }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      <td class="mgmt-n" data-label="all"><a href="?type={{ type|urlencode }}">{{ n }}</a></td></tr>
   {% endfor %}
     <tr class="mgmt-total"><td>all</td>
-      {% for c, title, symbol in conditions %}<td class="mgmt-n">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
-      <td class="mgmt-n"><a href="?">{{ everything }}</a></td></tr>
+      {% for c, title in conditions %}<td class="mgmt-n" data-label="{{ title }}">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      <td class="mgmt-n" data-label="all"><a href="?">{{ everything }}</a></td></tr>
   </tbody>
 </table></div>
 
-<h2>Raspberry Pis{% if filtered %} <span class="mgmt-soon">({% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title, symbol in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %}; <a href="?">show all</a>)</span>{% endif %}</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-hosts">
-  <thead><tr><th scope="col">Pi</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Last seen</th><th scope="col">Offered</th></tr></thead>
+{% if filtered %}<p class="mgmt-filter">Showing {% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %} &middot; <a href="?">show all</a></p>{% endif %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
+  <thead><tr><th scope="col">State</th><th scope="col">Pi</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Seen</th><th scope="col">Offered</th></tr></thead>
   <tbody>
-  {% for h in rows %}
-    <tr class="mgmt-{{ h.condition }}">
-      <td>{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ h.machine.hostname|default:"(no name)" }}</a>{% else %}{{ h.machine.hostname|default:"(no name)" }}{% endif %}<br>
-        <span class="mgmt-soon">{{ h.machine.serial }}</span></td>
-      <td>{% if h.pi and h.pi.switch %}switch {{ h.pi.switch }}, port {{ h.pi.port }}{% elif h.pi %}port {{ h.pi.port }}{% else %}&mdash;{% endif %}
-        {% if h.registered %}<br><span class="mgmt-soon">its own word at registration, {{ h.registered|date:"j M H:i" }}</span>{% endif %}</td>
-      <td>{% for b in h.boards %}{{ b.title }}{% if b.variant and b.variant != b.title %} ({{ b.variant }}){% endif %}{% if b.id %}<br><span class="mgmt-soon">{{ b.id }}</span>{% endif %}{% if not forloop.last %}<br>{% endif %}{% empty %}{{ h.board_type }}{% endfor %}</td>
-      <td><span class="badge mgmt-{{ h.condition }}">{{ h.state|default:"not started" }}</span>
-        {% if h.checked %}<span class="mgmt-soon">{{ h.checked|date:"j M H:i" }}</span>{% endif %}
-        {% for b in h.boards %}{% if b.failing %}<br>failed: {{ b.failing|join:", " }}{% endif %}{% if b.reason %}<br><span class="mgmt-reason">{{ b.reason }}</span>{% endif %}{% endfor %}</td>
-      <td>{{ h.machine.last_seen|date:"j M H:i" }}{% if not h.checked_in %} <span class="mgmt-soon">(not checking in)</span>{% endif %}
-        {% if h.uptime %}<br><span class="mgmt-soon">up {{ h.uptime }}</span>{% endif %}</td>
-      <td>{% if h.condition == "operational" %}yes{% if h.machine.hostname in listed %} (<a href="/fpgas/{{ h.machine.hostname }}.html">its page</a>){% endif %}{% else %}no: {{ h.why }}{% endif %}</td>
+  {% for line in rows %}{% with h=line.host %}
+    <tr>
+      <td data-sort="{{ line.severity }}"><span class="badge mgmt-{{ h.condition }}"{% if h.why %} title="{{ h.why }}"{% endif %}>{{ h.condition_title }}</span></td>
+      <td title="host name {{ h.machine.hostname|default:'none' }}{% if h.uptime %}; up {{ h.uptime }}{% endif %}">{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
+      <td title="{% if h.pi %}the port its host name says it booted on{% if h.registered %}, as it registered {{ h.registered|date:'j M H:i' }}{% endif %}{% else %}its host name names no port{% endif %}">{{ line.port }}</td>
+      <td>{% for b in h.boards %}{{ b.label }}{% if not forloop.last %} + {% endif %}{% empty %}{% if h.registered_kinds %}{{ h.registered_kinds|join:" + " }}{% else %}{{ h.board_type }}{% endif %}{% endfor %}</td>
+      <td{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
+      <td data-sort="{{ line.sort_seen }}">{% if line.seen_error %}<span class="mgmt-reason">{{ line.seen_error }}</span>{% else %}{{ line.seen }}{% endif %}</td>
+      <td>{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
     </tr>
-  {% empty %}
-    <tr><td colspan="6">No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</td></tr>
+  {% endwith %}{% empty %}
+    <tr><td colspan="7">No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
-<p class="mgmt-soon">Data: the fleet registry (each Pi's registration and its boot check events{% if fleet %}; see each
-Pi's <a href="{{ fleet }}">fleet page</a>{% endif %}). Times are {{ zone }}. The switch port is the hostname the Pi booted with, its own word at its
-registration; the switches' own view (LLDP) comes with the switch port dashboard (#67). A Pi's console and log
-output are not collected yet.</p>
+
+<details class="mgmt-key-box"><summary>Key</summary>
+<ul>
+  <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
+  <li>Pi: its label (model, memory, serial). Port: the port its host name says it booted on. Board: each board's label where its check read one.</li>
+  <li>Boot check: the check of the boot it is running, and the tests that did not pass; every test's result is in the cell's title.</li>
+  <li>Seen: its last status beat. Times are {{ zone }}.</li>
+  <li>Offered: "yes" links its visitor page; "no" says why not.</li>
+  <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>
+</ul>
+</details>
 {% endblock %}
