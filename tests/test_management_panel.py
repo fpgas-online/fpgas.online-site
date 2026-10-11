@@ -5,9 +5,9 @@ import json
 
 import pytest
 from django.test import Client
+from management.views import switches as page
 
 from management import panel
-from management.views import switches as page
 from tests.test_management_switches import HOSTS, READ_AT, PortView, SwitchView, spec
 
 
