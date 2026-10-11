@@ -476,8 +476,19 @@ def test_a_registry_entry_carries_what_a_program_needs(fleet, settings):
     # what the site does not know is null: no cameras said, no check started
     assert by_host["pi-sw2-p47"]["cameras"] is None
     assert by_host["pi-sw2-p7"]["check"]["result"] == "verifying"
+    # the condition as a key, not the page's title; the port null where the host name names none
+    assert {e["condition"] for e in data["machines"]} <= {"operational", "attention", "missing", "checking"}
+    assert by_host["pi-sw2-p7"]["condition"] == "checking" and by_host["pi-sw2-p33"]["condition"] == "attention"
     p33 = by_host["pi-sw2-p33"]
     assert p33["offered"] is False and p33["boards"][0]["tests"]["pin-id"] == "fail"
+
+
+@pytest.mark.django_db
+def test_a_host_whose_name_names_no_port_has_a_null_port(settings):
+    settings.MANAGEMENT_SITE_NAME = "welland"
+    pi("lab-bench-pi", REAL["pi-sw2-p46"], serial="10000000dddd0001")
+    entry = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/registry.json").json()["machines"][0]
+    assert entry["serial"] == "10000000dddd0001" and entry["port"] is None
 
 
 @pytest.mark.django_db

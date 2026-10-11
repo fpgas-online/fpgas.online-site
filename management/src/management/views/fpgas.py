@@ -158,14 +158,22 @@ def _cameras(machine):
     return cameras if isinstance(cameras, list) else None
 
 
+# The condition as a key for programs (the review of #107): stable words, not the page's titles; "checking" for the
+# condition fleet.services calls "unknown" (a check that has not finished this boot), as the page says.
+CONDITION_KEYS = {OPERATIONAL: "operational", ATTENTION: "attention", MISSING: "missing", UNKNOWN: "checking"}
+
+
 def registry_json(request):
     """/fleet/registry.json: every registered host, for programs (the e2e suite's protection check and camera step,
     the coordinator's probe). The page /fleet/ is for people and may change its layout; this is the contract.
     Times are ISO 8601 with their offset (UTC). A field the site does not know is null, never guessed.
 
-    {"site", "generated_at", "machines": [{"serial", "hostname", "label", "port", "condition", "offered",
-      "boards": [{"label", "type", "id", "result", "tests": {name: result}}],
-      "check": {"result", "at"}, "last_seen", "cameras": [...] | null}]}"""
+    {"site", "generated_at", "machines": [{"serial", "hostname", "label", "port" | null,
+      "condition": "operational" | "attention" | "missing" | "checking", "offered",
+      "boards": [{"label", "type", "id" | null, "result", "tests": {name: result}}],
+      "check": {"result": "pass" | "fail" | "error" | "missing" | "verifying" | "unknown" (unreadable) | ... | null,
+                "at" | null},
+      "last_seen" | null, "cameras": [as the registration lists them] | null}]}"""
     now = timezone.now()
     machines = []
     for host in fpga.hosts(now):
@@ -174,8 +182,8 @@ def registry_json(request):
             "serial": m.serial,
             "hostname": m.hostname,
             "label": fpga.pi_label(m),
-            "port": fpga.port_text(m),
-            "condition": host.condition_title,
+            "port": fpga.port_text(m) if host.pi else None,
+            "condition": CONDITION_KEYS[host.condition],
             "offered": host.condition == OPERATIONAL,
             "boards": [{"label": b["label"], "type": b["title"], "id": b["id"] or None, "result": b["result"],
                         "tests": dict(b["tests"])} for b in host.boards],
