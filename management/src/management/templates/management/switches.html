@@ -61,7 +61,7 @@
       }
     }
     tr.appendChild(l);
-    var macs = cell("td", p.macs); if (p.macs_title) { macs.title = p.macs_title; } tr.appendChild(macs);
+    var macs = cell("td", p.macs); macs.className = "mgmt-macs"; if (p.macs_title) { macs.title = p.macs_title; } tr.appendChild(macs);
     tr.appendChild(cell("td", p.rx)); tr.appendChild(cell("td", p.tx)); tr.appendChild(cell("td", p.errors));
   }
   function say(text) {
@@ -178,7 +178,7 @@
         <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}</td>
         <td class="mgmt-power">{% if p.can_power %}{% if p.poe_action %}<button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
         <td{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %}<br><span class="mgmt-soon">{{ p.lldp_port }}</span>{% endif %}{% endif %}</td>
-        <td{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
+        <td class="mgmt-macs"{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
         <td>{{ p.rx }}</td>
         <td>{{ p.tx }}</td>
         <td>{{ p.errors }}</td>

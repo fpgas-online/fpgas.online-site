@@ -132,7 +132,7 @@ def test_the_names_reverse_on_both_urlconfs():
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and ">searching</td>" in row and row.count("<td></td>") >= 2
+    assert ">down<" in row and ">searching</td>" in row and len(re.findall(r"<td[^>]*></td>", row)) >= 2
 
 
 @pytest.mark.django_db

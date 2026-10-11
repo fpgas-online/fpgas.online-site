@@ -45,6 +45,8 @@
    a span that does not break, the cell may break between them */
 .mgmt-ports td.mgmt-label { white-space: normal; }
 .mgmt-ports td.mgmt-label span { white-space: nowrap; }
+/* a MACs cell may put its "+N" under the MAC when the table needs the room (a MAC itself never breaks) */
+.mgmt-ports td.mgmt-macs { white-space: normal; }
 /* On a phone each port is a block (as the index's rows are): the port, its label and its power button; its link,
    VLAN and GW; its PoE and LLDP neighbour. The counters and MACs are left out (the key says so). */
 @media (max-width: 40rem) {
