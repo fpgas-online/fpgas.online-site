@@ -24,3 +24,15 @@ def _clear_cache(_in_memory_poe_rate_limit):
     yield
     cache.clear()
     caches["poe"].clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_github(monkeypatch):
+    """The management index asks the public GitHub API for the newest browser test; no test reaches it. A test that
+    wants an answer replaces `management.e2e.requests.get`."""
+    import requests
+
+    def blocked(*args, **kwargs):
+        raise requests.ConnectionError("tests do not reach the network")
+
+    monkeypatch.setattr("management.e2e.requests.get", blocked)

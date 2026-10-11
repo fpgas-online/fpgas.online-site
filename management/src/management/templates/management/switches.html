@@ -65,7 +65,7 @@
     }
     say("");
     data.switches.forEach(function (s, n) {
-      var box = document.getElementById("switch-" + n);
+      var box = document.getElementById("switch-" + (s.index !== null ? s.index : n));
       if (!box) { return; }
       box.querySelector(".mgmt-status").textContent = s.status;
       box.querySelector(".mgmt-readat").textContent = s.read_at;
@@ -126,7 +126,7 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
-<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ forloop.counter0 }}">
+<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.counter0 }}{% endif %}">
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
   <p class="mgmt-key"># port number; LLDP the neighbour the port sees; In / Out traffic; Err errors in / out.

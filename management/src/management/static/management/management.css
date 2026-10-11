@@ -53,3 +53,33 @@
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
 .mgmt-poe-msg:empty { display: none; }
 /* (screen-reader text in a one-symbol cell: .mgmt-sr, defined once above) */
+
+/* Table manners (Tim, 9 Oct 2026; RULES 22), shared by every management table that opts in with these classes.
+   Zebra stripes: the served order is still readable, and a row stays one row on a phone. */
+.mgmt-table.mgmt-striped tbody tr:nth-child(even) { background: #f4f4f4; }
+/* Sortable columns (table.js): a button in the header, an arrow on the column that orders the table. */
+.mgmt-table th .mgmt-sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+                            text-align: left; }
+.mgmt-table th[aria-sort="ascending"] .mgmt-sort::after { content: " \25B2"; }
+.mgmt-table th[aria-sort="descending"] .mgmt-sort::after { content: " \25BC"; }
+/* The state word of a row on the index (ok / failing / missing / waiting): the colour is not the only signal. */
+.mgmt-glance td { vertical-align: baseline; }
+.mgmt-links { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
+/* The index on a phone: five columns do not fit, and a sideways scroll hides the values (the point of the page).
+   Each row becomes a block: the state word and the item, then the value, then the area and when, small. The
+   header goes (each cell's place says what it is); the sort buttons go with it, and the served order is
+   failures first. */
+@media (max-width: 40rem) {
+  .mgmt-glance thead { display: none; }
+  .mgmt-glance, .mgmt-glance tbody { display: block; }
+  .mgmt-glance tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
+                    grid-template-areas: "state item item" "value value value" "area area seen";
+                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
+  .mgmt-glance tr:first-child { border-top: 1px solid #ccc; }
+  .mgmt-table.mgmt-glance td { border: 0; padding: 0.1rem 0; }
+  .mgmt-glance td:nth-child(1) { grid-area: state; }
+  .mgmt-glance td:nth-child(2) { grid-area: area; font-size: 0.85em; color: #666; }
+  .mgmt-glance td:nth-child(3) { grid-area: item; font-weight: 600; }
+  .mgmt-glance td:nth-child(4) { grid-area: value; }
+  .mgmt-glance td:nth-child(5) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
+}

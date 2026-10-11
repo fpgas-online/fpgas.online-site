@@ -760,3 +760,11 @@ def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, 
     assert "p.vlan_title" in script and "p.gw_title" in script and "innerHTML" not in script
     for body in (html, c.get("/management/switches.json").content.decode()):
         assert "gwhost" not in body.lower() and "example.org" not in body
+
+
+@pytest.mark.django_db
+def test_each_switch_section_is_anchored_by_its_inventory_index(reader):
+    """The index page links /management/switches/#switch-<index>: the number in every Pi's name, not the list position."""
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert 'id="switch-1"' in html and 'id="switch-0"' not in html
+    assert '"switch-" + (s.index !== null ? s.index : n)' in html
