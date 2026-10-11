@@ -38,7 +38,7 @@ def c():
 def test_the_fpga_dashboard_headers_are_short(c):
     html = c.get("/management/fpgas/", follow=True).content.decode()
     assert headers(html, 0) == ["Type", "✓", "!", "✗", "?", "Σ"]  # one symbol over one-digit counts
-    assert headers(html, 1) == ["State", "Pi", "Board", "Boot check", "Seen", "Page"]
+    assert headers(html, 1) == ["State", "Pi", "Board", "Boot check", "Seen", "Offered"]
     # a screen reader hears each symbol's full name, not the symbol (#81)
     assert spoken(html, 0) == ["Type", "operational", "needs attention", "missing", "unknown", "total"]
     for title in ("operational", "needs attention", "missing", "unknown", "total"):

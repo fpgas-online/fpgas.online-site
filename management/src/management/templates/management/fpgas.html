@@ -23,7 +23,7 @@
 
 {% if filtered %}<p class="mgmt-filter">Showing {% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title, symbol in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %} &middot; <a href="?">show all</a></p>{% endif %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">State</th><th scope="col">Pi</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Seen</th><th scope="col">Page</th></tr></thead>
+  <thead><tr><th scope="col">State</th><th scope="col">Pi</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Seen</th><th scope="col">Offered</th></tr></thead>
   <tbody>
   {% for line in rows %}{% with h=line.host %}
     <tr>
@@ -32,7 +32,7 @@
       <td{% for b in h.boards %}{% if forloop.first %} title="{% endif %}{{ b.title }}{% if b.id %} {{ b.id }}{% endif %}{% if not forloop.last %}; {% else %}"{% endif %}{% endfor %}>{% for b in h.boards %}{{ b.title }}{% if b.variant and b.variant != b.title %} ({{ b.variant }}){% endif %}{% if not forloop.last %} + {% endif %}{% empty %}{{ h.board_type }}{% endfor %}</td>
       <td{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
       <td data-sort="{{ line.sort_seen }}">{% if line.seen_error %}<span class="mgmt-reason">{{ line.seen_error }}</span>{% else %}{{ line.seen }}{% endif %}</td>
-      <td>{% if h.condition == "operational" and h.machine.hostname in listed %}<a href="/fpgas/{{ h.machine.hostname }}.html">open</a>{% endif %}</td>
+      <td>{% if h.condition == "operational" %}{% if h.machine.hostname in listed %}<a href="/fpgas/{{ h.machine.hostname }}.html">yes</a>{% else %}yes{% endif %}{% else %}no: {{ line.reason }}{% endif %}</td>
     </tr>
   {% endwith %}{% empty %}
     <tr><td colspan="6">No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</td></tr>
@@ -45,7 +45,7 @@
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>unknown</strong>: its check has not finished this boot.</li>
   <li>Boot check: the check of the boot it is running, and the tests that did not pass; every test's result is in the cell's title.</li>
   <li>Seen: its last status beat. Times are {{ zone }}.</li>
-  <li>Page: its visitor page, for a Pi that is offered.</li>
+  <li>Offered: whether visitors are offered it, linked to its visitor page; if not, why.</li>
   <li>{% if reload %}The page reloads every minute: <a href="?reload=off">stop</a>.{% else %}The page does not reload: <a href="?">reload every minute</a>.{% endif %}</li>
 </ul>
 </details>

@@ -224,7 +224,7 @@ def test_the_page_can_stop_reloading_and_ignores_a_filter_it_has_not(fleet):
 @pytest.mark.django_db
 def test_an_offered_pi_links_to_its_visitor_page_where_the_host_has_one(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert '<a href="/fpgas/pi-sw2-p46.html">open</a>' in welland
+    assert '<a href="/fpgas/pi-sw2-p46.html">yes</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "/fpgas/pi-sw2-p46.html" not in tt
 
@@ -239,7 +239,7 @@ def test_its_page_is_linked_only_for_a_pi_the_fpgas_pages_list(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "/fpgas/pi-sw2-p20.html" not in html
     for hostname in {p.hostname for p in listed()}:
-        assert f'<a href="/fpgas/{hostname}.html">open</a>' in html
+        assert f'<a href="/fpgas/{hostname}.html">yes</a>' in html
 
 
 @pytest.mark.django_db
@@ -284,12 +284,15 @@ def _rows(html):
 
 
 @pytest.mark.django_db
-def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_page(fleet):
+def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     rows = {r[1]: r for r in _rows(html)}
     assert rows["pi-sw2-p33"][0] == "needs attention" and rows["pi-sw2-p33"][3] == "failed: pin-id, spiflash"
     assert rows["pi-sw2-p46"][0] == "operational" and rows["pi-sw2-p46"][3] == "passed"
-    assert rows["pi-sw2-p46"][5] == "open"
+    assert rows["pi-sw2-p46"][5] == "yes"
+    # why a Pi is not offered, in the index's words
+    assert rows["pi-sw2-p33"][5] == "no: pin-id, spiflash" and rows["pi-sw2-p10"][5] == "no: stopped checking in"
+    assert rows["pi-sw2-p4"][5] == "no: missing 7 h" and rows["pi-sw2-p7"][5] == "no: boot check running"
     assert rows["pi-sw2-p7"][3] == "running" and rows["pi-sw2-p7"][0] == "unknown"
     assert rows["pi-sw2-p4"][0] == "missing" and rows["pi-sw2-p4"][4] == "7 h ago"
     # every test and its result in the check cell's title; the reason the Pi is not offered in the state's title

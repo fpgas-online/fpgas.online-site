@@ -16,7 +16,7 @@ from fleet.timeago import ago_time
 from pibfpgas.pis import listed
 
 from .. import fpga, localtime
-from .index import _url
+from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
 SEVERITY = {ATTENTION: 0, MISSING: 1, UNKNOWN: 2, OPERATIONAL: 3}
@@ -60,6 +60,7 @@ class Line:
     seen_error: str  # why it cannot (a time further ahead than clocks differ): shown in the cell
     sort_seen: int
     severity: int
+    reason: str  # why it is not offered, in the index's words ("stopped checking in", "dip-switches"); "" if it is
 
 
 def _check(host):
@@ -72,7 +73,16 @@ def _check(host):
     return (f"{word}: {', '.join(failing)}" if failing else word), "; ".join(t for t in (tests, reasons) if t)
 
 
-def _line(host):
+def _reason(host, now):
+    if host.condition == OPERATIONAL:
+        return ""
+    try:
+        return _board_reason(host, now)  # the index's Boards rows say the same
+    except ValueError as exc:  # a value the page does not know: said in the cell, the page stands
+        return str(exc)
+
+
+def _line(host, now):
     check, check_title = _check(host)
     try:
         seen, error = ago_time(host.machine.last_seen), ""
@@ -80,17 +90,18 @@ def _line(host):
         seen, error = "", str(exc)
     stamp = host.machine.last_seen
     return Line(host, check, check_title, seen, error, int(stamp.timestamp()) if stamp else 0,
-                SEVERITY[host.condition])
+                SEVERITY[host.condition], _reason(host, now))
 
 
 def _page(request):
-    rows = fpga.hosts()
+    now = timezone.now()
+    rows = fpga.hosts(now)
     table, total, everything = fpga.summary(rows)
     want_condition = request.GET.get("condition", "")
     if want_condition not in CONDITIONS:  # a filter this page does not have is no filter
         want_condition = ""
     want_type = request.GET.get("type", "")[:100]
-    shown = [_line(r) for r in rows if (not want_condition or r.condition == want_condition)
+    shown = [_line(r, now) for r in rows if (not want_condition or r.condition == want_condition)
              and (not want_type or r.board_type == want_type)]
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
