@@ -124,14 +124,70 @@ def test_an_answer_is_cached_ten_minutes_and_a_failure_one(github, monkeypatch):
     assert real.get("management-e2e-welland-lock") is None  # the lock is released after a read
 
 
-def test_while_another_request_reads_the_api_this_one_does_not_ask_too(github):
+class Clock:
+    """time.monotonic and time.sleep for e2e: sleeping moves the clock, and `on_sleep` runs at each sleep."""
+
+    def __init__(self, monkeypatch, on_sleep=lambda: None):
+        self.now, self.on_sleep = 1000.0, on_sleep
+        monkeypatch.setattr(e2e.time, "monotonic", lambda: self.now)
+        monkeypatch.setattr(e2e.time, "sleep", self.sleep)
+
+    def sleep(self, seconds):
+        self.now += seconds
+        self.on_sleep()
+
+
+def test_while_another_request_reads_the_api_this_one_shows_the_last_answer_and_does_not_ask(github, monkeypatch):
     from django.core.cache import caches
 
+    github({1: [job("shared (welland)", "failure")]})
+    assert e2e.latest("welland")["result"] == "failed"  # read, and kept as the last answer
+    caches["poe"].delete("management-e2e-welland")  # the 10 minutes are over
     fake = github({1: [job("shared (welland)", "success")]})
-    caches["poe"].add("management-e2e-welland-lock", 1, 30)
-    with pytest.raises(e2e.E2EError, match="another request is reading"):
-        e2e.latest("welland")
+    caches["poe"].add("management-e2e-welland-lock", 1, 30)  # another request is reading
+    Clock(monkeypatch)
+    assert e2e.latest("welland")["result"] == "failed"
     assert fake.calls == []
+
+
+def test_with_no_last_answer_it_waits_for_the_other_requests_answer(github, monkeypatch):
+    from django.core.cache import caches
+
+    fake = github({})
+    caches["poe"].add("management-e2e-welland-lock", 1, 30)
+    answer = {"run": {"result": "passed", "completed_at": "2026-10-11T05:34:28+00:00", "url": "u"}}
+    clock = Clock(monkeypatch, on_sleep=lambda: clock.now > 1002 and caches["poe"].set("management-e2e-welland", answer))
+    assert e2e.latest("welland")["result"] == "passed"
+    assert fake.calls == [] and 1002 < clock.now < 1000 + e2e.BUDGET_SECONDS
+
+
+def test_with_no_answer_within_the_budget_the_wait_is_an_error_saying_so(github, monkeypatch):
+    from django.core.cache import caches
+
+    github({})
+    caches["poe"].add("management-e2e-welland-lock", 1, 30)
+    clock = Clock(monkeypatch)
+    with pytest.raises(e2e.E2EError, match=f"gave no answer within {e2e.BUDGET_SECONDS} s"):
+        e2e.latest("welland")
+    assert clock.now >= 1000 + e2e.BUDGET_SECONDS
+
+
+def test_one_read_ends_within_the_budget_and_the_lock_outlives_it(github, monkeypatch):
+    # every request takes 4 s: the runs list and three runs' jobs fit 15 s, the fifth request is not made
+    clock = Clock(monkeypatch)
+    fake = github({n: [job("shared", "skipped")] for n in range(10, 0, -1)})
+    real_call = fake.__call__
+
+    def slow(url, params=None, timeout=None, headers=None):
+        assert timeout <= e2e.TIMEOUT and clock.now + timeout <= 1000 + e2e.BUDGET_SECONDS + 1e-9
+        clock.now += 4
+        return real_call(url, params, timeout, headers)
+
+    monkeypatch.setattr("management.e2e.requests.get", slow)
+    with pytest.raises(e2e.E2EError, match=f"within {e2e.BUDGET_SECONDS} s"):
+        e2e.latest("welland")
+    assert len(fake.calls) == 4
+    assert e2e.LOCK_SECONDS > e2e.BUDGET_SECONDS
 
 
 def test_the_site_name_is_a_setting_else_the_first_label_of_the_domain(settings):

@@ -9,11 +9,14 @@ failure; its job is what the row reports and links to.
 Read server-side from the public GitHub API with no token (the repository is public), with a short timeout.
 Unauthenticated reads are limited to 60 an hour per address, so the answer goes in the SHARED cache (the redis
 "poe" cache every worker reads; the default cache is per process, so each worker would ask on its own): an answer
-for CACHE_SECONDS, a failure for FAILURE_SECONDS, and an add-lock so that one worker reads while the others wait for
-its answer instead of asking too."""
+for CACHE_SECONDS, a failure for FAILURE_SECONDS. One worker reads at a time (an add-lock); one read, all of its
+requests, ends within BUDGET_SECONDS, and the lock outlives it. A request that finds the lock taken does not ask
+too: it shows the last answer read (kept LAST_SECONDS), or, when there is none, waits for the reader's answer for
+up to the budget."""
 
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
 import requests
 from django.conf import settings
@@ -28,9 +31,15 @@ JOB = "shared ({site})"
 RESULTS = {"success": "passed", "failure": "failed"}
 RUNS_LOOKED_AT = 10
 TIMEOUT = 5  # seconds, per request
+BUDGET_SECONDS = 15  # one read, every request of it; a read that needs longer is a failure saying so
 CACHE_SECONDS = 600
 FAILURE_SECONDS = 60
-LOCK_SECONDS = 30  # longer than the reads can take: 1 + RUNS_LOOKED_AT requests of TIMEOUT each at worst
+LOCK_SECONDS = BUDGET_SECONDS + 5  # outlives the read it guards
+LAST_SECONDS = 86400  # the last answer, shown while another request reads a new one
+WAIT_STEP = 0.25  # seconds between looks at the cache while waiting for another request's read
+# The workflow runs every 2 hours (its schedule); a newest completed run older than three of those is a failure:
+# the test has stopped running, and an old pass says nothing about the site now.
+STALE_AFTER = timedelta(hours=6)
 SITE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -48,9 +57,12 @@ def site_name():
     return named
 
 
-def _get(path, **params):
+def _get(deadline, path, **params):
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise E2EError(f"GitHub API did not answer every request within {BUDGET_SECONDS} s")
     try:
-        response = requests.get(f"{API}{path}", params=params, timeout=TIMEOUT,
+        response = requests.get(f"{API}{path}", params=params, timeout=min(TIMEOUT, left),
                                 headers={"Accept": "application/vnd.github+json"})
     except requests.RequestException as exc:
         raise E2EError(f"GitHub API not reachable ({type(exc).__name__})") from exc
@@ -63,10 +75,11 @@ def _get(path, **params):
 
 
 def _fetch(site):
-    runs = _get(f"/repos/{REPO}/actions/workflows/{WORKFLOW}/runs", per_page=RUNS_LOOKED_AT)
+    deadline = time.monotonic() + BUDGET_SECONDS
+    runs = _get(deadline, f"/repos/{REPO}/actions/workflows/{WORKFLOW}/runs", per_page=RUNS_LOOKED_AT)
     try:
         for run in runs["workflow_runs"]:
-            for job in _get(f"/repos/{REPO}/actions/runs/{run['id']}/jobs", per_page=100)["jobs"]:
+            for job in _get(deadline, f"/repos/{REPO}/actions/runs/{run['id']}/jobs", per_page=100)["jobs"]:
                 if job["name"] == JOB.format(site=site) and job["status"] == "completed" \
                         and job["conclusion"] in RESULTS:
                     return {"result": RESULTS[job["conclusion"]], "completed_at": job["completed_at"],
@@ -82,16 +95,34 @@ def latest(site):
     cache, key = caches["poe"], f"management-e2e-{site}"
     hit = cache.get(key)
     if hit is None:
-        if not cache.add(f"{key}-lock", 1, LOCK_SECONDS):
-            raise E2EError("another request is reading the GitHub API just now")
-        try:
-            try:
-                hit, seconds = {"run": _fetch(site)}, CACHE_SECONDS
-            except E2EError as exc:
-                hit, seconds = {"error": str(exc)}, FAILURE_SECONDS
-            cache.set(key, hit, seconds)
-        finally:
-            cache.delete(f"{key}-lock")
+        hit = _read(cache, key, site) if cache.add(f"{key}-lock", 1, LOCK_SECONDS) else _wait(cache, key)
     if "error" in hit:
         raise E2EError(hit["error"])
     return {**hit["run"], "completed_at": datetime.fromisoformat(hit["run"]["completed_at"])}
+
+
+def _read(cache, key, site):
+    """Read the API as the lock's holder; store the answer (and, for a run, the last answer) for the others."""
+    try:
+        try:
+            hit, seconds = {"run": _fetch(site)}, CACHE_SECONDS
+            cache.set(f"{key}-last", hit, LAST_SECONDS)
+        except E2EError as exc:
+            hit, seconds = {"error": str(exc)}, FAILURE_SECONDS
+        cache.set(key, hit, seconds)
+        return hit
+    finally:
+        cache.delete(f"{key}-lock")
+
+
+def _wait(cache, key):
+    """Another request holds the lock: its last answer, else its new one when it comes, within the budget."""
+    last = cache.get(f"{key}-last")
+    if last is not None:
+        return last
+    deadline = time.monotonic() + BUDGET_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(WAIT_STEP)
+        if (hit := cache.get(key)) is not None:
+            return hit
+    return {"error": f"another request's read of the GitHub API gave no answer within {BUDGET_SECONDS} s"}
