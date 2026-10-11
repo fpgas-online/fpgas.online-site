@@ -91,7 +91,7 @@ def test_the_check_is_shown_with_its_history_across_boots():
                              detail=REAL["pi-sw2-p33"])
     html = page(m.serial)
     history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
-    rows = re.findall(r"<tr[^>]*>\s*<td>.*?</tr>", history, re.S)
+    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history, re.S)
     assert len(rows) == 2 and "(this boot)" in rows[0] and "failed" in rows[0] and "passed" in rows[1]
     assert "<code>b0</code>" in rows[1]
 
@@ -103,7 +103,8 @@ def test_each_field_the_labels_still_need_says_who_sends_it():
 
     # no registration: rpi-hwid needs its model first, which the registration sends
     bare = pi("pi-sw2-p47", REAL["pi-sw2-p47"], serial="10000000eeee0047")
-    assert "<td><code>model</code></td><td>the Pi&#x27;s registration</td>" in labels(bare.serial)
+    assert '<td><code>model</code></td><td title="the Pi&#x27;s registration (its fleet agent)">registration</td>' in labels(
+        bare.serial)
     # registered, but no pi-identified event: the header, which that event sends
     m = pi("pi-sw2-p48", REAL["pi-sw2-p47"], serial="10000000eeee0048")
     m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="h", document={
@@ -111,7 +112,8 @@ def test_each_field_the_labels_still_need_says_who_sends_it():
                     "mem_total_kb": 4000000}})
     m.save()
     text = labels(m.serial)
-    assert "<td><code>header</code></td><td>the Pi&#x27;s pi-identified event" in text
+    assert '<td>board</td><td><code>header</code></td><td title="the Pi&#x27;s pi-identified event' in text
+    assert ">pi-identified</td>" in text
     assert "no usable pi-identified event from this Pi" in text  # the site's own note, kept
 
 
@@ -148,3 +150,22 @@ def test_the_page_carries_what_infras_verify_pi_reads():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     html = page(m.serial)
     assert 'badge online' in html and m.last_boot_id in html
+
+
+
+@pytest.mark.django_db
+def test_a_check_report_with_no_result_says_so_and_every_table_sorts():
+    m = pi("pi-sw2-p21", REAL["pi-sw2-p46"])
+    BootEvent.objects.create(machine=m, boot_id="b0", stage="fpga-verified", ts=timezone.now(), detail={"x": 1})
+    html = page(m.serial)
+    history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    assert "<td>sent no result</td>" in history and "unknown" not in history
+    assert html.count("mgmt-sortable") == 4 and "management/table.js" in html
+
+
+def test_a_label_field_no_known_event_sends_is_said_loud():
+    from management.views.machine import _owner
+
+    assert _owner("board", "model") == ("registration", "the Pi's registration (its fleet agent)")
+    short, why = _owner("board", "warp_drive")
+    assert short == "" and "warp_drive" in why and "behind rpi-hwid" in why

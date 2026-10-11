@@ -1,6 +1,8 @@
 {% extends "management/base.html" %}
+{% load static %}
 {% block title %}{{ label }} &mdash; Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
 {% block crumb %} &rsaquo; {% if fleet %}<a href="{{ fleet }}">Raspberry Pis</a>{% else %}Raspberry Pis{% endif %} &rsaquo; {{ label }}{% endblock %}
+{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
 {% block body %}
 <h1>{{ label }}</h1>
 
@@ -22,7 +24,8 @@
 </table>
 
 <h2>Boards</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-boards">
+{% if boards %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-boards">
   <thead><tr><th scope="col">Board</th><th scope="col">Type</th><th scope="col">Result</th><th scope="col">Tests</th><th scope="col">Docs</th></tr></thead>
   <tbody>
   {% for b in boards %}
@@ -33,19 +36,20 @@
       <td>{% for name, result, docs in b.tests %}<span class="mgmt-test mgmt-test-{% if result == "pass" %}pass{% else %}fail{% endif %}">{% if docs %}<a href="{{ docs }}">{{ name }}</a>{% else %}{{ name }}{% endif %}: {{ result }}</span>{% if not forloop.last %} {% endif %}{% empty %}–{% endfor %}</td>
       <td>{% if b.page %}<a href="{{ b.page }}">board</a>{% if b.checks_page %} &middot; <a href="{{ b.checks_page }}">checks</a>{% endif %}{% else %}–{% endif %}</td>
     </tr>
-  {% empty %}
-    <tr><td colspan="5">The check of this boot named no board{% if host.board_type != "no board" %} (its registration names: {{ host.board_text }}){% endif %}.</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
+{% else %}
+<p>No board named by the check of this boot{% if host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
+{% endif %}
 
 <h2>Boot checks</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col">When</th><th scope="col">Boot</th><th scope="col">Result</th><th scope="col">Boards</th></tr></thead>
   <tbody>
   {% for event, when, word, summary in history %}
     <tr{% if event.boot_id == machine.last_boot_id %} class="mgmt-this-boot"{% endif %}>
-      <td>{{ when }}</td>
+      <td data-sort="{{ event.id }}">{{ when }}</td>
       <td><code>{{ event.boot_id }}</code>{% if event.boot_id == machine.last_boot_id %} (this boot){% endif %}</td>
       <td>{{ word }}</td>
       <td>{{ summary|default:"–" }}</td>
@@ -58,12 +62,12 @@
 
 <h2>Labels</h2>
 {% if labels %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col">Label</th><th scope="col">Still needs</th><th scope="col">Sent by</th></tr></thead>
   <tbody>
-  {% for label_name, fields in labels %}{% for field, owner in fields %}
-    <tr><td>{% if forloop.first %}{{ label_name }}{% endif %}</td><td><code>{{ field }}</code></td><td>{{ owner }}</td></tr>
-  {% endfor %}{% endfor %}
+  {% for label_name, field, owner, owner_title in labels %}
+    <tr><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
+  {% endfor %}
   </tbody>
 </table></div>
 {% else %}
@@ -81,7 +85,7 @@
 {% endfor %}
 
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-events">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-events">
   <thead><tr><th scope="col">Time</th><th scope="col">Stage</th><th scope="col">Detail</th></tr></thead>
   <tbody>
   {% for event, detail in events %}

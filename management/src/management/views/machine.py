@@ -57,13 +57,15 @@ def _docs_key(board):
 
 
 def _owner(label, field):
+    """(short name, its title) of what sends a label field; ("", why) for a field the site does not know a sender
+    of: rpi-hwid asks for a field this site's contract (fleet.hwid) has not caught up with, said loud in the cell."""
     if field in REGISTRATION_FIELDS and label == "board":
-        return "the Pi's registration"
+        return "registration", "the Pi's registration (its fleet agent)"
     if field in hwid.PI_FIELDS:
-        return f"the Pi's {hwid.PI_STAGE} event (rpi-hwid on the Pi, through fpgas-verify)"
+        return hwid.PI_STAGE, f"the Pi's {hwid.PI_STAGE} event: rpi-hwid on the Pi, through fpgas-verify"
     if field in hwid.FPGA_FIELDS or field in hwid.TT_FIELDS:
-        return f"the board's {hwid.FPGA_STAGE} event (its check in fpgas-verify)"
-    return "nothing this site knows of"
+        return hwid.FPGA_STAGE, f"the board's {hwid.FPGA_STAGE} event: its check in fpgas-verify"
+    return "", f"rpi-hwid asks for {field}, which no event this site reads carries: fleet.hwid is behind rpi-hwid"
 
 
 @dataclass
@@ -96,8 +98,9 @@ def _history(machine):
         if event.stage == "fpga-verifying":
             word = "running"
         else:
-            result = str(detail.get("result", "")) or "unknown"
-            word = CHECK_WORDS.get(result) or f"gave {result}"
+            result = str(detail.get("result", ""))
+            # a report with no result says so (its detail is in the events), never "unknown"
+            word = (CHECK_WORDS.get(result) or f"gave {result}") if result else "sent no result"
         boards = [f"{b['board']} {b['result']}" for b in fpga._reported_boards(detail)] if detail else []
         rows.append((event, _when(event.ts), word, ", ".join(boards)))
     return rows
@@ -132,7 +135,8 @@ def _page(request, entry):
         "offered": offered, "page": page,
         "seen": _when(entry.last_seen), "first_seen": _when(entry.first_seen), "checked": _when(host.checked),
         "boards": _boards(host), "history": _history(entry),
-        "labels": [(label, [(field, _owner(label, field)) for field in fields]) for label, fields in missing],
+        # one row per field, the label repeated, so the table sorts (rule 22)
+        "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
         "notes": built.notes,
         "label_input": _url(request, "fleet-label-input", entry.serial),
         "record": jsonview.render(snapshots[0].document) if snapshots else "",

@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from django.test import Client
@@ -48,8 +49,8 @@ def test_detail_says_what_the_labels_still_need(c):
     html = c.get("/fleet/abc123/").content.decode()
     assert "<h2>Labels</h2>" in html and '<th scope="col">Still needs</th>' in html
     # each field rpi-hwid still needs, and who sends it (#93 item 4)
-    for field, owner in (("revision", "the Pi&#x27;s registration"), ("header", "the Pi&#x27;s pi-identified event")):
-        assert f"<td><code>{field}</code></td><td>{owner}" in html
+    for field, owner in (("revision", "registration"), ("header", "pi-identified")):
+        assert re.search(rf'<td><code>{field}</code></td><td title="[^"]*">{owner}</td>', html)
     assert "no usable pi-identified event from this Pi" in html
     assert 'href="/fleet/abc123/rpi-hwid.json"' in html
 

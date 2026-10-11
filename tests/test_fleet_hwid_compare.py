@@ -228,6 +228,6 @@ def test_the_page_says_an_incomplete_pi_is_incomplete(machine, client):
     page = client.get(f"/fleet/{machine.serial}/").content.decode()
     assert INCOMPLETE in page and COMPLETE not in page
     # the field, and who sends it (#93 item 4)
-    assert '<td>board</td><td><code>header</code></td><td>the Pi&#x27;s pi-identified event' in page
+    assert '<td>board</td><td><code>header</code></td><td title="the Pi&#x27;s pi-identified event' in page
     # a label with nothing missing is not listed as needing something
     assert "<td>fpga[0]</td>" not in page
