@@ -10,6 +10,9 @@ from fleet.models import BootEvent, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
 from rpi_hwid import names
+from rpi_hwid.boards import identify
+from rpi_hwid.model import Summary
+from rpi_hwid.probe import nominal_memory
 from rpi_hwid.revision import decode_revision
 
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
@@ -61,20 +64,44 @@ def board_label(board):
     return f"{title} {ident}" if ident else title
 
 
-def pi_label(machine):
-    """A Pi as its label names it: "Pi 5 2 GB 285df3f84af242d0", from the revision code its registration sent
-    (rpi-hwid's decode_revision) and its serial. With no revision registered: "Pi" and the serial; with one
-    rpi-hwid cannot read, that is said in the label (fail loud: the page does not quietly lose it)."""
+def registered_model(machine):
+    """The model string the host's registration sent, as it sent it (cut), or ""."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
-    code = facts.get("revision_code") if isinstance(facts, dict) else None
-    if not isinstance(code, str) or not code:
-        return f"Pi {machine.serial}"
+    model = facts.get("model") if isinstance(facts, dict) else None
+    return _text(model, MAX_TEXT) if isinstance(model, str) else ""
+
+
+def pi_label(machine):
+    """A host as its label names it, by rpi-hwid's own rules: "Pi 5 2 GB 285df3f84af242d0" from the revision code its
+    registration sent (decode_revision, the label header's "Pi <model>"), and a host with no revision code (an Orange
+    Pi) by rpi-hwid's identify(): "Orange Pi PC 02c0008164c2a1b0". What keeps a host from its label is said, in one
+    form: "<serial> (<why>)" (fail loud: the page does not quietly lose it)."""
+    doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
+    facts = doc.get("machine") if isinstance(doc, dict) else None
+    facts = facts if isinstance(facts, dict) else {}
+    code, model = facts.get("revision_code"), facts.get("model")
+    if code is not None and (not isinstance(code, str) or not code):
+        return f"{machine.serial} (revision {_text(str(code), 20)!r} not readable)"
+    if code:
+        try:
+            rev = decode_revision(code)
+        except (ValueError, KeyError):
+            return f"{machine.serial} (revision {_text(code, 20)!r} not readable)"
+        return f"Pi {rev.model} {rev.memory} {machine.serial}"
+    if model is None:
+        return f"{machine.serial} (no model registered)"
+    if not isinstance(model, str) or not model.strip():
+        return f"{machine.serial} (model {_text(str(model), 40)!r} not readable)"
+    kb = facts.get("mem_total_kb")
+    memory = nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
     try:
-        rev = decode_revision(code)
-    except (ValueError, KeyError):
-        return f"Pi {machine.serial} (revision {_text(code, 20)!r} not readable)"
-    return f"Pi {rev.model} {rev.memory} {machine.serial}"
+        ident = identify(Summary(model=model.strip(), serial=machine.serial, revision="", memory=memory))
+    except (ValueError, KeyError):  # a Raspberry Pi by its model, with no revision code to decode
+        return f"{machine.serial} (no revision code registered)"
+    if ident is None:
+        return f"{machine.serial} (model {_text(model.strip(), 40)!r} not known to rpi-hwid)"
+    return " ".join(part for part in (ident.short, memory, machine.serial) if part)
 
 
 NONE = "–"  # a value that is not known, as the switch page shows it

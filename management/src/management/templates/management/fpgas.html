@@ -28,7 +28,7 @@
   {% for line in rows %}{% with h=line.host %}
     <tr>
       <td data-sort="{{ line.severity }}"><span class="badge mgmt-{{ h.condition }}"{% if h.why %} title="{{ h.why }}"{% endif %}>{{ h.condition_title }}</span></td>
-      <td title="host name {{ h.machine.hostname|default:'none' }}{% if h.uptime %}; up {{ h.uptime }}{% endif %}">{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
+      <td title="{% if line.model %}model {{ line.model }}; {% endif %}host name {{ h.machine.hostname|default:'none' }}{% if h.uptime %}; up {{ h.uptime }}{% endif %}">{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
       <td title="{% if h.pi %}the port its host name says it booted on{% if h.registered %}, as it registered {{ h.registered|date:'j M H:i' }}{% endif %}{% else %}its host name names no port{% endif %}">{{ line.port }}</td>
       <td>{{ h.board_text }}</td>
       <td{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
