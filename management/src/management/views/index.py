@@ -133,9 +133,10 @@ def _board_reason(host, now):
 def _boards(request, now):
     rows, offered = [], 0
     for host in fpga.hosts(now):
-        name = host.machine.hostname.split(".")[0] or host.machine.serial
         link = _url(request, "fleet-detail", host.machine.serial)
-        item = f"{name}: {host.board_type}"
+        # the Pi by its label, the port it booted on beside it (an observation), then its boards by their labels:
+        # one row per Pi, so two Pis last seen on one port are two named rows (the coordinator, 11 Oct 2026)
+        item = f"{fpga.pi_label(host.machine)} on {fpga.port_text(host.machine)}: {host.board_text}"
         try:
             if host.condition == OPERATIONAL:
                 offered += 1
@@ -246,7 +247,7 @@ def _boot_checks(request, now):
         raise ValueError("no boot check has been reported by any Pi")
     results = [(machine, event, _result(event)) for machine, event in checks]
     machine, event, result = results[-1]  # the newest by arrival
-    name = machine.hostname.split(".")[0] or machine.serial
+    name = f"{fpga.pi_label(machine)} on {fpga.port_text(machine)}"
     # the newest check only: whether checks are running at all. A Pi whose check failed is a Boards row already.
     return [_row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
                  "newest check", f"{name}: {result}", _url(request, "fleet-detail", machine.serial), "", event.ts)]

@@ -77,6 +77,17 @@ def pi_label(machine):
     return f"Pi {rev.model} {rev.memory} {machine.serial}"
 
 
+NONE = "–"  # a value that is not known, as the switch page shows it
+
+
+def port_text(machine):
+    """"sw2 p48": the port a Pi's host name says it booted on (an observation, never its name), or NONE."""
+    pi = Pi.from_hostname(machine.hostname.split(".")[0]) if machine.hostname else None
+    if pi is None:
+        return NONE
+    return f"sw{pi.switch} p{pi.port}" if pi.switch else f"p{pi.port}"
+
+
 def board_id(board):
     """The value on the board's label that its check read: a USB serial, a DNA, a serial."""
     ids = board["identity"]
@@ -125,6 +136,14 @@ class Host:
     checked_in: bool = False
     pi: Pi | None = None
     registered_kinds: list = field(default_factory=list)  # the board kinds its registration names, as it named them
+
+    @property
+    def board_text(self):
+        """Its boards by their labels ("acorn-holly 0x00200c8664b04854 + TT FPGA 4df3..."); with no report this
+        boot, the kinds its registration names; else its board type."""
+        if self.boards:
+            return " + ".join(b["label"] for b in self.boards)
+        return " + ".join(self.registered_kinds) or self.board_type
 
     @property
     def condition_title(self):
