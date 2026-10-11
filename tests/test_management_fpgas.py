@@ -81,8 +81,8 @@ def test_the_page_answers_without_a_login_on_every_host(fleet, host):
     r = Client(HTTP_HOST=host).get("/management/fpgas/", follow=True)
     assert r.status_code == 200
     html = r.content.decode()
-    assert "<title>FPGA hosts &mdash; Management &mdash; fpgas.online</title>" in html
-    assert "Summary by board type" in html and "switch 2, port 46" in html
+    assert "<title>Raspberry Pis &mdash; Management &mdash; fpgas.online</title>" in html
+    assert "<h1>Raspberry Pis</h1>" in html and "switch 2, port 46" in html
     assert '<meta http-equiv="refresh" content="60">' in html
 
 
@@ -134,8 +134,9 @@ def test_times_are_the_installations_own_with_the_zone_named_once(fleet, setting
     m.last_seen = datetime.datetime(2026, 10, 9, 0, 15, tzinfo=datetime.timezone.utc)  # 10:45 in Adelaide
     m.save()
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "9 Oct 10:45" in html and "9 Oct 00:15" not in html
-    assert html.count("Australia/Adelaide") == 1 and "Times are Australia/Adelaide." in html and "UTC" not in html
+    # "x ago" in the cell, the exact local time in its title (#91)
+    assert 'title="2026-10-09 10:45:00 ACDT"' in html  # UTC only in the <time datetime> a machine reads
+    assert "Times are Australia/Adelaide." in html and "UTC" not in html
     from django.utils import timezone as tz
 
     assert tz.get_current_timezone_name() == settings.TIME_ZONE  # nothing left behind for the next request
@@ -209,7 +210,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
     assert row.registered is not None
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "its own word at registration" in html and "<b>" not in html
+    assert "by the host name it booted with; registered" in html and "<b>" not in html
 
 
 @pytest.mark.django_db
@@ -223,7 +224,7 @@ def test_the_page_can_stop_reloading_and_ignores_a_filter_it_has_not(fleet):
 @pytest.mark.django_db
 def test_an_offered_pi_links_to_its_visitor_page_where_the_host_has_one(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert '<a href="/fpgas/pi-sw2-p46.html">its page</a>' in welland
+    assert '<a href="/fpgas/pi-sw2-p46.html">open</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "/fpgas/pi-sw2-p46.html" not in tt
 
@@ -238,7 +239,7 @@ def test_its_page_is_linked_only_for_a_pi_the_fpgas_pages_list(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "/fpgas/pi-sw2-p20.html" not in html
     for hostname in {p.hostname for p in listed()}:
-        assert f'<a href="/fpgas/{hostname}.html">its page</a>' in html
+        assert f'<a href="/fpgas/{hostname}.html">open</a>' in html
 
 
 @pytest.mark.django_db
@@ -254,3 +255,66 @@ def test_a_registration_that_does_not_fit_does_not_break_the_page(document):
     m.save()
     r = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True)
     assert r.status_code == 200 and next(h for h in fpga.hosts() if h.machine.pk == m.pk).board_type == fpga.NO_BOARD
+
+
+
+# --- one Pi dashboard (#94) ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_management_fpgas_sends_a_browser_to_fleet_where_the_host_has_it_keeping_the_filter():
+    r = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/?type=Acorn&condition=missing")
+    assert r.status_code == 302 and r["Location"] == "/fleet/?type=Acorn&condition=missing"
+    assert Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/")["Location"] == "/fleet/"
+    # tinytapeout.fpgas.online has no fleet pages: the dashboard is its /management/fpgas/
+    tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/")
+    assert tt.status_code == 200 and "<h1>Raspberry Pis</h1>" in tt.content.decode()
+
+
+def _rows(html):
+    """The Pi table's rows as [[cell text, ...]]."""
+    import html as htmllib
+    import re
+
+    body = html.split('class="mgmt-table mgmt-hosts', 1)[1].split("</table>", 1)[0]
+    rows = [[htmllib.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+            for tr in re.findall(r"<tr>(.*?)</tr>", body.split("<tbody>", 1)[1], re.S)]
+    assert rows and all(len(r) == 6 for r in rows)
+    return rows
+
+
+@pytest.mark.django_db
+def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_page(fleet):
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    rows = {r[1]: r for r in _rows(html)}
+    assert rows["pi-sw2-p33"][0] == "needs attention" and rows["pi-sw2-p33"][3] == "failed: pin-id, spiflash"
+    assert rows["pi-sw2-p46"][0] == "operational" and rows["pi-sw2-p46"][3] == "passed"
+    assert rows["pi-sw2-p46"][5] == "open"
+    assert rows["pi-sw2-p7"][3] == "running" and rows["pi-sw2-p7"][0] == "unknown"
+    assert rows["pi-sw2-p4"][0] == "missing" and rows["pi-sw2-p4"][4] == "7 h ago"
+    # every test and its result in the check cell's title; the reason the Pi is not offered in the state's title
+    import re
+
+    assert re.search(r'<td title="[^"]*pin-id=fail[^"]*spiflash=fail[^"]*">failed: pin-id, spiflash</td>', html)
+    assert 'title="its boot check failed: pin-id fail: the test exited 1' in html
+    assert 'class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable"' in html
+
+
+@pytest.mark.django_db
+def test_a_pi_seen_in_the_future_fails_its_own_cell_and_the_page_stands(fleet):
+    Machine.objects.filter(hostname="pi-sw2-p46").update(last_seen=timezone.now() + datetime.timedelta(hours=2))
+    r = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/")
+    assert r.status_code == 200
+    rows = {row[1]: row for row in _rows(r.content.decode())}
+    assert "future" in rows["pi-sw2-p46"][4] and rows["pi-sw2-p47"][4].endswith("ago")
+
+
+@pytest.mark.django_db
+def test_the_explanations_are_one_collapsed_key_after_the_tables(fleet):
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    body = html.split("<h1>Raspberry Pis</h1>", 1)[1]
+    assert '<details class="mgmt-key-box"><summary>Key</summary>' in body
+    assert "<details open" not in body
+    # no paragraph of prose between the heading and the tables
+    before_key = body.split("<details", 1)[0]
+    assert "operational</strong>" not in before_key and "<p>" not in before_key

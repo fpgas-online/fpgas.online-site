@@ -83,3 +83,9 @@
   .mgmt-glance td:nth-child(4) { grid-area: value; }
   .mgmt-glance td:nth-child(5) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
 }
+/* The Pi dashboard (#94): the filter shown as one line above the table; the explanations in one collapsed key
+   after the tables. */
+.mgmt-filter { margin: 0.8rem 0 0.3rem; font-size: 0.9em; }
+.mgmt-key-box { margin-top: 1rem; font-size: 0.9em; color: #444; }
+.mgmt-key-box summary { cursor: pointer; }
+.mgmt-key-box ul { margin: 0.4rem 0; padding-left: 1.2rem; }

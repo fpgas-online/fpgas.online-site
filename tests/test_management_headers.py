@@ -38,7 +38,7 @@ def c():
 def test_the_fpga_dashboard_headers_are_short(c):
     html = c.get("/management/fpgas/", follow=True).content.decode()
     assert headers(html, 0) == ["Type", "✓", "!", "✗", "?", "Σ"]  # one symbol over one-digit counts
-    assert headers(html, 1) == ["Pi", "Port", "Board", "Boot check", "Last seen", "Offered"]
+    assert headers(html, 1) == ["State", "Pi", "Board", "Boot check", "Seen", "Page"]
     # a screen reader hears each symbol's full name, not the symbol (#81)
     assert spoken(html, 0) == ["Type", "operational", "needs attention", "missing", "unknown", "total"]
     for title in ("operational", "needs attention", "missing", "unknown", "total"):
@@ -46,7 +46,7 @@ def test_the_fpga_dashboard_headers_are_short(c):
     # the key beside the table names every symbol, in the columns' order
     key = _text(html.split('<p class="mgmt-key">', 1)[1].split("</p>", 1)[0])
     assert key == "\u2713 operational \u00b7 ! needs attention \u00b7 \u2717 missing \u00b7 ? unknown \u00b7 \u03a3 total"
-    assert 'class="mgmt-table mgmt-summary mgmt-fit"' in html  # the counts table is as wide as its counts
+    assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped"' in html  # the counts table is as wide as its counts
 
 
 @pytest.mark.django_db

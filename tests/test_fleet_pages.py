@@ -17,11 +17,14 @@ def c():
 
 
 @pytest.mark.django_db
-def test_list_shows_machine_model_board_and_badge(c):
-    register_document(DOC)
+def test_the_fleet_front_page_is_the_pi_dashboard(c):
+    """#94: one dashboard of the Pis. /fleet/ is it; each Pi links to its own fleet page."""
+    m, _ = register_document(DOC)
     html = c.get("/fleet/").content.decode()
-    assert "pi-sw2-p47" in html and "acorn-cle-215+" in html
-    assert "Raspberry Pi 5" in html and "offline" in html  # no status yet
+    assert "<h1>Raspberry Pis</h1>" in html
+    assert f'<a href="/fleet/{m.serial}/">pi-sw2-p47</a>' in html
+    # registered, no status beat yet: not offered; a kind the registration names that the page does not know is "other"
+    assert "<td>other</td>" in html and "needs attention" in html
 
 
 @pytest.mark.django_db
