@@ -43,6 +43,10 @@
 .mgmt-ports td, .mgmt-ports tbody th { white-space: nowrap; }
 /* a long label breaks after a dot (its <wbr>), and nowhere else, when the table needs the room (#89) */
 .mgmt-ports td.mgmt-label { white-space: normal; }
+/* On a phone the port table keeps what says how a port is: the counters and MACs are left out (the key says so) */
+@media (max-width: 40rem) {
+  .mgmt-ports th:nth-child(n+9), .mgmt-ports td:nth-child(n+9) { display: none; }
+}
 /* #78: the port number stays in view while a narrow screen scrolls the table sideways. */
 .mgmt-ports tbody th { background: #fff; font-weight: normal; }
 .mgmt-ports tbody th, .mgmt-ports thead th:first-child { position: sticky; left: 0; z-index: 1; }

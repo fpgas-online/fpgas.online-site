@@ -132,7 +132,7 @@ def test_the_names_reverse_on_both_urlconfs():
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and "🔍" in row and row.count("<td></td>") >= 2
+    assert ">down<" in row and ">searching</td>" in row and row.count("<td></td>") >= 2
 
 
 @pytest.mark.django_db
@@ -290,15 +290,21 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert (ports[0]["poe"], ports[0]["poe_title"]) == ("3.5W", "delivering power")
-    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("🔍", "searching: PoE on, nothing drawing power")
+    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("searching", "PoE on, nothing drawing power")
 
 
-def test_poe_cells_are_watts_or_one_symbol():
+def test_poe_cells_are_watts_or_the_state_as_a_word():
+    """One form per column (the coordinator, 11 Oct 2026): the watts where power flows, else a word; no glyph that
+    needs a key."""
     assert page.poe_cell("delivering", 8.6) == ("8.6W", "delivering power")
-    for state in ("delivering", "searching", "disabled", "fault", "other", "something new"):
+    words = {state: page.poe_cell(state, None)[0] for state in ("delivering", "searching", "disabled", "fault", "other")}
+    assert words == {"delivering": "on", "searching": "searching", "disabled": "off", "fault": "fault",
+                     "other": "not known"}
+    assert page.poe_cell("something new", None)[0] == "not known"
+    assert page.poe_cell(None, None) == ("no PoE", "this port has no PoE")
+    for state in ("delivering", "searching", "disabled", "fault", "other", None):
         text, title = page.poe_cell(state, None)
-        assert len(text) == 1 and title and state not in text
-    assert page.poe_cell(None, None) == ("", "no PoE on this port")
+        assert text.replace(" ", "").isalpha() and title
 
 
 def test_link_speeds_are_short():
@@ -489,7 +495,8 @@ def test_a_switch_the_inventory_cannot_describe_fails_closed(monkeypatch, invent
     monkeypatch.setattr(page, "_inventory", lambda: inventory)
     c = Client(HTTP_HOST=HOSTS[0])
     sw = json.loads(c.get("/management/switches.json").content)["switches"][0]
-    assert all(p["label"] == "" and not p["can_power"] for p in sw["ports"])
+    assert all(p["label"] == "–" and not p["can_power"] for p in sw["ports"])
+    assert all(p["label_title"] == "labels hidden: the switch inventory could not be read" for p in sw["ports"])
     assert page.NO_INVENTORY_NOTE in sw["status"]
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
@@ -618,18 +625,17 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
 
 
 @pytest.mark.django_db
-def test_a_one_symbol_poe_cell_reaches_screen_readers(reader):
+def test_a_poe_cell_is_the_same_word_for_everyone(reader):
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ('<span aria-hidden="true">🔍</span><span class="mgmt-sr">searching: PoE on, nothing drawing power</span>'
-            in row)
+    assert '<td class="mgmt-poe" title="PoE on, nothing drawing power">searching</td>' in row
     row1 = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
-    assert "3.5W" in row1 and "aria-hidden" not in row1  # watts are text already
+    assert '<td class="mgmt-poe" title="delivering power">3.5W</td>' in row1
     script = html.split("<script>")[1].split("</script>")[0]
-    assert 'setAttribute("aria-hidden", "true")' in script and "mgmt-sr" in script
+    assert 'var poe = cell("td", p.poe);' in script and "poe_symbol" not in script
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert [p["poe_symbol"] for p in ports] == [False, False, True]
+    assert "poe_symbol" not in ports[0]
 
 
 # --- VLAN and GW columns ---
@@ -846,7 +852,10 @@ def test_a_long_label_may_break_after_a_dot_and_nowhere_else(monkeypatch):
     assert '<td class="mgmt-label">1/0/51.<wbr>sw-netgear-gsm7252ps-s1</td>' in c.get("/management/switches/").content.decode()
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1"
-    assert ports[0]["label_parts"] == ["1/0/51.", "sw-netgear-gsm7252ps-s1"] and ports[2]["label_parts"] == []
+    assert ports[0]["label_parts"] == ["1/0/51.", "sw-netgear-gsm7252ps-s1"]
+    # a port with no label says so, in the cell and its title
+    assert (ports[2]["label"], ports[2]["label_parts"]) == ("–", ["–"])
+    assert ports[2]["label_title"] == "the switch has no label for this port"
 
 
 @pytest.mark.django_db
@@ -858,3 +867,72 @@ def test_the_explanations_are_one_collapsed_key_after_the_switches(reader):
     assert body.index("<table") < body.index('<details class="mgmt-key-box">')
     assert 'class="mgmt-key"' not in body and "<details open" not in body
     assert "⏻ Power: off/on switches the board's PoE (board ports only)" in body
+
+
+
+# --- #102 review round -------------------------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_the_lldp_port_is_masked_as_a_label_is(gateway_host, monkeypatch):
+    """The neighbour's port id and description are free text it sends: the gateway's and the house device's names
+    in them are replaced as in a label (the review of #102)."""
+    views = make_views()
+    views[0].ports[2].port = 48  # the house uplink
+    views[0].ports[2].label = "uplink.upstreamhost.example.org"
+    views[0].ports[0].lldp_port = "B8:27:EB:E3:E7:E4"
+    views[0].ports[0].lldp_port_desc = "eth0-gwhost"
+    views[0].ports[1].lldp_port = "to.upstreamhost"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["lldp_port"] == "eth0-gateway" and ports[1]["lldp_port"] == "to.house uplink"
+    for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
+        assert "gwhost" not in body.lower() and "upstreamhost" not in body
+
+
+@pytest.mark.parametrize("given, shown", [
+    ("gwhost-eth0", "gateway-eth0"), ("eth0_gwhost", "eth0_gateway"), ("gwhost2", "gwhost2"), ("xgwhost", "xgwhost"),
+])
+def test_a_name_joined_by_a_hyphen_or_underscore_is_still_the_name(gateway_host, given, shown):
+    assert page.label(given) == shown
+
+
+@pytest.mark.django_db
+def test_the_house_device_is_masked_on_every_switch(monkeypatch):
+    views = make_views()
+    views[0].ports[2].port = 48
+    views[0].ports[2].label = "uplink.upstreamhost"
+    other = SwitchView(index=2, name="sw-2", model="S3300", reachable=True, error="", read_at=READ_AT, good_at=READ_AT,
+                       ports=[PortView(port=7, label="mirror.upstreamhost")])
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: [*views, other])
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec(), 2: spec(index=2, house_uplink_port=None)})
+    c = Client(HTTP_HOST=HOSTS[0])
+    sw2 = json.loads(c.get("/management/switches.json").content)["switches"][1]["ports"]
+    assert sw2[0]["label"] == "mirror.house uplink"
+    assert "upstreamhost" not in c.get("/management/switches/").content.decode()
+
+
+@pytest.mark.django_db
+def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader):
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    # READ_AT is 10:00 at +09:30 on 9 Oct: 11:00 in Adelaide (+10:30), days ago now
+    assert re.search(r'Read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span>\.', html)
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert "readat.textContent = s.read_ago; readat.title = s.read_at;" in script
+
+
+@pytest.mark.django_db
+def test_on_a_phone_the_counters_and_macs_are_left_out_and_the_key_says_so(reader):
+    import pathlib
+
+    from django.apps import apps
+
+    css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
+    assert ".mgmt-ports th:nth-child(n+9), .mgmt-ports td:nth-child(n+9) { display: none; }" in css
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    thead = html[html.index("<thead>"):html.index("</thead>")]
+    headers = re.findall(r'<th scope="col">', thead)
+    assert len(headers) == 12  # columns 9-12 are MACs, In, Out, Err
+    assert "On a phone the MACs, In, Out and Err columns are left out" in html
