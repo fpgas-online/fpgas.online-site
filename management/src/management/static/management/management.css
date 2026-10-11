@@ -33,12 +33,16 @@
 .mgmt-scroll { overflow-x: auto; max-width: 100%; }
 
 /* Switch port dashboard (#67) */
+/* its tables carry the full port labels (#89): the page may use the whole window, so no column scrolls out of view */
+.mgmt:has(.mgmt-ports) { max-width: none; }
 .mgmt-switch { margin: 1.2rem 0; }
 .mgmt-switch h2 { margin-bottom: 0.2rem; }
 .mgmt-dead .mgmt-status { color: #b00020; font-weight: bold; }
 .mgmt-problem { border: 1px solid #b00020; padding: 0.5rem 0.8rem; }
 .mgmt-ports td, .mgmt-ports th { font-size: 0.92em; }
 .mgmt-ports td, .mgmt-ports tbody th { white-space: nowrap; }
+/* a long label breaks after a dot (its <wbr>), and nowhere else, when the table needs the room (#89) */
+.mgmt-ports td.mgmt-label { white-space: normal; }
 /* #78: the port number stays in view while a narrow screen scrolls the table sideways. */
 .mgmt-ports tbody th { background: #fff; font-weight: normal; }
 .mgmt-ports tbody th, .mgmt-ports thead th:first-child { position: sticky; left: 0; z-index: 1; }

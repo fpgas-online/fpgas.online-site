@@ -318,11 +318,13 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # VLANs (all in the VLAN cell's title), and where the inventory is unknown a trunk cannot be told from a board
     board = spec is not NO_INVENTORY and port_role(spec, port.port) is None
     gw, gw_title = gw_cell(getattr(port, "pvid", None), netdevs) if board else (NONE, "not a board port")
-    return {
+    row = {
         "port": port.port,
         # fail closed where the inventory cannot say which port is the house uplink: no label at all
         "label": "" if spec is NO_INVENTORY else (HOUSE_UPLINK if role == HOUSE_UPLINK else label(port.label, house)),
         "label_title": role or "",
+        # the label's dot-separated parts: the page may break a long label after a dot, and only there
+        "label_parts": [],
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
         "vlan": vlan,
@@ -345,6 +347,9 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "tx": rate(port.tx_bps),
         "errors": f"{_count(port.rx_errors)} / {_count(port.tx_errors)}",
     }
+    parts = row["label"].split(".")
+    row["label_parts"] = [f"{part}." for part in parts[:-1]] + parts[-1:] if row["label"] else []
+    return row
 
 
 # --- VLANs (Tim, 2026-10-09): the port's VLAN, and the gateway's interface that carries it ---

@@ -29,7 +29,14 @@
   }
   function fill(tr, p, sw) {
     var th = cell("th", p.port); th.scope = "row"; tr.appendChild(th);
-    var lab = cell("td", p.label); if (p.label_title) { lab.title = p.label_title; } tr.appendChild(lab);
+    /* the label, breakable after each dot only (as the served table) */
+    var lab = document.createElement("td"); lab.className = "mgmt-label";
+    if (p.label_title) { lab.title = p.label_title; }
+    p.label_parts.forEach(function (part, i) {
+      if (i) { lab.appendChild(document.createElement("wbr")); }
+      lab.appendChild(document.createTextNode(part));
+    });
+    tr.appendChild(lab);
     var link = cell("td", p.link); link.className = p.link_up ? "mgmt-up" : "mgmt-down"; tr.appendChild(link);
     var vlan = cell("td", p.vlan); vlan.title = p.vlan_title; tr.appendChild(vlan);
     var gw = cell("td", p.gw); gw.title = p.gw_title; tr.appendChild(gw);
@@ -155,7 +162,7 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
     {% for p in s.ports %}
       <tr>
         <th scope="row">{{ p.port }}</th>
-        <td{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{{ p.label }}</td>
+        <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}{{ part }}{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
         <td title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td title="{{ p.gw_title }}">{{ p.gw }}</td>

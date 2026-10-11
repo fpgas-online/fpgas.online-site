@@ -416,7 +416,7 @@ def test_no_host_name_reaches_the_page_or_the_json(gateway_host, monkeypatch):
     c = Client(HTTP_HOST=HOSTS[0])
     for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
         assert "gwhost" not in body.lower() and "upstreamhost" not in body and "example.org" not in body
-        assert "eth-uplink.gateway" in body
+        assert "eth-uplink.gateway" in body.replace("<wbr>", "")  # the text a reader sees
 
 
 @pytest.mark.django_db
@@ -835,3 +835,15 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     assert power.startswith('<button type="button" class="mgmt-poe-button"') and 'class="mgmt-poe-msg"' in power
     script = html.split("<script>")[1].split("</script>")[0]
     assert 'power.className = "mgmt-power"' in script and "poe.appendChild(powerButton" not in script
+
+
+@pytest.mark.django_db
+def test_a_long_label_may_break_after_a_dot_and_nowhere_else(monkeypatch):
+    views = make_views()
+    views[0].ports[0].label = "1/0/51.sw-netgear-gsm7252ps-s1"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    c = Client(HTTP_HOST=HOSTS[0])
+    assert '<td class="mgmt-label">1/0/51.<wbr>sw-netgear-gsm7252ps-s1</td>' in c.get("/management/switches/").content.decode()
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1"
+    assert ports[0]["label_parts"] == ["1/0/51.", "sw-netgear-gsm7252ps-s1"] and ports[2]["label_parts"] == []
