@@ -5,10 +5,12 @@ page that shows the detail. The areas:
 
 * Boards: a row per Pi that is not offered (fleet.services.condition, the rule the FPGA hosts page uses), then one
   row for the offered ones;
-* Switches: per switch, the ports that are not as the inventory says (management.inventory_check), or one row saying
-  it is as the inventory says; a switch that does not answer is a failure row;
-* Boot checks: the newest check across the fleet, and how many Pis' newest check failed;
-* Browser test: the newest completed run of the e2e workflow for this site (management.e2e).
+* Switches: per switch, a row per kind of failure (management.inventory_check; the failures of a known cause in a row
+  of their own, so a new fault does not hide behind it), or one row saying it is as the inventory says; a switch that
+  does not answer is a failure row;
+* Boot checks: the newest check across the fleet (a Pi whose check failed is a Boards row);
+* Browser test: the newest completed run of the e2e workflow for this site (management.e2e); one older than
+  e2e.STALE_AFTER is a failure: the test stopped running.
 
 Fail loud: a value the code does not know (a condition, a check name, a boot check result, a time in the future) is an
 exception with the reason; the exception becomes a failure row naming it, never an "unknown" cell. An area whose
@@ -17,6 +19,7 @@ data cannot be read at all is one failure row for the area."""
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from django.db.models import Max
 from django.shortcuts import render
@@ -42,6 +45,9 @@ CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,39}")
 BAD_RESULTS = {"fail": "failed", "error": "could not finish", "missing": "found no board", "unknown": "unreadable"}
 MAX_VALUE = 200  # characters of a row's value; the rest is in its title
 TITLE_PORTS = 20  # failing ports named in a switch row's title
+# A switch row's item for each kind of failure (management.inventory_check.KINDS).
+KIND_WORDS = {"pvid": "PVID not the port's VLAN", "untagged": "untagged VLANs not as the inventory says",
+              "trunk": "gateway trunk lacks board VLANs", "unread": "not read"}
 
 
 @dataclass
@@ -78,8 +84,14 @@ def _short(text):
 
 
 def _row(severity, state, area, item, value, link="", title="", moment=None):
+    """One row. A time the page cannot show (further in the future than clocks differ) makes this item's row a
+    failure naming it, and only this item's: the area's other rows stand."""
+    try:
+        seen = ago_time(moment)
+    except ValueError as exc:
+        return Row(ERROR, FAILING, area, item, _short(str(exc)), link, str(exc))
     return Row(severity, state, area, item, _short(value), link, title or (value if len(value) > MAX_VALUE else ""),
-               ago_time(moment), int(moment.timestamp()) if moment else 0)
+               seen, int(moment.timestamp()) if moment else 0)
 
 
 def _error_row(area, exc, link=""):
@@ -146,6 +158,17 @@ def _boards(request, now):
 # --- Switches -------------------------------------------------------------------------------------------------
 
 
+def _read_time(iso):
+    """The reader's ISO 8601 read time as a datetime (None when it gave none); ValueError for one without an offset
+    or not ISO 8601."""
+    if not iso:
+        return None
+    moment = datetime.fromisoformat(iso)  # ValueError names the text
+    if timezone.is_naive(moment):
+        raise ValueError(f"switch read time {iso!r} has no offset")
+    return moment
+
+
 def _switches(request, now):
     page = _url(request, "management-switches")
     try:
@@ -157,27 +180,42 @@ def _switches(request, now):
     for view in views:
         number = f"Switch {view.index}" if view.index is not None else "Switch"
         link = f"{page}#switch-{view.index}" if page and view.index is not None else page
+        try:
+            read = _read_time(view.read_at)
+        except ValueError as exc:
+            rows.append(_row(ERROR, FAILING, "Switches", number, str(exc), link, str(exc)))
+            continue
         if not view.reachable:
             reason = view.error or "not answering"
-            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, f"not answering: {reason}", link, reason))
+            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, f"not answering: {reason}", link, reason, read))
             continue
         spec = switch_page._spec(inventory, view.index)
         if spec is None or spec is switch_page.NO_INVENTORY:
             why = "the switch inventory does not describe this switch, so its ports cannot be checked"
-            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, "not in the inventory", link, why))
+            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, "not in the inventory", link, why, read))
             continue
         failures = inventory_check.check(spec, view)
         if not failures:
             rows.append(_row(FINE, OK, "Switches", number, "as the inventory says", link,
                              "board ports have their own PVID and are untagged in it only; the gateway trunk "
-                             "carries every board VLAN"))
+                             "carries every board VLAN", read))
             continue
-        shown = "; ".join(f.text for f in failures[:TITLE_PORTS])
-        title = shown + (f"; and {len(failures) - TITLE_PORTS} more" if len(failures) > TITLE_PORTS else "")
-        causes = sorted({inventory_check.KNOWN_CAUSES[f.vlan] for f in failures if f.vlan in inventory_check.KNOWN_CAUSES})
-        rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number,
-                         f"{len(failures)} not as the inventory says, first: {failures[0].text}", link,
-                         "; ".join([title, *causes])))
+        # a row per kind of failure, and the failures of a known cause in a row of their own: a new fault does not
+        # hide behind a known one
+        groups = {}
+        for failure in failures:
+            known = failure.vlan if failure.vlan in inventory_check.KNOWN_CAUSES else None
+            groups.setdefault((failure.kind, known), []).append(failure)
+        # an unexplained fault above the known ones
+        for (kind, known), group in sorted(groups.items(), key=lambda g: g[0][1] is not None):
+            words = f"also untagged in VLAN {known}" if known is not None else KIND_WORDS[kind]
+            shown = "; ".join(f.text for f in group[:TITLE_PORTS])
+            title = shown + (f"; and {len(group) - TITLE_PORTS} more" if len(group) > TITLE_PORTS else "")
+            if known is not None:
+                title += "; " + inventory_check.KNOWN_CAUSES[known]
+            more = f" and {len(group) - 1} more" if len(group) > 1 else ""
+            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", f"{number}: {words}", f"{group[0].text}{more}",
+                             link, title, read))
     return rows
 
 
@@ -208,14 +246,9 @@ def _boot_checks(request, now):
     results = [(machine, event, _result(event)) for machine, event in checks]
     machine, event, result = results[-1]  # the newest by arrival
     name = machine.hostname.split(".")[0] or machine.serial
-    failed = sorted(m.hostname.split(".")[0] or m.serial for m, _, r in results if r != "pass")
-    when = event.ts
-    return [
-        _row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
-             "newest check", f"{name}: {result}", _url(request, "fleet-detail", machine.serial), "", when),
-        _row(CHECK_FAILED if failed else FINE, FAILING if failed else OK, "Boot checks", "Pis whose newest check failed",
-             f"{len(failed)}: {', '.join(failed)}" if failed else "0", _url(request, "management-fpgas")),
-    ]
+    # the newest check only: whether checks are running at all. A Pi whose check failed is a Boards row already.
+    return [_row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
+                 "newest check", f"{name}: {result}", _url(request, "fleet-detail", machine.serial), "", event.ts)]
 
 
 # --- Browser test ---------------------------------------------------------------------------------------------
@@ -228,6 +261,9 @@ def _browser_test(request, now):
         run = e2e.latest(site)
     except e2e.E2EError as exc:
         return [_row(E2E_FAILED, FAILING, "Browser test", item, f"cannot be read: {exc}", e2e.WORKFLOW_URL, str(exc))]
+    if now - run["completed_at"] > e2e.STALE_AFTER:  # the test stopped running: an old result says nothing now
+        value = f"no completed run for {duration(now - run['completed_at'])} (the last {run['result']})"
+        return [_row(E2E_FAILED, FAILING, "Browser test", item, value, e2e.WORKFLOW_URL, "", run["completed_at"])]
     passed = run["result"] == "passed"
     return [_row(FINE if passed else E2E_FAILED, OK if passed else FAILING, "Browser test", item, run["result"],
                  run["url"], "", run["completed_at"])]

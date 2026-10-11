@@ -81,6 +81,14 @@ def test_every_management_page_extends_one_base_that_owns_the_header():
     assert '<nav class="mgmt-crumbs"' in base
 
 
+
+@pytest.mark.django_db
+def test_the_landing_has_no_crumb_to_itself_and_a_page_below_it_has_its_parent(welland):
+    # a crumb "Management" directly above the heading "Management" says the same word twice (the coordinator, 11 Oct)
+    assert "mgmt-crumbs" not in welland.get("/management/").content.decode()
+    below = welland.get("/management/fpgas/").content.decode()
+    assert re.search(r'<nav class="mgmt-crumbs"[^>]*>\s*<a href="/management/">Management</a> &rsaquo; FPGA hosts', below)
+
 # --- the state at a glance (Tim, 11 Oct 2026) ---------------------------------------------------------------------
 
 READ_AT = "2026-10-11T10:00:00+10:30"
@@ -114,9 +122,15 @@ def switches(monkeypatch):
     return install
 
 
+def ago_z(**delta):
+    """A GitHub time (UTC, "Z") that long before now."""
+    return (timezone.now() - datetime.timedelta(**delta)).astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @pytest.fixture
 def browser(monkeypatch):
-    fake = Github({1: [job("shared (welland)", "success")]})
+    # an hour ago: within e2e.STALE_AFTER whenever the tests run
+    fake = Github({1: [job("shared (welland)", "success", at=ago_z(hours=1))]})
     monkeypatch.setattr("management.e2e.requests.get", fake)
     return fake
 
@@ -208,11 +222,21 @@ def test_vlan_21_on_the_board_ports_is_a_failure_row_per_switch_and_names_the_po
     failure, not special-cased away."""
     switches([as_inventory_says(1, extra_untagged=21), as_inventory_says(2, extra_untagged=21)])
     rows = table()
-    row = find(rows, item="Switch 1")
+    row = find(rows, item="Switch 1: also untagged in VLAN 21")
     assert row["state"] == "failing" and row["href"] == "/management/switches/#switch-1"
-    assert row["value"] == "3 not as the inventory says, first: port 1 also untagged in VLAN 21"
+    assert row["value"] == "port 1 also untagged in VLAN 21 and 2 more"
     assert "fpgas-online/fpgas.online-poe#16" in row["title"] and "port 2 also untagged in VLAN 21" in row["title"]
-    assert find(rows, item="Switch 2")["state"] == "failing"
+    assert row["seen"].endswith(" ago")  # when the switch was read
+    assert find(rows, item="Switch 2: also untagged in VLAN 21")["state"] == "failing"
+
+
+@pytest.mark.django_db
+def test_a_new_fault_does_not_hide_behind_the_known_vlan_21_one(switches, browser):
+    view = as_inventory_says(1, extra_untagged=21)
+    view.ports[1].untagged_vlans = [*view.ports[1].untagged_vlans, 99]
+    switches([view])
+    items = [r["item"] for r in table() if r["area"] == "Switches"]
+    assert items == ["Switch 1: untagged VLANs not as the inventory says", "Switch 1: also untagged in VLAN 21"]
 
 
 @pytest.mark.django_db
@@ -221,9 +245,20 @@ def test_a_wrong_pvid_and_a_trunk_without_a_vlan_are_failures_and_the_first_kind
     view.ports[0].pvid = 1
     view.ports[2].tagged_vlans = [2101]
     switches([view])
-    row = find(table(), item="Switch 1")
-    assert row["value"] == "2 not as the inventory says, first: port 1 PVID 1, not 2101"
-    assert "gateway trunk lacks 2 board VLANs" in row["title"]
+    rows = table()
+    assert find(rows, item="Switch 1: PVID not the port's VLAN")["value"] == "port 1 PVID 1, not 2101"
+    trunk = find(rows, item="Switch 1: gateway trunk lacks board VLANs")
+    assert trunk["value"] == "gateway trunk lacks 2 board VLANs, first 2102"
+
+
+@pytest.mark.django_db
+def test_a_switch_read_time_that_is_not_iso_is_a_failure_row_for_that_switch_only(switches, browser):
+    bad = as_inventory_says(1)
+    bad.read_at = "yesterday"
+    switches([bad, as_inventory_says(2)])
+    rows = table()
+    assert find(rows, item="Switch 1")["state"] == "failing" and "yesterday" in find(rows, item="Switch 1")["value"]
+    assert find(rows, item="Switch 2")["state"] == "ok"
 
 
 @pytest.mark.django_db
@@ -243,14 +278,34 @@ def test_switches_that_cannot_be_read_at_all_are_one_failure_row(browser):
 
 
 @pytest.mark.django_db
-def test_the_newest_boot_check_and_the_count_of_pis_whose_newest_check_failed(fleet, switches, browser):
+def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, browser):
     switches([as_inventory_says(1)])
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
     assert newest["value"].startswith("pi-sw2-p10: pass") and newest["state"] == "ok"
-    count = find(rows, area="Boot checks", item="Pis whose newest check failed")
-    # the cell names the Pis, not only a count (a long list is cut to MAX_VALUE, the whole of it in the title)
-    assert (count["state"], count["value"], count["href"]) == ("failing", "1: pi-sw2-p33", "/management/fpgas/")
+    # the Pi whose check failed is its own Boards row; it is not counted again under Boot checks
+    assert [r["item"] for r in rows if r["area"] == "Boot checks"] == ["newest check"]
+    assert find(rows, area="Boards", item="pi-sw2-p33: TT (not identified)")["state"] == "failing"
+
+
+@pytest.mark.django_db
+def test_a_boot_check_from_the_future_fails_its_row_only(fleet, switches, browser):
+    switches([as_inventory_says(1)])
+    event = BootEvent.objects.filter(stage="fpga-verified").latest("id")
+    BootEvent.objects.filter(id=event.id).update(ts=timezone.now() + datetime.timedelta(hours=2))
+    rows = table()
+    newest = find(rows, area="Boot checks", item="newest check")
+    assert newest["state"] == "failing" and "future" in newest["value"]
+    assert find(rows, area="Boards", item="offered")["state"] == "ok"  # the other areas stand
+
+
+@pytest.mark.django_db
+def test_a_browser_test_older_than_three_scheduled_runs_is_a_failure(switches, monkeypatch):
+    switches([as_inventory_says(1)])
+    monkeypatch.setattr("management.e2e.requests.get", Github({1: [job("shared (welland)", "success", at=ago_z(hours=8))]}))
+    row = find(table(), area="Browser test")
+    assert (row["state"], row["value"]) == ("failing", "no completed run for 8 h (the last passed)")
+    assert row["href"] == "https://github.com/fpgas-online/fpgas.online-e2e-tests/actions/workflows/e2e.yml"
 
 
 @pytest.mark.django_db
@@ -264,7 +319,7 @@ def test_the_browser_test_row_is_the_newest_run_for_this_site(switches, browser)
 @pytest.mark.django_db
 def test_a_failed_browser_test_is_a_failing_row(switches, monkeypatch):
     switches([as_inventory_says(1)])
-    monkeypatch.setattr("management.e2e.requests.get", Github({1: [job("shared (welland)", "failure")]}))
+    monkeypatch.setattr("management.e2e.requests.get", Github({1: [job("shared (welland)", "failure", at=ago_z(hours=1))]}))
     assert find(table(), area="Browser test")["state"] == "failing"
     assert find(table(), area="Browser test")["value"] == "failed"
 
