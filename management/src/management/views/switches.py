@@ -20,11 +20,11 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
+from fleet.timeago import ago
 
 from .. import localtime
 
 REFRESH_SECONDS = 15
-MACS_SHOWN = 3
 NONE = "–"  # shown for a value that is not known
 # An LLDP port ID that is a MAC address (a Pi announces its own): it says nothing the MAC column does not.
 MAC_ID = re.compile(r"^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}$")
@@ -96,26 +96,25 @@ def when(iso):
     return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Tim, 2026-10-09: the PoE column is "8.6W" where power flows, else one character; the word is in the cell's
-# title, and the legend (POE_LEGEND) is once in each switch's key line, above its table.
-POE_SYMBOLS = {
-    "delivering": ("●", "delivering power"),  # only when the switch gives no watts
-    "searching": ("⋯", "searching: PoE on, nothing drawing power"),
-    "disabled": ("○", "PoE off"),
-    "fault": ("⚠", "PoE fault"),
-    "other": ("?", "PoE state not known"),
+# The PoE column: the watts where power flows, else the state as a word (#89; the coordinator, 11 Oct 2026: one
+# form per column, and a glyph that needs a key is a word). The longer meaning is the cell's title.
+POE_WORDS = {
+    "delivering": ("on", "delivering power; the switch gives no watts"),  # only when the switch gives no watts
+    "searching": ("searching", "PoE on, nothing drawing power"),
+    "disabled": ("off", "PoE off"),
+    "fault": ("fault", "PoE fault"),
+    "other": ("not known", "the switch reports a PoE state this page does not know"),
 }
-NO_POE = ("", "no PoE on this port")
-POE_LEGEND = [(symbol, title) for symbol, title in POE_SYMBOLS.values()]
+NO_POE = ("no PoE", "this port has no PoE")
 
 
 def poe_cell(state, watts):
-    """(text, title) of a port's PoE cell: "8.6W" on a delivering port, else one symbol from POE_SYMBOLS."""
+    """(text, title) of a port's PoE cell: "8.6W" on a delivering port, else its state's word (POE_WORDS)."""
     if state == "delivering" and watts is not None:
         return f"{watts:.1f}W", "delivering power"
     if not state:
         return NO_POE
-    return POE_SYMBOLS.get(state, POE_SYMBOLS["other"])
+    return POE_WORDS.get(state, POE_WORDS["other"])
 
 
 def link_speed(mbps):
@@ -182,19 +181,36 @@ def neighbour(name):
     return _host(name) or DEVICE
 
 
-def label(text):
-    """A port label (ifAlias, "<role>.<host>") for the public page: the role, and the host only when it may be shown
-    ("eth-uplink.gateway", "1/0/50.sw-netgear-gsm7252ps-s1"); otherwise the role alone ("eth-uplink"). A label with no
-    host part is shown unless it is one of the gateway's names."""
+HOUSE_UPLINK = "house uplink"
+
+
+def _token(name):
+    """A pattern for `name` as a whole part of a label: not inside a longer word ("gwhost" is not in "gwhost2"), but
+    joined by any other character ("gwhost-eth0", "eth0_gwhost")."""
+    return rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])"
+
+
+def house_names(spec, ports):
+    """The names the house uplink's own label gives the device beyond it ("uplink.<device>" gives "<device>"): a
+    private device's name, masked wherever a label of this switch repeats it."""
+    if spec is None or spec is NO_INVENTORY or spec.house_uplink_port is None:
+        return ()
+    text = next((p.label or "" for p in ports if p.port == spec.house_uplink_port), "")
+    _, dot, host = text.partition(".")
+    return (host, host.split(".")[0]) if dot and host else ()
+
+
+def label(text, house=()):
+    """A port label (ifAlias) for the public page, in full (Tim, #89: "report the full name"; rule 20), with two
+    names replaced: the gateway's own host names by "gateway", and the house uplink's device by "house uplink"
+    (the coordinator's ruling, 11 Oct 2026). The switch's stale names are fpgas-online/fpgas.online-poe#14."""
     if not text:
         return ""
-    role, dot, host = text.partition(".")
-    if _host(role) == GATEWAY:  # a host-first label ("<gateway>.eth0")
-        role = GATEWAY
-    if not dot:
-        return role
-    shown = _host(host)
-    return f"{role}.{shown}" if shown else role
+    for name in sorted(_gateway_names(), key=len, reverse=True):
+        text = re.sub(_token(name), GATEWAY, text, flags=re.IGNORECASE)
+    for name in sorted((n for n in house if n), key=len, reverse=True):
+        text = re.sub(_token(name), HOUSE_UPLINK, text, flags=re.IGNORECASE)
+    return text
 
 
 def switch_name(name):
@@ -250,7 +266,7 @@ def port_role(spec, port):
     if port in tuple(spec.downstream_trunk_ports or ()):
         return "switch trunk"
     if port == spec.house_uplink_port:
-        return "house uplink"
+        return HOUSE_UPLINK
     return None if port <= spec.access_ports else INFRASTRUCTURE
 
 
@@ -274,11 +290,29 @@ def _can_power(request, view, spec):
     return board_ports(request, view.index, ports) if ports else set()
 
 
-def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None):
+def lldp_port(port, house=()):
+    """The port the neighbour reports: its port id, or, where that is its MAC (lldpd's default on the Pis, which
+    the MACs column already shows), its port description, the interface name (fpgas-online/fpgas.online-infra#268
+    makes the Pis announce the name as the id itself)."""
+    ident = port.lldp_port or ""
+    if not MAC_ID.match(ident):
+        return label(ident, house)
+    # a poe older than fpgas-online/fpgas.online-poe#19 has no lldp_port_desc: the cell is empty, as before #89
+    return label(getattr(port, "lldp_port_desc", None) or "", house)
+
+
+def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, switches=None,
+         house=()):
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
-    shown = ", ".join(macs[:MACS_SHOWN]) + (f" +{len(macs) - MACS_SHOWN}" if len(macs) > MACS_SHOWN else "")
+    # one MAC and how many more: the column is as wide as one value (#89); every MAC is in the title
+    shown = (macs[0] + (f" +{len(macs) - 1}" if len(macs) > 1 else "")) if macs else ""
+    role = port_role(spec, port.port) if spec is not NO_INVENTORY else None
+    neighbour_name = neighbour(name)
+    # a neighbour that is one of this installation's switches by its number, as the page titles it; the sysName in
+    # the title
+    short = (switches or {}).get(name.split(".")[0].lower()) if name else None
     poe, poe_title = poe_cell(port.poe_state, port.poe_watts)
     speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
     vlan, vlan_title = vlan_cell(port, vlan_names)
@@ -286,9 +320,15 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # VLANs (all in the VLAN cell's title), and where the inventory is unknown a trunk cannot be told from a board
     board = spec is not NO_INVENTORY and port_role(spec, port.port) is None
     gw, gw_title = gw_cell(getattr(port, "pvid", None), netdevs) if board else (NONE, "not a board port")
-    return {
+    row = {
         "port": port.port,
-        "label": "" if spec is NO_INVENTORY else (port_role(spec, port.port) or label(port.label)),
+        # fail closed where the inventory cannot say which port is the house uplink: no label at all
+        "label": (NONE if spec is NO_INVENTORY else
+                  HOUSE_UPLINK if role == HOUSE_UPLINK else label(port.label, house) or NONE),
+        "label_title": ("labels hidden: the switch inventory could not be read" if spec is NO_INVENTORY else
+                        role or ("" if port.label else "the switch has no label for this port")),
+        # the label's dot-separated parts: the page may break a long label after a dot, and only there
+        "label_parts": [],
         "link": ("up" if port.link_up else "down") + speed,
         "link_up": bool(port.link_up),
         "vlan": vlan,
@@ -297,18 +337,22 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "gw_title": gw_title,
         "poe": poe,
         "poe_title": poe_title,
-        "poe_symbol": len(poe) == 1,  # one symbol: hidden from screen readers, whose text is the title's words
         "can_power": can_power,
         # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
         "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
-        "lldp_name": neighbour(name),
+        "lldp_name": short or neighbour_name,
+        "lldp_title": neighbour_name if short else "",
         "lldp_url": _fleet_url(request, serial) if serial else "",
-        "lldp_port": "" if MAC_ID.match(port.lldp_port or "") else (port.lldp_port or ""),
+        "lldp_port": lldp_port(port, house),
         "macs": shown,
+        "macs_title": ", ".join(macs) if len(macs) > 1 else "",
         "rx": rate(port.rx_bps),
         "tx": rate(port.tx_bps),
         "errors": f"{_count(port.rx_errors)} / {_count(port.tx_errors)}",
     }
+    parts = row["label"].split(".")
+    row["label_parts"] = [f"{part}." for part in parts[:-1]] + parts[-1:] if row["label"] else []
+    return row
 
 
 # --- VLANs (Tim, 2026-10-09): the port's VLAN, and the gateway's interface that carries it ---
@@ -419,6 +463,20 @@ def title(view):
     return f"{number}: {switch_name(view.name)} ({(view.model or '').upper()})"
 
 
+def _ago(iso):
+    """"12 s ago" for the reader's read time (the exact time is read_at, the title); a time the page cannot show is
+    said instead (fail loud, in the cell)."""
+    if not iso:
+        return ""
+    try:
+        moment = datetime.fromisoformat(iso)
+        if timezone.is_naive(moment):
+            raise ValueError(f"the read time {iso!r} has no offset")
+        return ago(moment)
+    except ValueError as exc:
+        return str(exc)
+
+
 def _switch_dicts(request):
     views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
@@ -427,6 +485,10 @@ def _switch_dicts(request):
     vlan_names = _vlan_names(views)
     netdevs = gateway_vlan_netdevs()  # once per request, not per port
     powered = {id(v): _can_power(request, v, specs[id(v)]) for v in views}
+    # the house uplink's device, masked wherever any switch's label names it (not only its own switch's)
+    house = tuple(dict.fromkeys(n for v in views for n in house_names(specs[id(v)], v.ports)))
+    # {a switch's own name, lower case: "switch N"}: a neighbour that is one of these is shown by its number
+    switches = {(v.name or "").split(".")[0].lower(): f"switch {v.index}" for v in views if v.name and v.index is not None}
     return [{
         "index": v.index,
         "title": title(v),
@@ -435,7 +497,9 @@ def _switch_dicts(request):
         "reachable": bool(v.reachable),
         "status": _status(v) + (f" ({NO_INVENTORY_NOTE})" if specs[id(v)] is NO_INVENTORY else ""),
         "read_at": when(v.read_at),
-        "ports": [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs) for p in v.ports],
+        "read_ago": _ago(v.read_at),
+        "ports": [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs, switches,
+                       house) for p in v.ports],
     } for v in views]
 
 
@@ -447,7 +511,7 @@ def switches(request):
     except _Unavailable as exc:
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
-        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(), "poe_legend": POE_LEGEND,
+        "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(),
         "power_url": POWER_URL,
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
