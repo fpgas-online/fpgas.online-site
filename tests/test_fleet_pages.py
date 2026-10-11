@@ -22,9 +22,9 @@ def test_the_fleet_front_page_is_the_pi_dashboard(c):
     m, _ = register_document(DOC)
     html = c.get("/fleet/").content.decode()
     assert "<h1>Raspberry Pis</h1>" in html
-    # the Pi by its label (no revision code registered: its registered model, shortened, and its serial), linked to
-    # its own page; the port apart
-    assert f'<a href="/fleet/{m.serial}/">Pi 5 abc123</a>' in html and ">sw2 p47</td>" in html
+    # the Pi by its label, linked to its own page; the port apart. This registration names a Raspberry Pi but sends
+    # no revision code, so rpi-hwid cannot make its label: the page says so
+    assert f'<a href="/fleet/{m.serial}/">abc123 (no revision code registered)</a>' in html and ">sw2 p47</td>" in html
     # registered, no status beat yet: not offered; its board as the registration names it
     assert "<td>acorn-cle-215+</td>" in html and "needs attention" in html
 
