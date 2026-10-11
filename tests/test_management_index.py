@@ -193,12 +193,12 @@ def test_a_pi_that_is_not_offered_is_a_row_with_its_board_and_the_reason_and_the
     boards = [r for r in rows if r["area"] == "Boards"]
     assert len(boards) == 5  # four Pis that are not offered, and one row for the rest
     serial = {m.hostname: m.serial for m in Machine.objects.all()}
-    bad = find(boards, item="Pi pi-sw2-p33 on sw2 p33: TT board, not identified 4df39a7a6856f86f")
+    bad = find(boards, item="pi-sw2-p33 (no model registered) on sw2 p33: TT board, not identified 4df39a7a6856f86f")
     assert (bad["state"], bad["value"], bad["href"]) == ("failing", "pin-id, spiflash", f"/fleet/{serial['pi-sw2-p33']}/")
-    missing = find(boards, item="Pi 10000000f536c51f on sw2 p4: acorn-willow 0x0054b48664b04854")
+    missing = find(boards, item="10000000f536c51f (no model registered) on sw2 p4: acorn-willow 0x0054b48664b04854")
     assert (missing["state"], missing["value"]) == ("missing", "missing 7 h")
-    assert find(boards, item="Pi 10000000f77b8415 on sw2 p10: acorn-holly 0x00200c8664b04854")["value"] == "stopped checking in"
-    waiting = find(boards, item="Pi pi-sw2-p7 on sw2 p7: no board")
+    assert find(boards, item="10000000f77b8415 (no model registered) on sw2 p10: acorn-holly 0x00200c8664b04854")["value"] == "stopped checking in"
+    waiting = find(boards, item="pi-sw2-p7 (no model registered) on sw2 p7: no board")
     assert (waiting["state"], waiting["value"]) == ("waiting", "boot check running")
     offered = find(boards, item="offered")
     assert (offered["state"], offered["value"], offered["href"]) == ("ok", "2 boards offered", "/fleet/")
@@ -298,10 +298,10 @@ def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, brows
     switches([as_inventory_says(1)])
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
-    assert newest["value"].startswith("Pi 10000000f77b8415 on sw2 p10: pass") and newest["state"] == "ok"
+    assert newest["value"].startswith("10000000f77b8415 (no model registered) on sw2 p10: pass") and newest["state"] == "ok"
     # the Pi whose check failed is its own Boards row; it is not counted again under Boot checks
     assert [r["item"] for r in rows if r["area"] == "Boot checks"] == ["newest check"]
-    assert find(rows, area="Boards", item="Pi pi-sw2-p33 on sw2 p33: TT board, not identified 4df39a7a6856f86f")["state"] == "failing"
+    assert find(rows, area="Boards", item="pi-sw2-p33 (no model registered) on sw2 p33: TT board, not identified 4df39a7a6856f86f")["state"] == "failing"
 
 
 @pytest.mark.django_db
@@ -364,7 +364,7 @@ def test_the_github_answer_is_cached_between_page_views(switches, browser):
 def test_freshness_is_x_ago_with_the_exact_local_time_in_a_title(fleet, switches, browser):
     switches([as_inventory_says(1)])
     rows = table()
-    missing = find(rows, item="Pi 10000000f536c51f on sw2 p4: acorn-willow 0x0054b48664b04854")
+    missing = find(rows, item="10000000f536c51f (no model registered) on sw2 p4: acorn-willow 0x0054b48664b04854")
     assert missing["seen"] == "7 h ago"
     event = BootEvent.objects.filter(stage="fpga-verified").latest("id")
     local = event.ts.astimezone(zoneinfo.ZoneInfo("Australia/Adelaide"))
@@ -439,7 +439,7 @@ def test_a_condition_the_page_does_not_know_is_a_failure_row_naming_it(switches,
         return hosts
 
     monkeypatch.setattr(fpga, "hosts", odd)
-    row = find(table(), item="Pi pi-sw2-p5 on sw2 p5: acorn-willow 0x0054b48664b04854")
+    row = find(table(), item="pi-sw2-p5 (no model registered) on sw2 p5: acorn-willow 0x0054b48664b04854")
     assert (row["state"], row["value"]) == ("failing", "unknown condition 'sulking'")
 
 
@@ -448,10 +448,10 @@ def test_a_check_name_or_result_the_page_does_not_know_is_a_failure_row_naming_i
     switches([as_inventory_says(1)])
     detail = {**REAL["pi-sw2-p33"], "board0_tests": "Bad_Name!=fail"}
     pi("pi-sw2-p5", detail)
-    row = find(table(), item="Pi pi-sw2-p5 on sw2 p5: TT board, not identified 4df39a7a6856f86f")
+    row = find(table(), item="pi-sw2-p5 (no model registered) on sw2 p5: TT board, not identified 4df39a7a6856f86f")
     assert row["state"] == "failing" and "check name 'Bad_Name!'" in row["value"]
     pi("pi-sw2-p6", {"result": "sulking"})
-    row = find(table(), item="Pi pi-sw2-p6 on sw2 p6: no board")
+    row = find(table(), item="pi-sw2-p6 (no model registered) on sw2 p6: no board")
     assert row["state"] == "failing" and "boot check result 'sulking'" in row["value"]
 
 
@@ -484,8 +484,8 @@ def test_two_pis_last_seen_on_one_port_are_two_rows_each_named_by_its_label(swit
     pi("pi-sw2-p48", REAL["pi-sw2-p46"], seen_ago=60 * 2, serial="10000000aaaa0048")
     pi("pi-sw2-p48", REAL["pi-sw2-p47"], seen_ago=60 * 3, serial="10000000bbbb0048")
     items = sorted(r["item"] for r in table() if r["area"] == "Boards" and "p48" in r["item"])
-    assert items == ["Pi 10000000aaaa0048 on sw2 p48: acorn-willow 0x0054b48664b04854",
-                     "Pi 10000000bbbb0048 on sw2 p48: acorn-holly 0x00200c8664b04854"]
+    assert items == ["10000000aaaa0048 (no model registered) on sw2 p48: acorn-willow 0x0054b48664b04854",
+                     "10000000bbbb0048 (no model registered) on sw2 p48: acorn-holly 0x00200c8664b04854"]
 
 
 @pytest.mark.django_db
@@ -498,4 +498,4 @@ def test_a_pi_with_no_report_this_boot_is_named_with_the_board_its_registration_
     m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
         "fpga": {"boards": [{"kind": "acorn-cle-215+"}]}})
     m.save()
-    assert find(table(), area="Boards", item="Pi 10000000cccc0038 on sw1 p38: acorn-cle-215+")["state"] == "failing"
+    assert find(table(), area="Boards", item="10000000cccc0038 (no model registered) on sw1 p38: acorn-cle-215+")["state"] == "failing"

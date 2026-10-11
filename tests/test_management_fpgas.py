@@ -127,7 +127,7 @@ def test_no_pi_registered_says_so():
 @pytest.mark.django_db
 def test_the_fleet_pages_are_linked_only_where_the_host_has_them(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert '<a href="/fleet/pi-sw2-p46/">Pi pi-sw2-p46</a>' in welland
+    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46 (no model registered)</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "pi-sw2-p46" in tt and 'href="/fleet/' not in tt
 
@@ -300,7 +300,7 @@ def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
     # columns: State, Pi (its label), Port, Board (its label), Boot check, Seen, Offered
     assert by_port["sw2 p33"][0] == "needs attention" and by_port["sw2 p33"][4] == "failed: pin-id, spiflash"
     assert by_port["sw2 p46"][0] == "operational" and by_port["sw2 p46"][4] == "passed"
-    assert by_port["sw2 p46"][1] == "Pi pi-sw2-p46" and by_port["sw2 p46"][3].startswith("acorn-")
+    assert by_port["sw2 p46"][1] == "pi-sw2-p46 (no model registered)" and by_port["sw2 p46"][3].startswith("acorn-")
     assert by_port["sw2 p46"][6] == "yes"
     # why a Pi is not offered, in the index's words
     assert by_port["sw2 p33"][6] == "no: pin-id, spiflash" and by_port["sw2 p10"][6] == "no: stopped checking in"
@@ -352,7 +352,7 @@ def test_a_pi_is_named_by_its_label_from_its_registered_revision():
     m.latest_snapshot.document = {"machine": {"revision_code": "zz"}}  # one rpi-hwid cannot read: said
     assert fpga.pi_label(m) == "Pi 285df3f84af242d0 (revision 'zz' not readable)"
     m.latest_snapshot.document = {"machine": {}}  # none registered: the serial alone
-    assert fpga.pi_label(m) == "Pi 285df3f84af242d0"
+    assert fpga.pi_label(m) == "285df3f84af242d0 (no model registered)"
 
 
 def test_a_board_is_named_by_its_label_where_its_check_read_one():
@@ -401,3 +401,28 @@ def test_the_reload_switch_keeps_the_filter_and_the_redirect_keeps_every_paramet
     assert 'href="?condition=attention">reload every minute</a>' in off
     r = c.get("/management/fpgas/?type=TT+board%2C+not+identified&condition=attention&reload=off")
     assert r["Location"] == "/fleet/?type=TT+board%2C+not+identified&condition=attention&reload=off"
+
+
+@pytest.mark.parametrize("model, short", [
+    ("Raspberry Pi 3 Model B Plus Rev 1.3", "Pi 3 Model B Plus"),
+    ("Raspberry Pi 5 Model B Rev 1.0", "Pi 5 Model B"),
+    ("Raspberry Pi 5", "Pi 5"),
+    ("Xunlong Orange Pi PC", "Orange Pi PC"),
+    ("Some Other Board", "Some Other Board"),
+])
+def test_a_registered_model_is_shortened_as_rpi_hwids_label_does(model, short):
+    assert fpga.short_model(model) == short
+
+
+@pytest.mark.django_db
+def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
+    """#92: an Orange Pi has no Pi revision code; it is not a "Pi", it is its model."""
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p20", serial="02c0008164c2a1b0")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="o", document={
+        "machine": {"serial": m.serial, "model": "Xunlong Orange Pi PC"}})
+    m.save()
+    assert fpga.pi_label(m) == "Orange Pi PC 02c0008164c2a1b0"
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert '<a href="/fleet/02c0008164c2a1b0/">Orange Pi PC 02c0008164c2a1b0</a>' in html

@@ -2,6 +2,7 @@
 by board type. Everything comes from the fleet registry (each Pi's registration and boot events); nothing here
 is a remembered table of which board is on which port."""
 
+import re
 from dataclasses import dataclass, field
 
 from django.db.models import F
@@ -10,6 +11,7 @@ from fleet.models import BootEvent, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
 from rpi_hwid import names
+from rpi_hwid.boards import MAKER_PREFIX
 from rpi_hwid.revision import decode_revision
 
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
@@ -61,20 +63,39 @@ def board_label(board):
     return f"{title} {ident}" if ident else title
 
 
+# The maker's name before a model the label does not repeat: rpi-hwid's MAKER_PREFIX ("Xunlong Orange Pi PC" is
+# "Orange Pi PC"), and a Raspberry Pi is a "Pi" as rpi-hwid's label header has it.
+MODEL_PREFIXES = (*MAKER_PREFIX.values(), )
+MODEL_REVISION = re.compile(r"\s+Rev\s+[\w.]+$")
+
+
+def short_model(model):
+    """A registered model string as a label says it: "Raspberry Pi 3 Model B Plus Rev 1.3" is "Pi 3 Model B Plus",
+    "Xunlong Orange Pi PC" is "Orange Pi PC" (the board's revision is in rpi-hwid's subtitle, not its name)."""
+    text = MODEL_REVISION.sub("", _text(model, 80).strip())
+    for prefix in MODEL_PREFIXES:
+        text = text.removeprefix(prefix)
+    return "Pi " + text.removeprefix("Raspberry Pi ") if text.startswith("Raspberry Pi ") else text
+
+
 def pi_label(machine):
-    """A Pi as its label names it: "Pi 5 2 GB 285df3f84af242d0", from the revision code its registration sent
-    (rpi-hwid's decode_revision) and its serial. With no revision registered: "Pi" and the serial; with one
-    rpi-hwid cannot read, that is said in the label (fail loud: the page does not quietly lose it)."""
+    """A Pi (or other board host) as its label names it: "Pi 5 2 GB 285df3f84af242d0", from the revision code its
+    registration sent (rpi-hwid's decode_revision) and its serial. A host with no revision code (an Orange Pi) by its
+    registered model, shortened as rpi-hwid's label does ("Orange Pi PC 02c0008164c2..."). A revision code rpi-hwid
+    cannot read, or no model at all, is said in the label (fail loud: the page does not quietly lose it)."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
-    code = facts.get("revision_code") if isinstance(facts, dict) else None
-    if not isinstance(code, str) or not code:
-        return f"Pi {machine.serial}"
-    try:
-        rev = decode_revision(code)
-    except (ValueError, KeyError):
-        return f"Pi {machine.serial} (revision {_text(code, 20)!r} not readable)"
-    return f"Pi {rev.model} {rev.memory} {machine.serial}"
+    facts = facts if isinstance(facts, dict) else {}
+    code, model = facts.get("revision_code"), facts.get("model")
+    if isinstance(code, str) and code:
+        try:
+            rev = decode_revision(code)
+        except (ValueError, KeyError):
+            return f"Pi {machine.serial} (revision {_text(code, 20)!r} not readable)"
+        return f"Pi {rev.model} {rev.memory} {machine.serial}"
+    if isinstance(model, str) and model.strip():
+        return f"{short_model(model)} {machine.serial}"
+    return f"{machine.serial} (no model registered)"
 
 
 NONE = "–"  # a value that is not known, as the switch page shows it
