@@ -51,7 +51,7 @@ def test_the_fpga_dashboard_headers_are_short(c):
 
 @pytest.mark.django_db
 def test_the_index_headers_are_short(c):
-    assert headers(c.get("/management/").content.decode(), 0) == ["Page", "Shows", "Data from"]
+    assert headers(c.get("/management/").content.decode(), 0) == ["State", "Area", "Item", "Value", "Seen"]
 
 
 def _rules(css):

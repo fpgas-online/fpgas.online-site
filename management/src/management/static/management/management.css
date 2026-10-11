@@ -64,3 +64,4 @@
 .mgmt-table th[aria-sort="descending"] .mgmt-sort::after { content: " \25BC"; }
 /* The state word of a row on the index (ok / failing / missing / waiting): the colour is not the only signal. */
 .mgmt-glance td { vertical-align: baseline; }
+.mgmt-links { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
