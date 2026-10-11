@@ -52,9 +52,6 @@ def pis(request):
         return _page(request)
 
 
-NONE = "–"  # a value that is not known, as the switch page shows it
-
-
 @dataclass
 class Line:
     """A Pi's row as the page shows it."""
@@ -94,12 +91,6 @@ def _offered(host, now, pages):
     return ("yes", page) if page else ("no: no visitor page", "")
 
 
-def _port(host):
-    if host.pi is None:
-        return NONE
-    return f"sw{host.pi.switch} p{host.pi.port}" if host.pi.switch else f"p{host.pi.port}"
-
-
 def _visitor_pages(request):
     """{("pi", hostname): its /fpgas/ page, ("tt", usb serial): its Tiny Tapeout board page}: the visitor pages of
     this installation, as those pages list them."""
@@ -123,7 +114,7 @@ def _line(host, now, pages):
         seen, error = "", str(exc)
     stamp = host.machine.last_seen
     offered, page = _offered(host, now, pages)
-    return Line(host, fpga.pi_label(host.machine), _port(host), check, check_title, seen, error,
+    return Line(host, fpga.pi_label(host.machine), fpga.port_text(host.machine), check, check_title, seen, error,
                 int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition], offered, page)
 
 
