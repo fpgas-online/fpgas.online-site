@@ -169,3 +169,12 @@ def test_a_label_field_no_known_event_sends_is_said_loud():
     assert _owner("board", "model") == ("registration", "the Pi's registration (its fleet agent)")
     short, why = _owner("board", "warp_drive")
     assert short == "" and "warp_drive" in why and "behind rpi-hwid" in why
+
+
+
+@pytest.mark.django_db
+def test_a_host_with_no_check_and_no_events_says_so_outside_the_tables():
+    m = pi("pi-sw2-p22")  # registered, nothing reported
+    html = page(m.serial)
+    assert "<p>No boot check has reported.</p>" in html and "<p>No events recorded for this boot.</p>" in html
+    assert "colspan" not in html  # no sentence rows inside a sortable table

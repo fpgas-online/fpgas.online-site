@@ -44,6 +44,7 @@
 {% endif %}
 
 <h2>Boot checks</h2>
+{% if history %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col">When</th><th scope="col">Boot</th><th scope="col">Result</th><th scope="col">Boards</th></tr></thead>
   <tbody>
@@ -54,11 +55,12 @@
       <td>{{ word }}</td>
       <td>{{ summary|default:"–" }}</td>
     </tr>
-  {% empty %}
-    <tr><td colspan="4">No boot check has reported.</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
+{% else %}
+<p>No boot check has reported.</p>
+{% endif %}
 
 <h2>Labels</h2>
 {% if labels %}
@@ -85,15 +87,17 @@
 {% endfor %}
 
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
+{% if events %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-events">
   <thead><tr><th scope="col">Time</th><th scope="col">Stage</th><th scope="col">Detail</th></tr></thead>
   <tbody>
   {% for event, detail in events %}
     <tr><td>{{ event.ts|date:"H:i:s" }}</td><td>{{ event.stage }}</td><td><code>{{ detail }}</code></td></tr>
-  {% empty %}
-    <tr><td colspan="3">No events recorded for this boot.</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
+{% else %}
+<p>No events recorded for this boot.</p>
+{% endif %}
 <p class="mgmt-key">Times are {{ zone }}.</p>
 {% endblock %}
