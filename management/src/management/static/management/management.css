@@ -53,3 +53,14 @@
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
 .mgmt-poe-msg:empty { display: none; }
 /* (screen-reader text in a one-symbol cell: .mgmt-sr, defined once above) */
+
+/* Table manners (Tim, 9 Oct 2026; RULES 22), shared by every management table that opts in with these classes.
+   Zebra stripes: the served order is still readable, and a row stays one row on a phone. */
+.mgmt-table.mgmt-striped tbody tr:nth-child(even) { background: #f4f4f4; }
+/* Sortable columns (table.js): a button in the header, an arrow on the column that orders the table. */
+.mgmt-table th .mgmt-sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+                            text-align: left; }
+.mgmt-table th[aria-sort="ascending"] .mgmt-sort::after { content: " \25B2"; }
+.mgmt-table th[aria-sort="descending"] .mgmt-sort::after { content: " \25BC"; }
+/* The state word of a row on the index (ok / failing / missing / waiting): the colour is not the only signal. */
+.mgmt-glance td { vertical-align: baseline; }
