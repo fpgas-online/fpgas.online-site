@@ -439,3 +439,48 @@ def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert '<a href="/fleet/02c0008164c2a1b0/">Orange Pi PC 02c0008164c2a1b0</a>' in html
     assert 'title="model Xunlong Orange Pi PC; host name pi-sw2-p20' in html  # the registered model in full
+
+
+# --- /fleet/registry.json: the hosts for programs (the e2e suite, probes) ------------------------------------------
+
+
+@pytest.mark.django_db
+def test_the_registry_json_lists_the_same_hosts_as_the_fleet_table(fleet, settings):
+    import re
+
+    settings.MANAGEMENT_SITE_NAME = "welland"
+    c = Client(HTTP_HOST="welland.fpgas.online")
+    data = c.get("/fleet/registry.json").json()
+    table = set(re.findall(r'<a href="/fleet/([^/"]+)/">', c.get("/fleet/").content.decode()))
+    assert {m["serial"] for m in data["machines"]} == table and len(table) == 6
+    assert data["site"] == "welland" and data["generated_at"].endswith("+00:00")
+
+
+@pytest.mark.django_db
+def test_a_registry_entry_carries_what_a_program_needs(fleet, settings):
+    from fleet.models import HardwareSnapshot
+
+    settings.MANAGEMENT_SITE_NAME = "welland"
+    m = Machine.objects.get(hostname="pi-sw2-p46")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="c", document={
+        "machine": {"serial": m.serial, "revision_code": "c04170"}, "peripherals": {"cameras": ["imx219"]}})
+    m.save()
+    data = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/registry.json").json()
+    by_host = {e["hostname"]: e for e in data["machines"]}
+    p46 = by_host["pi-sw2-p46"]
+    assert (p46["label"], p46["port"], p46["condition"], p46["offered"]) == (
+        "Pi 5 4 GB pi-sw2-p46", "sw2 p46", "operational", True)
+    assert p46["check"]["result"] == "pass" and p46["check"]["at"]
+    assert p46["boards"][0]["label"].startswith("acorn-") and p46["boards"][0]["id"]
+    assert p46["cameras"] == ["imx219"]
+    # what the site does not know is null: no cameras said, no check started
+    assert by_host["pi-sw2-p47"]["cameras"] is None
+    assert by_host["pi-sw2-p7"]["check"]["result"] == "verifying"
+    p33 = by_host["pi-sw2-p33"]
+    assert p33["offered"] is False and p33["boards"][0]["tests"]["pin-id"] == "fail"
+
+
+@pytest.mark.django_db
+def test_the_registry_json_answers_without_a_login_and_is_not_on_tinytapeout():
+    assert Client(HTTP_HOST="welland.fpgas.online").get("/fleet/registry.json").status_code == 200
+    assert Client(HTTP_HOST="tinytapeout.fpgas.online").get("/fleet/registry.json").status_code == 404

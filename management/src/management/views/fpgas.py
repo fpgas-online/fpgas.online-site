@@ -17,7 +17,7 @@ from fleet.timeago import ago_time
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import fpga, localtime
+from .. import e2e, fpga, localtime
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -160,10 +160,12 @@ def _cameras(machine):
 
 def registry_json(request):
     """/fleet/registry.json: every registered host, for programs (the e2e suite's protection check and camera step,
-    probes). The page /fleet/ is for people and may change its layout; this is the contract. Times are ISO 8601 UTC.
+    the coordinator's probe). The page /fleet/ is for people and may change its layout; this is the contract.
+    Times are ISO 8601 with their offset (UTC). A field the site does not know is null, never guessed.
 
-    {"machines": [{"serial", "hostname", "label", "port", "condition", "check", "boards": [label, ...],
-                   "offered": bool, "last_seen", "cameras": [...] | null}, ...]}"""
+    {"site", "generated_at", "machines": [{"serial", "hostname", "label", "port", "condition", "offered",
+      "boards": [{"label", "type", "id", "result", "tests": {name: result}}],
+      "check": {"result", "at"}, "last_seen", "cameras": [...] | null}]}"""
     now = timezone.now()
     machines = []
     for host in fpga.hosts(now):
@@ -174,10 +176,11 @@ def registry_json(request):
             "label": fpga.pi_label(m),
             "port": fpga.port_text(m),
             "condition": host.condition_title,
-            "check": host.state,
-            "boards": [b["label"] for b in host.boards],
             "offered": host.condition == OPERATIONAL,
+            "boards": [{"label": b["label"], "type": b["title"], "id": b["id"] or None, "result": b["result"],
+                        "tests": dict(b["tests"])} for b in host.boards],
+            "check": {"result": host.state or None, "at": host.checked.isoformat() if host.checked else None},
             "last_seen": m.last_seen.isoformat() if m.last_seen else None,
             "cameras": _cameras(m),
         })
-    return JsonResponse({"machines": machines})
+    return JsonResponse({"site": e2e.site_name(), "generated_at": now.isoformat(), "machines": machines})
