@@ -90,6 +90,9 @@
 .mgmt-key-box summary { cursor: pointer; }
 .mgmt-key-box ul { margin: 0.4rem 0; padding-left: 1.2rem; }
 .mgmt-hosts .badge { white-space: nowrap; }
+.mgmt-summary { margin-bottom: 1rem; }
+/* a time and a port are one value each: they do not break */
+.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6) { white-space: nowrap; }
 /* On a phone each Pi is a block: the state and the Pi; its port and board; its check; whether offered, when seen. */
 @media (max-width: 40rem) {
   .mgmt-hosts thead { display: none; }
@@ -106,4 +109,13 @@
   .mgmt-hosts td:nth-child(5) { grid-area: check; }
   .mgmt-hosts td:nth-child(6) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
   .mgmt-hosts td:nth-child(7) { grid-area: offered; font-size: 0.85em; }
+  /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
+  .mgmt-summary thead { display: none; }
+  .mgmt-summary, .mgmt-summary tbody { display: block; }
+  .mgmt-summary tr { display: flex; flex-wrap: wrap; gap: 0.1rem 0.8rem; padding: 0.3rem 0.6rem;
+                     border: 1px solid #ccc; border-top: 0; }
+  .mgmt-summary tr:first-child { border-top: 1px solid #ccc; }
+  .mgmt-table.mgmt-summary td { border: 0; padding: 0; text-align: left; }
+  .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
+  .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }

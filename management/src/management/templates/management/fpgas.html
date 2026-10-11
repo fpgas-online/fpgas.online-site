@@ -12,12 +12,12 @@
   <tbody>
   {% for type, counts, n in summary %}
     <tr><td>{{ type }}</td>
-      {% for c, title in conditions %}<td class="mgmt-n mgmt-{{ c }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
-      <td class="mgmt-n"><a href="?type={{ type|urlencode }}">{{ n }}</a></td></tr>
+      {% for c, title in conditions %}<td class="mgmt-n mgmt-{{ c }}" data-label="{{ title }}">{% for k, v in counts.items %}{% if k == c %}{% if v %}<a href="?type={{ type|urlencode }}&amp;condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      <td class="mgmt-n" data-label="all"><a href="?type={{ type|urlencode }}">{{ n }}</a></td></tr>
   {% endfor %}
     <tr class="mgmt-total"><td>all</td>
-      {% for c, title in conditions %}<td class="mgmt-n">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
-      <td class="mgmt-n"><a href="?">{{ everything }}</a></td></tr>
+      {% for c, title in conditions %}<td class="mgmt-n" data-label="{{ title }}">{% for k, v in total.items %}{% if k == c %}{% if v %}<a href="?condition={{ c }}">{{ v }}</a>{% else %}0{% endif %}{% endif %}{% endfor %}</td>{% endfor %}
+      <td class="mgmt-n" data-label="all"><a href="?">{{ everything }}</a></td></tr>
   </tbody>
 </table></div>
 
