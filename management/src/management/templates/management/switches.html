@@ -135,17 +135,12 @@
 {% block crumb %} &rsaquo; Switch ports{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
-<p>Every switch and every port, read from the switches by the gateway at most every {{ refresh_seconds }} seconds.
-This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.</p>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.counter0 }}{% endif %}">
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read at <span class="mgmt-readat">{{ s.read_at }}</span>.</p>
-  <p class="mgmt-key"># port number; LLDP the neighbour the port sees; In / Out traffic; Err errors in / out.
-  VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down).
-  PoE: watts drawn{% for symbol, title in poe_legend %}; {{ symbol }} {{ title }}{% endfor %}. ⏻ Power: off/on switches the board's PoE (board ports only).</p>
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
@@ -182,4 +177,12 @@ This page refreshes itself; without JavaScript, reload it. Times are {{ zone }}.
   </div>
 </section>
 {% endfor %}
+<details class="mgmt-key-box"><summary>Key</summary>
+<ul>
+  <li># port number; Label the switch's own label for the port (its role in the title); LLDP the neighbour the port sees and the port it reports; MACs one address and how many more (all in the title); In / Out traffic; Err errors in / out.</li>
+  <li>VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down).</li>
+  <li>PoE: watts drawn{% for symbol, title in poe_legend %}; {{ symbol }} {{ title }}{% endfor %}. ⏻ Power: off/on switches the board's PoE (board ports only).</li>
+  <li>Read from the switches by the gateway at most every {{ refresh_seconds }} seconds; the page refreshes itself (without JavaScript, reload it). Times are {{ zone }}.</li>
+</ul>
+</details>
 {% endblock %}

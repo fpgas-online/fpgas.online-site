@@ -847,3 +847,14 @@ def test_a_long_label_may_break_after_a_dot_and_nowhere_else(monkeypatch):
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1"
     assert ports[0]["label_parts"] == ["1/0/51.", "sw-netgear-gsm7252ps-s1"] and ports[2]["label_parts"] == []
+
+
+@pytest.mark.django_db
+def test_the_explanations_are_one_collapsed_key_after_the_switches(reader):
+    """#94 item 5: the tables come first; no paragraph above them and no key line per switch."""
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    body = html.split("<h1>Switch ports</h1>", 1)[1]
+    assert body.count('<details class="mgmt-key-box"><summary>Key</summary>') == 1
+    assert body.index("<table") < body.index('<details class="mgmt-key-box">')
+    assert 'class="mgmt-key"' not in body and "<details open" not in body
+    assert "⏻ Power: off/on switches the board's PoE (board ports only)" in body
