@@ -199,3 +199,19 @@ def test_the_site_name_is_a_setting_else_the_first_label_of_the_domain(settings)
     settings.MANAGEMENT_SITE_NAME = "Not A Site"
     with pytest.raises(ImproperlyConfigured):
         e2e.site_name()
+
+
+def test_a_request_that_wins_the_lock_after_another_stored_its_answer_does_not_read_again(github, monkeypatch):
+    from django.core.cache import caches
+
+    fake = github({1: [job("shared (welland)", "failure")]})
+    answer = {"run": {"result": "passed", "completed_at": "2026-10-11T05:34:28+00:00", "url": "u"}}
+    real_add = caches["poe"].add
+
+    def add_after_the_other_stored(key, value, timeout=None):  # the other request finished just before this lock
+        caches["poe"].set("management-e2e-welland", answer)
+        return real_add(key, value, timeout)
+
+    monkeypatch.setattr(caches["poe"], "add", add_after_the_other_stored)
+    assert e2e.latest("welland")["result"] == "passed"
+    assert fake.calls == []
