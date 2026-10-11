@@ -78,7 +78,7 @@
 </details>
 {% endfor %}
 
-<h2>Events of this boot</h2>
+<h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-events">
   <thead><tr><th scope="col">Time</th><th scope="col">Stage</th><th scope="col">Detail</th></tr></thead>
   <tbody>

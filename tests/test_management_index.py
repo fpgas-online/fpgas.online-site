@@ -62,8 +62,8 @@ def test_management_is_not_linked_from_the_public_pages(welland, tt, settings):
     """#94, Tim: the management section is public by its address, not linked from the visitors' pages."""
     settings.DOMAIN_NAME = "welland.fpgas.online"
     Machine.objects.create(serial="s1", site="welland", hostname="pi-sw2-p4", last_seen=timezone.now())
-    # the visitors' pages on each host, and a Pi's own fleet page (the fleet look, without the section)
-    for response in (tt.get("/"), welland.get("/fpgas/"), welland.get("/fleet/s1/")):
+    # the visitors' pages on each host
+    for response in (tt.get("/"), welland.get("/fpgas/")):
         assert response.status_code == 200
         html = response.content.decode()
         assert '>Management</a>' not in html and '>management</a>' not in html
@@ -71,6 +71,9 @@ def test_management_is_not_linked_from_the_public_pages(welland, tt, settings):
     assert 'aria-current="page">Management</a>' not in tt.get("/management/").content.decode()
     # the pages of the section lead back to its landing: /fleet/ is the Pi dashboard, one of them
     assert '<a href="/management/">Management</a> &rsaquo; Raspberry Pis' in welland.get("/fleet/").content.decode()
+    # a host's own page is one of them too (#93), under the Pi dashboard
+    assert ('<a href="/management/">Management</a> &rsaquo; <a href="/fleet/">Raspberry Pis</a> &rsaquo;'
+            in welland.get("/fleet/s1/").content.decode())
 
 
 def test_every_management_page_extends_one_base_that_owns_the_header():

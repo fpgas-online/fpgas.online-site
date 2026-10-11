@@ -3,6 +3,7 @@ a status beat within CHECKED_IN_WITHIN) and fpgas-verify's `fpga-verified`
 boot event for the boot it is running now says "pass"."""
 
 import datetime
+import re
 
 import pytest
 from django.test import Client
@@ -120,7 +121,9 @@ def test_the_fleet_pages_show_the_check(c):
     machine("ccc")
     html = c.get("/fleet/").content.decode()  # the Pi dashboard (#94): the check of each Pi's boot as words
     assert "<td>running</td>" in html and "<td>found no board</td>" in html and "<td>not started</td>" in html
-    assert 'class="badge verifying">verifying<' in c.get("/fleet/aaa/").content.decode()
+    # a host's own page: the condition badge, and the check of this boot as a word (#93)
+    aaa = c.get("/fleet/aaa/").content.decode()
+    assert re.search(r'<span class="badge mgmt-unknown"[^>]*>checking</span>', aaa) and "<td>running</td>" in aaa
     assert "not started" in c.get("/fleet/ccc/").content.decode()
 
 

@@ -1,11 +1,10 @@
 import re
 
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404
 
 from . import hwid
 from .models import Machine
-
 
 # What a download's file name may hold, all of it (fullmatch: `$` would also
 # match before a trailing newline). A host name that is anything else -- it

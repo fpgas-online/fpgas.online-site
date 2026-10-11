@@ -32,6 +32,7 @@ BOARD_DOCS = {
     "tt-asic": ("boards/tt-asic/", None, {}),
 }
 HISTORY = 20  # boot checks listed, newest first
+EVENTS = 50  # events listed for a host that has said no boot id
 # Who sends each label field rpi-hwid still needs (#93 item 4: "the page says which stage owes each field").
 REGISTRATION_FIELDS = {"model", "serial", "revision", "memory", "macs"}
 
@@ -121,7 +122,9 @@ def _page(request, entry):
     check, check_title = _check(host)
     offered, page = _offered(host, now, _visitor_pages(request))
     snapshots = list(entry.snapshots.order_by("-first_seen"))
-    events = entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id else []
+    # this boot's events; a host that has said no boot id yet: its newest events, of any boot
+    events = (entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id
+              else entry.events.order_by("-ts")[:EVENTS])
     return render(request, "management/machine.html", {
         "machine": entry, "host": host,
         "label": fpga.pi_label(entry), "model": fpga.registered_model(entry), "port": fpga.port_text(entry),
