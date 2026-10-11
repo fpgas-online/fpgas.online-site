@@ -118,10 +118,8 @@ def test_the_fleet_pages_show_the_check(c):
     verifying(m)
     verified(m, "missing", minutes=5)
     machine("ccc")
-    html = c.get("/fleet/").content.decode()
-    assert 'class="badge verifying">verifying<' in html
-    assert 'class="badge offline">missing<' in html
-    assert "not started" in html
+    html = c.get("/fleet/").content.decode()  # the Pi dashboard (#94): the check of each Pi's boot as words
+    assert "<td>running</td>" in html and "<td>found no board</td>" in html and "<td>not started</td>" in html
     assert 'class="badge verifying">verifying<' in c.get("/fleet/aaa/").content.decode()
     assert "not started" in c.get("/fleet/ccc/").content.decode()
 

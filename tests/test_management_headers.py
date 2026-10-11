@@ -36,17 +36,16 @@ def c():
 
 @pytest.mark.django_db
 def test_the_fpga_dashboard_headers_are_short(c):
-    html = c.get("/management/fpgas/").content.decode()
-    assert headers(html, 0) == ["Type", "✓", "!", "✗", "?", "Σ"]  # one symbol over one-digit counts
-    assert headers(html, 1) == ["Pi", "Port", "Board", "Boot check", "Last seen", "Offered"]
-    # a screen reader hears each symbol's full name, not the symbol (#81)
-    assert spoken(html, 0) == ["Type", "operational", "needs attention", "missing", "unknown", "total"]
-    for title in ("operational", "needs attention", "missing", "unknown", "total"):
-        assert f'title="{title}"' in html  # and a mouse shows it
-    # the key beside the table names every symbol, in the columns' order
-    key = _text(html.split('<p class="mgmt-key">', 1)[1].split("</p>", 1)[0])
-    assert key == "\u2713 operational \u00b7 ! needs attention \u00b7 \u2717 missing \u00b7 ? unknown \u00b7 \u03a3 total"
-    assert 'class="mgmt-table mgmt-summary mgmt-fit"' in html  # the counts table is as wide as its counts
+    html = c.get("/management/fpgas/", follow=True).content.decode()
+    # the count columns' headers are the State badges the Pi rows carry, so they need no key (the coordinator,
+    # 11 Oct 2026: no symbols with a legend)
+    assert headers(html, 0) == ["Type", "operational", "needs attention", "missing", "checking", "all"]
+    for condition, title in (("operational", "operational"), ("attention", "needs attention"),
+                             ("missing", "missing"), ("unknown", "checking")):
+        assert f'<th scope="col"><span class="badge mgmt-{condition}">{title}</span></th>' in html
+    assert 'class="mgmt-key"' not in html
+    assert headers(html, 1) == ["State", "Pi", "Port", "Board", "Boot check", "Seen", "Offered"]
+    assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped"' in html  # the counts table is as wide as its counts
 
 
 @pytest.mark.django_db

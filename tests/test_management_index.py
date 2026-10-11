@@ -50,22 +50,27 @@ def test_the_index_answers_without_a_login_on_every_host(host):
 def test_each_host_has_its_own_look(welland, tt):
     w = welland.get("/management/").content.decode()
     assert '<a href="/fleet/">fleet</a>' in w and "tt-nav" not in w  # the fleet pages' look
-    assert '<a href="/fleet/">Fleet registry</a>' in w
+    assert '<a href="/fleet/">Raspberry Pis</a>' in w
     t = tt.get("/management/").content.decode()
     assert 'class="tt-nav"' in t and "Tiny Tapeout" in t  # tinytapeout's own look
-    # no fleet pages on this host: the registry is not linked from here
-    assert "Fleet registry" not in t
+    # no fleet pages on this host: the Pis are its own /management/fpgas/
+    assert '<a href="/management/fpgas/">Raspberry Pis</a>' in t and 'href="/fleet/' not in t
 
 
 @pytest.mark.django_db
-def test_management_is_in_each_hosts_navigation(welland, tt, settings):
+def test_management_is_not_linked_from_the_public_pages(welland, tt, settings):
+    """#94, Tim: the management section is public by its address, not linked from the visitors' pages."""
     settings.DOMAIN_NAME = "welland.fpgas.online"
-    page = tt.get("/").content.decode()
-    assert '<a href="/management/" >Management</a>' in page
-    here = tt.get("/management/").content.decode()
-    assert '<a href="/management/" class="is-active" aria-current="page">Management</a>' in here
-    assert '<a href="/management/">management</a>' in welland.get("/fleet/").content.decode()
-    assert '<a href="/management/">Management</a>' in welland.get("/fpgas/").content.decode()
+    Machine.objects.create(serial="s1", site="welland", hostname="pi-sw2-p4", last_seen=timezone.now())
+    # the visitors' pages on each host, and a Pi's own fleet page (the fleet look, without the section)
+    for response in (tt.get("/"), welland.get("/fpgas/"), welland.get("/fleet/s1/")):
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert '>Management</a>' not in html and '>management</a>' not in html
+    # the management landing on tinytapeout: no nav entry for itself either
+    assert 'aria-current="page">Management</a>' not in tt.get("/management/").content.decode()
+    # the pages of the section lead back to its landing: /fleet/ is the Pi dashboard, one of them
+    assert '<a href="/management/">Management</a> &rsaquo; Raspberry Pis' in welland.get("/fleet/").content.decode()
 
 
 def test_every_management_page_extends_one_base_that_owns_the_header():
@@ -86,8 +91,8 @@ def test_every_management_page_extends_one_base_that_owns_the_header():
 def test_the_landing_has_no_crumb_to_itself_and_a_page_below_it_has_its_parent(welland):
     # a crumb "Management" directly above the heading "Management" says the same word twice (the coordinator, 11 Oct)
     assert "mgmt-crumbs" not in welland.get("/management/").content.decode()
-    below = welland.get("/management/fpgas/").content.decode()
-    assert re.search(r'<nav class="mgmt-crumbs"[^>]*>\s*<a href="/management/">Management</a> &rsaquo; FPGA hosts', below)
+    below = welland.get("/management/switches/").content.decode()
+    assert re.search(r'<nav class="mgmt-crumbs"[^>]*>\s*<a href="/management/">Management</a> &rsaquo; Switch ports', below)
 
 # --- the state at a glance (Tim, 11 Oct 2026) ---------------------------------------------------------------------
 
@@ -188,7 +193,7 @@ def test_a_pi_that_is_not_offered_is_a_row_with_its_board_and_the_reason_and_the
     boards = [r for r in rows if r["area"] == "Boards"]
     assert len(boards) == 5  # four Pis that are not offered, and one row for the rest
     serial = {m.hostname: m.serial for m in Machine.objects.all()}
-    bad = find(boards, item="pi-sw2-p33: TT (not identified)")
+    bad = find(boards, item="pi-sw2-p33: TT board, not identified")
     assert (bad["state"], bad["value"], bad["href"]) == ("failing", "pin-id, spiflash", f"/fleet/{serial['pi-sw2-p33']}/")
     missing = find(boards, item="pi-sw2-p4: Acorn")
     assert (missing["state"], missing["value"]) == ("missing", "missing 7 h")
@@ -296,7 +301,7 @@ def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, brows
     assert newest["value"].startswith("pi-sw2-p10: pass") and newest["state"] == "ok"
     # the Pi whose check failed is its own Boards row; it is not counted again under Boot checks
     assert [r["item"] for r in rows if r["area"] == "Boot checks"] == ["newest check"]
-    assert find(rows, area="Boards", item="pi-sw2-p33: TT (not identified)")["state"] == "failing"
+    assert find(rows, area="Boards", item="pi-sw2-p33: TT board, not identified")["state"] == "failing"
 
 
 @pytest.mark.django_db
@@ -381,7 +386,7 @@ def test_the_table_is_striped_sortable_and_plain(fleet, switches, browser):
     # a plain list of the dashboards at the foot, no descriptions
     foot = html.split('<ul class="mgmt-links">')[1].split("</ul>")[0]
     assert re.findall(r"<a href=\"([^\"]*)\">([^<]*)</a>", foot) == [
-        ("/management/switches/", "Switch ports"), ("/management/fpgas/", "FPGA hosts"), ("/fleet/", "Fleet registry")]
+        ("/management/switches/", "Switch ports"), ("/fleet/", "Raspberry Pis")]
     assert "coming" not in html and "SNMP" not in html
 
 
@@ -443,7 +448,7 @@ def test_a_check_name_or_result_the_page_does_not_know_is_a_failure_row_naming_i
     switches([as_inventory_says(1)])
     detail = {**REAL["pi-sw2-p33"], "board0_tests": "Bad_Name!=fail"}
     pi("pi-sw2-p5", detail)
-    row = find(table(), item="pi-sw2-p5: TT (not identified)")
+    row = find(table(), item="pi-sw2-p5: TT board, not identified")
     assert row["state"] == "failing" and "check name 'Bad_Name!'" in row["value"]
     pi("pi-sw2-p6", {"result": "sulking"})
     row = find(table(), item="pi-sw2-p6: no board")
