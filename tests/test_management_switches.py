@@ -4,6 +4,7 @@ The reader is `snmp_switch.dashboard` from fpgas.online-poe. Where the installed
 tests use minimal stand-ins with the same fields as its SwitchView and PortView dataclasses."""
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -131,7 +132,7 @@ def test_the_names_reverse_on_both_urlconfs():
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and "⋯" in row and row.count("<td></td>") >= 2
+    assert ">down<" in row and "🔍" in row and row.count("<td></td>") >= 2
 
 
 @pytest.mark.django_db
@@ -139,15 +140,17 @@ def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     d = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert (d[0]["rx"], d[0]["tx"]) == ("250 kbit/s", "3.4 Mbit/s")
     assert (d[2]["rx"], d[2]["tx"]) == ("–", "–") and d[0]["errors"] == "0 / 2"
-    assert d[0]["macs"].endswith("+1") and d[0]["macs"].count("aa:") == 3 and d[0]["link"] == "up 1G"
+    # one MAC and how many more (#89: the column as wide as one value); every MAC in the title
+    assert d[0]["macs"] == "aa:00:00:00:00:01 +3" and d[0]["macs_title"].count("aa:") == 4 and d[0]["link"] == "up 1G"
 
 
 @pytest.mark.django_db
 def test_a_fleet_pis_lldp_name_links_to_its_page_and_other_names_do_not(reader):
     machine("10000000aaaa0001", "pi-sw1-p1.welland.example")
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    assert '<a href="/fleet/10000000aaaa0001/">pi-sw1-p1</a> port eth0' in html
-    assert "device port gi1" in html and "not-a-fleet-host" not in html  # a machine not in the fleet: masked
+    # the neighbour, then the port it reports on a line of its own (#89)
+    assert '<a href="/fleet/10000000aaaa0001/">pi-sw1-p1</a><br><span class="mgmt-soon">eth0</span>' in html
+    assert 'device<br><span class="mgmt-soon">gi1</span>' in html and "not-a-fleet-host" not in html  # a machine not in the fleet: masked
 
 
 @pytest.mark.django_db
@@ -162,7 +165,7 @@ def test_the_newest_machine_on_a_hostname_is_the_one_linked(reader):
 def test_no_fleet_pages_on_tinytapeout_means_no_link(reader):
     machine("10000000aaaa0001", "pi-sw1-p1")
     html = Client(HTTP_HOST=TT).get("/management/switches/").content.decode()
-    assert "pi-sw1-p1 port eth0" in html and "/fleet/" not in html
+    assert 'pi-sw1-p1<br><span class="mgmt-soon">eth0</span>' in html and "/fleet/" not in html
 
 
 @pytest.mark.django_db
@@ -287,7 +290,7 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert (ports[0]["poe"], ports[0]["poe_title"]) == ("3.5W", "delivering power")
-    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("⋯", "searching: PoE on, nothing drawing power")
+    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("🔍", "searching: PoE on, nothing drawing power")
 
 
 def test_poe_cells_are_watts_or_one_symbol():
@@ -314,7 +317,10 @@ def test_headers_are_short_so_values_set_the_column_widths(reader):
     # what a viewer sees: the visually hidden screen-reader text (.mgmt-sr) takes no width
     seen = re.sub(r'<span class="mgmt-sr">[^<]*</span>', "", thead)
     headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', seen)]
-    assert headers == ["#", "Label", "Link", "VLAN", "GW", "PoE", "LLDP", "MACs", "In", "Out", "Err"]
+    assert headers == ["#", "Label", "Link", "VLAN", "GW", "PoE", "⏻", "LLDP", "MACs", "In", "Out", "Err"]
+    # the button's own column (#89): one symbol over "off"/"on", its name for a mouse and a screen reader
+    assert ('<abbr title="Power: switch the board\'s PoE off or on" aria-hidden="true">⏻</abbr>'
+            '<span class="mgmt-sr">Power</span>') in thead
     assert 'title="Errors in / out"' in thead and 'title="Port"' in thead
     # the one-symbol header is read as a word: the symbol hidden from screen readers, the word given to them
     assert '<abbr title="Port" aria-hidden="true">#</abbr><span class="mgmt-sr">Port</span>' in thead
@@ -355,20 +361,31 @@ def test_a_switch_name_follows_the_same_rule(gateway_host, given, shown):
 
 
 @pytest.mark.parametrize("given, shown", [
-    ("eth-uplink.gwhost", "eth-uplink.gateway"),         # the gateway: its role word
+    ("eth-uplink.gwhost", "eth-uplink.gateway"),         # the gateway's name: "gateway"
     ("bmc.GWHOST", "bmc.gateway"),
-    ("eth-uplink.pi10.fpgas", "eth-uplink"),             # not a fleet hostname: the role alone
-    ("uplink.upstreamhost.example.org", "uplink"),       # the upstream host is never named
-    ("1/0/50.sw-netgear-gsm7252ps-s1", "1/0/50.sw-netgear-gsm7252ps-s1"),  # a switch by its sysName
-    ("eth0.pi-sw1-p10", "eth0.pi-sw1-p10"),              # a fleet Pi
-    ("eth-uplink.gwhost2", "eth-uplink"),                # a host whose name only starts like the gateway's
+    ("eth-uplink.gwhost.example.org", "eth-uplink.gateway"),  # its full name too, as one
+    ("eth-uplink.pi10.fpgas", "eth-uplink.pi10.fpgas"),  # every other label in full (#89, rule 20)
+    ("eth0.rpi5-sqrl", "eth0.rpi5-sqrl"),
+    ("1/0/50.sw-netgear-gsm7252ps-s1", "1/0/50.sw-netgear-gsm7252ps-s1"),
+    ("eth0.pi-sw1-p10", "eth0.pi-sw1-p10"),
+    ("eth-uplink.gwhost2", "eth-uplink.gwhost2"),        # a host whose name only starts like the gateway's
     ("gwhost", "gateway"),
-    ("gwhost.eth0", "gateway"),                          # host-first: the host is masked, the rest is a name too
+    ("gwhost.eth0", "gateway.eth0"),
     ("GWHOST", "gateway"),
     ("", ""),
 ])
-def test_a_label_shows_its_role_and_only_names_that_may_be_shown(gateway_host, given, shown):
+def test_a_label_is_shown_in_full_with_the_gateways_names_replaced(gateway_host, given, shown):
     assert page.label(given) == shown
+
+
+def test_the_house_uplinks_device_is_masked_wherever_a_label_names_it(gateway_host):
+    from types import SimpleNamespace
+
+    ports = [SimpleNamespace(port=48, label="uplink.upstreamhost.example.org"), SimpleNamespace(port=1, label="x")]
+    house = page.house_names(spec(), ports)
+    assert page.label("uplink.upstreamhost.example.org", house) == "uplink.house uplink"
+    assert page.label("mirror-of.upstreamhost", house) == "mirror-of.house uplink"
+    assert page.house_names(spec(house_uplink_port=None), ports) == ()
 
 
 @pytest.mark.parametrize("given, shown", [
@@ -391,8 +408,11 @@ def test_no_host_name_reaches_the_page_or_the_json(gateway_host, monkeypatch):
     views[0].name = "gwhost.example.org"
     views[0].ports[0].label = "eth-uplink.gwhost"
     views[0].ports[1].lldp_name = "gwhost.example.org"
+    views[0].ports[2].port = 48  # the house uplink (spec()): its device is masked wherever a label names it
     views[0].ports[2].label = "uplink.upstreamhost.example.org"
+    views[0].ports[1].label = "eth0.upstreamhost"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     c = Client(HTTP_HOST=HOSTS[0])
     for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
         assert "gwhost" not in body.lower() and "upstreamhost" not in body and "example.org" not in body
@@ -427,7 +447,7 @@ def test_an_infrastructure_port_is_labelled_by_its_inventory_role(port, role):
 
 
 @pytest.mark.django_db
-def test_the_page_labels_infrastructure_ports_by_role_whatever_the_switch_says(monkeypatch):
+def test_the_house_uplink_reads_house_uplink_and_other_ports_their_full_label(monkeypatch):
     views = make_views()
     views[0].ports[2].port = 48
     views[0].ports[2].label = "a-private-device"
@@ -436,6 +456,7 @@ def test_the_page_labels_infrastructure_ports_by_role_whatever_the_switch_says(m
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[2]["label"] == "house uplink" and ports[0]["label"] == "uplink"  # port 1 keeps its own label
+    assert ports[2]["label_title"] == "house uplink"
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
@@ -455,7 +476,7 @@ def test_no_button_on_a_trunk_inside_the_board_range_even_when_registered(monkey
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec(gateway_trunk_port=3)})
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert (ports[2]["label"], ports[2]["can_power"]) == ("gateway trunk", False)
+    assert (ports[2]["label_title"], ports[2]["can_power"]) == ("gateway trunk", False)
 
 
 @pytest.mark.django_db
@@ -584,8 +605,7 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert "off/on: switches the board&#x27;s PoE (board ports only)" in html or \
-        "off/on: switches the board's PoE (board ports only)" in html
+    assert "⏻ Power: off/on switches the board's PoE (board ports only)" in html
 
 
 @pytest.mark.django_db
@@ -602,7 +622,7 @@ def test_a_one_symbol_poe_cell_reaches_screen_readers(reader):
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ('<span aria-hidden="true">⋯</span><span class="mgmt-sr">searching: PoE on, nothing drawing power</span>'
+    assert ('<span aria-hidden="true">🔍</span><span class="mgmt-sr">searching: PoE on, nothing drawing power</span>'
             in row)
     row1 = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
     assert "3.5W" in row1 and "aria-hidden" not in row1  # watts are text already
@@ -768,3 +788,50 @@ def test_each_switch_section_is_anchored_by_its_inventory_index(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'id="switch-1"' in html and 'id="switch-0"' not in html
     assert '"switch-" + (s.index !== null ? s.index : n)' in html
+
+
+# --- #89: the neighbour's port, a neighbouring switch by its number, the button's own column -----------------------
+
+
+@pytest.mark.django_db
+def test_a_pis_port_is_its_interface_name_where_its_port_id_is_its_mac(monkeypatch):
+    """lldpd on a Pi sends its MAC as the port id (the MACs column has it) and the interface as the description:
+    the page shows the description (fpgas-online/fpgas.online-infra#268 makes the id the name itself)."""
+    views = make_views()
+    views[0].ports[0].lldp_port = "B8:27:EB:E3:E7:E4"
+    views[0].ports[0].lldp_port_desc = "eth0"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["lldp_port"] == "eth0" and ports[1]["lldp_port"] == "gi1"
+
+
+@pytest.mark.django_db
+def test_a_neighbouring_switch_is_shown_by_its_number_with_its_name_in_the_title(monkeypatch):
+    views = make_views()
+    other = SwitchView(index=2, name="sw-netgear-gsm7252ps-s1", model="GSM7252PS", reachable=True, error="",
+                       read_at=READ_AT, good_at=READ_AT, ports=[])
+    views[0].ports[1].lldp_name = "sw-netgear-gsm7252ps-s1"
+    views[0].ports[1].lldp_port = "1/0/50"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: [*views, other])
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert (ports[1]["lldp_name"], ports[1]["lldp_title"], ports[1]["lldp_port"]) == (
+        "switch 2", "sw-netgear-gsm7252ps-s1", "1/0/50")
+    html = c.get("/management/switches/").content.decode()
+    assert '<td title="sw-netgear-gsm7252ps-s1">switch 2<br><span class="mgmt-soon">1/0/50</span></td>' in html
+
+
+@pytest.mark.django_db
+def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
+    machine("10000000aaaa0001", "pi-sw1-p1")
+    views = make_views()
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    row = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
+    poe, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[4:6]
+    assert "3.5W" in poe and "button" not in poe
+    assert power.startswith('<button type="button" class="mgmt-poe-button"') and 'class="mgmt-poe-msg"' in power
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert 'power.className = "mgmt-power"' in script and "poe.appendChild(powerButton" not in script
