@@ -12,6 +12,8 @@
     <tr><th scope="row">Port</th><td title="the port its host name says it booted on">{{ port }}</td></tr>
     <tr><th scope="row">Host name</th><td>{{ machine.hostname|default:"–" }}</td></tr>
     <tr><th scope="row">Model</th><td>{{ model|default:"–" }}</td></tr>
+    {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered) #}
+    <tr><th scope="row">Online</th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
     <tr><th scope="row">Seen</th><td>{{ seen }}</td></tr>
     <tr><th scope="row">Registered</th><td>{{ first_seen }}</td></tr>
     <tr><th scope="row">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>

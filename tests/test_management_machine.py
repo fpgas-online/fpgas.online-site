@@ -138,3 +138,13 @@ def test_a_time_from_the_future_is_said_in_its_cell_and_the_page_stands():
 @pytest.mark.django_db
 def test_an_unknown_serial_is_404():
     assert Client(HTTP_HOST=WELLAND).get("/fleet/nope/").status_code == 404
+
+
+
+@pytest.mark.django_db
+def test_the_page_carries_what_infras_verify_pi_reads():
+    """fpgas.online-infra ansible/verify-pi.yml ("Server has registered this Pi in the fleet") reads this page and
+    needs 'badge online' and the boot id of the boot running now in it."""
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    html = page(m.serial)
+    assert 'badge online' in html and m.last_boot_id in html
