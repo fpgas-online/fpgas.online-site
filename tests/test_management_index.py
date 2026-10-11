@@ -222,12 +222,12 @@ def test_vlan_21_on_the_board_ports_is_a_failure_row_per_switch_and_names_the_po
     failure, not special-cased away."""
     switches([as_inventory_says(1, extra_untagged=21), as_inventory_says(2, extra_untagged=21)])
     rows = table()
-    row = find(rows, item="Switch 1: also untagged in VLAN 21")
+    row = find(rows, item="Switch 1: also untagged in VLAN 21 (poe #16)")
     assert row["state"] == "failing" and row["href"] == "/management/switches/#switch-1"
     assert row["value"] == "port 1 also untagged in VLAN 21 and 2 more"
     assert "fpgas-online/fpgas.online-poe#16" in row["title"] and "port 2 also untagged in VLAN 21" in row["title"]
     assert row["seen"].endswith(" ago")  # when the switch was read
-    assert find(rows, item="Switch 2: also untagged in VLAN 21")["state"] == "failing"
+    assert find(rows, item="Switch 2: also untagged in VLAN 21 (poe #16)")["state"] == "failing"
 
 
 @pytest.mark.django_db
@@ -236,7 +236,18 @@ def test_a_new_fault_does_not_hide_behind_the_known_vlan_21_one(switches, browse
     view.ports[1].untagged_vlans = [*view.ports[1].untagged_vlans, 99]
     switches([view])
     items = [r["item"] for r in table() if r["area"] == "Switches"]
-    assert items == ["Switch 1: untagged VLANs not as the inventory says", "Switch 1: also untagged in VLAN 21"]
+    assert items == ["Switch 1: untagged VLANs not as the inventory says", "Switch 1: also untagged in VLAN 21 (poe #16)"]
+
+
+@pytest.mark.django_db
+def test_vlans_5_and_121_on_board_ports_are_one_row_naming_poe_18(switches, browser):
+    view = as_inventory_says(2, extra_untagged=21)
+    view.ports[0].untagged_vlans = [*view.ports[0].untagged_vlans, 5]
+    view.ports[1].untagged_vlans = [*view.ports[1].untagged_vlans, 121]
+    switches([view])
+    row = find(table(), item="Switch 2: also untagged in VLAN 5, 121 (poe #18)")
+    assert row["state"] == "failing" and row["value"] == "port 1 also untagged in VLAN 5 and 1 more"
+    assert "fpgas-online/fpgas.online-poe#18" in row["title"] and "port 2 also untagged in VLAN 121" in row["title"]
 
 
 @pytest.mark.django_db

@@ -16,9 +16,15 @@ from dataclasses import dataclass
 VLAN_BASE = 2000
 KINDS = ("pvid", "untagged", "trunk", "unread")  # the order the first failure is chosen in
 
-# A known cause, named in the row's title when its failure is present (a note: the failure is still a failure).
-KNOWN_CAUSES = {21: "fpgas-online/fpgas.online-poe#16 (https://github.com/fpgas-online/fpgas.online-poe/issues/16): "
-                    "board ports are also untagged in VLAN 21"}
+# Known causes of "also untagged in VLAN <n>" on board ports, by the other VLAN: the issue that tracks it, named on
+# the row (a note: the failure is still a failure). Keyed by VLAN, not by port: which port it is on is what the
+# switch says now.
+POE_ISSUES = "https://github.com/fpgas-online/fpgas.online-poe/issues/"
+KNOWN_CAUSES = {
+    21: ("poe #16", f"fpgas-online/fpgas.online-poe#16 ({POE_ISSUES}16): board ports are also untagged in VLAN 21"),
+    5: ("poe #18", f"fpgas-online/fpgas.online-poe#18 ({POE_ISSUES}18): board ports also untagged in VLAN 5 or 121"),
+    121: ("poe #18", f"fpgas-online/fpgas.online-poe#18 ({POE_ISSUES}18): board ports also untagged in VLAN 5 or 121"),
+}
 
 
 @dataclass(frozen=True)

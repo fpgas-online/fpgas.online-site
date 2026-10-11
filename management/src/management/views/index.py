@@ -204,15 +204,16 @@ def _switches(request, now):
         # hide behind a known one
         groups = {}
         for failure in failures:
-            known = failure.vlan if failure.vlan in inventory_check.KNOWN_CAUSES else None
+            known = inventory_check.KNOWN_CAUSES.get(failure.vlan)
             groups.setdefault((failure.kind, known), []).append(failure)
         # an unexplained fault above the known ones
         for (kind, known), group in sorted(groups.items(), key=lambda g: g[0][1] is not None):
-            words = f"also untagged in VLAN {known}" if known is not None else KIND_WORDS[kind]
+            vlans = ", ".join(str(v) for v in sorted({f.vlan for f in group}))
+            words = f"also untagged in VLAN {vlans} ({known[0]})" if known is not None else KIND_WORDS[kind]
             shown = "; ".join(f.text for f in group[:TITLE_PORTS])
             title = shown + (f"; and {len(group) - TITLE_PORTS} more" if len(group) > TITLE_PORTS else "")
             if known is not None:
-                title += "; " + inventory_check.KNOWN_CAUSES[known]
+                title += "; " + known[1]
             more = f" and {len(group) - 1} more" if len(group) > 1 else ""
             rows.append(_row(SWITCH_PORTS, FAILING, "Switches", f"{number}: {words}", f"{group[0].text}{more}",
                              link, title, read))
