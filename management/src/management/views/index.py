@@ -224,7 +224,7 @@ def _boot_checks(request, now):
 
 def _browser_test(request, now):
     site = e2e.site_name()
-    item = f"{site} site"
+    item = f"{site} shared job of {e2e.WORKFLOW}"  # which job and site the row reads (the coordinator, 11 Oct)
     try:
         run = e2e.latest(site)
     except e2e.E2EError as exc:

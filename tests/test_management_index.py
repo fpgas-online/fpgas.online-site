@@ -257,7 +257,7 @@ def test_the_newest_boot_check_and_the_count_of_pis_whose_newest_check_failed(fl
 def test_the_browser_test_row_is_the_newest_run_for_this_site(switches, browser):
     switches([as_inventory_says(1)])
     row = find(table(), area="Browser test")
-    assert (row["state"], row["item"], row["value"]) == ("ok", "welland site", "passed")
+    assert (row["state"], row["item"], row["value"]) == ("ok", "welland shared job of e2e.yml", "passed")
     assert row["href"].startswith("https://github.com/fpgas-online/fpgas.online-e2e-tests/actions/runs/1/job/")
 
 
