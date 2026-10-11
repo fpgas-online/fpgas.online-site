@@ -146,3 +146,18 @@
   .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
+
+/* A host's own page (#93): its facts as a two-column table; its registration as highlighted JSON, long strings cut
+   (the whole in their title); a test's result coloured as well as said. */
+.mgmt-facts th { text-align: left; font-weight: normal; color: #555; }
+.mgmt-json { background: #f7f7f7; padding: 0.6rem; overflow-x: auto; font-size: 0.85em; line-height: 1.35; }
+.mgmt-json .j-key { color: #0b4f8a; }
+.mgmt-json .j-str { color: #1b6e1b; }
+.mgmt-json .j-num, .mgmt-json .j-bool { color: #8a4b0b; }
+.mgmt-json .j-null { color: #888; }
+.mgmt-json [title] { text-decoration: underline dotted; cursor: help; }
+.mgmt-test { white-space: nowrap; }
+.mgmt-test-fail { color: #b00020; }
+.mgmt-this-boot td { font-weight: 600; }
+.mgmt-events td code { font-size: 0.85em; white-space: normal; overflow-wrap: anywhere; }
+.mgmt-notes { font-size: 0.9em; color: #444; }
