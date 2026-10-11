@@ -207,6 +207,10 @@ TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
 # served from static tt-commander/legacy-<version>/. Empty => not deployed.
 TTSITE_COMMANDER_LEGACY_VERSION = ""
 
+# The management index (management/e2e.py) reads the newest browser test of THIS site by the site name the e2e
+# workflow uses ("welland", "ps1"). Empty => the first label of DOMAIN_NAME (welland.fpgas.online => "welland").
+MANAGEMENT_SITE_NAME = ""
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
