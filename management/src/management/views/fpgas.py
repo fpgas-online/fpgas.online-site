@@ -60,6 +60,7 @@ class Line:
     model: str  # the model string its registration sent, in full (the label's title, #92)
     port: str  # "sw1 p10": the port its host name says it booted on
     check: str  # "failed: pin-id, spiflash"
+    tests: list  # [(name, result, passed)]: every test of the check of this boot
     check_title: str  # every test and its result, and the check's reasons
     seen: str  # <time> html, or "" when the time cannot be shown
     seen_error: str  # why it cannot (a time further ahead than clocks differ): shown in the cell
@@ -69,14 +70,24 @@ class Line:
     page: str  # the visitor page "yes" links to
 
 
+def _check_word(host):
+    """The check of this boot as one word ("passed", "failed", "running"); a result the page does not know is shown
+    as it came ("gave <result>"), never "unknown"."""
+    return CHECK_WORDS.get(host.state) or f"gave {host.state}"
+
+
 def _check(host):
-    word = CHECK_WORDS.get(host.state)
-    if word is None:  # a result the page does not know: shown as it came, not as "unknown"
-        word = f"gave {host.state}"
+    word = _check_word(host)
     failing = list(dict.fromkeys(name for b in host.boards for name in b["failing"]))
     tests = "; ".join(" ".join(f"{name}={result}" for name, result in b["tests"]) for b in host.boards if b["tests"])
     reasons = "; ".join(b["reason"] for b in host.boards if b["reason"])
     return (f"{word}: {', '.join(failing)}" if failing else word), "; ".join(t for t in (tests, reasons) if t)
+
+
+def _tests(host):
+    """[(name, result, passed)] of every test of the check of this boot, board by board (#91 item 2: each check's
+    state, not only the failing ones)."""
+    return [(name, result, result == "pass") for b in host.boards for name, result in b["tests"]]
 
 
 def _offered(host, now, pages):
@@ -115,7 +126,10 @@ def _line(host, now, pages):
         seen, error = "", str(exc)
     stamp = host.machine.last_seen
     offered, page = _offered(host, now, pages)
-    return Line(host, fpga.pi_label(host.machine), fpga.registered_model(host.machine), fpga.port_text(host.machine), check, check_title, seen, error,
+    return Line(host, fpga.pi_label(host.machine), fpga.registered_model(host.machine), fpga.port_text(host.machine),
+                # with every test shown after it (#91), the word alone: the failing names are in the list
+                _check_word(host) if host.boards and _tests(host) else check, _tests(host), check_title,
+                seen, error,
                 int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition], offered, page)
 
 

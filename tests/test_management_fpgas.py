@@ -78,7 +78,10 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     assert row.boards[0]["failing"] == ["pin-id", "spiflash"]
     assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "failed: pin-id, spiflash" in html and "pin-id fail: the test exited 1" in html
+    # every test by name with its state; the reason in the cell's title
+    assert '<span class="mgmt-test mgmt-test-fail" title="pin-id: fail">pin-id' in html
+    assert '<span class="mgmt-test mgmt-test-fail" title="spiflash: fail">spiflash' in html
+    assert "pin-id fail: the test exited 1" in html
 
 
 @pytest.mark.django_db
@@ -298,8 +301,11 @@ def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
     rows = _rows(html)
     by_port = {r[2]: r for r in rows}
     # columns: State, Pi (its label), Port, Board (its label), Boot check, Seen, Offered
-    assert by_port["sw2 p33"][0] == "needs attention" and by_port["sw2 p33"][4] == "failed: pin-id, spiflash"
-    assert by_port["sw2 p46"][0] == "operational" and by_port["sw2 p46"][4] == "passed"
+    # the check's word, then every test with its state (#91): a failing one marked and said
+    assert by_port["sw2 p33"][0] == "needs attention"
+    assert by_port["sw2 p33"][4] == "failed pin-id ✗ fail uart ✓ pass spiflash ✗ fail"
+    assert by_port["sw2 p46"][0] == "operational" and by_port["sw2 p46"][4].startswith("passed ")
+    assert "✗" not in by_port["sw2 p46"][4]
     assert by_port["sw2 p46"][1] == "pi-sw2-p46 (no model registered)" and by_port["sw2 p46"][3].startswith("acorn-")
     assert by_port["sw2 p46"][6] == "yes"
     # why a Pi is not offered, in the index's words
@@ -315,7 +321,8 @@ def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
     # every test and its result in the check cell's title; the reason the Pi is not offered in the state's title
     import re
 
-    assert re.search(r'<td title="[^"]*pin-id=fail[^"]*spiflash=fail[^"]*">failed: pin-id, spiflash</td>', html)
+    # every test and its result also in the cell's title, the check's word first in the cell
+    assert re.search(r'<td title="[^"]*pin-id=fail[^"]*spiflash=fail[^"]*">failed<span class="mgmt-tests">', html)
     assert 'title="its boot check failed: pin-id fail: the test exited 1' in html
     assert 'class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable"' in html
 
