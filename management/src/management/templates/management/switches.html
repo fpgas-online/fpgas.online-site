@@ -81,7 +81,17 @@
       var readat = box.querySelector(".mgmt-readat"); readat.textContent = s.read_ago; readat.title = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
       var body = box.querySelector("tbody"), fresh = document.createElement("tbody");
-      s.ports.forEach(function (p) { var tr = document.createElement("tr"); fill(tr, p, s.index); fresh.appendChild(tr); });
+      var anchor = "switch-" + (s.index !== null ? s.index : n);
+      s.ports.forEach(function (p) {
+        var tr = document.createElement("tr"); tr.id = anchor + "-port-" + p.port; fill(tr, p, s.index); fresh.appendChild(tr);
+      });
+      /* the front panel (#90): each port's state class, mark and words, from the same reading as the table */
+      (s.panel || []).forEach(function (p) {
+        var g = document.getElementById(anchor + "-panel-" + p.port);
+        if (!g) { return; }
+        g.setAttribute("class", "mgmt-port mgmt-port-" + p.state + (p.mismatch ? (p.known ? " mgmt-port-known" : " mgmt-port-wrong") : ""));
+        g.querySelector("title").textContent = p.title;
+      });
       body.replaceWith(fresh);
     });
   }
@@ -137,6 +147,14 @@
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.counter0 }}{% endif %}">
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span>.</p>
+  {% if s.panel %}
+  {% with anchor=s.index|default_if_none:forloop.counter0|stringformat:"s" %}
+  <div class="mgmt-scroll"><svg class="mgmt-panel" viewBox="0 0 {{ s.panel_width }} {{ s.panel_height }}" width="{{ s.panel_width }}" height="{{ s.panel_height }}" role="img" aria-label="Front panel of {{ s.title }}: each port's state; a port links to its row">
+  {% for p in s.panel %}<a href="{{ p.href }}"><g id="switch-{{ anchor }}-panel-{{ p.port }}" class="mgmt-port mgmt-port-{{ p.state }}{% if p.mismatch %} mgmt-port-{% if p.known %}known{% else %}wrong{% endif %}{% endif %}"><title>{{ p.title }}</title><rect x="{{ p.x|add:1 }}" y="{{ p.y|add:1 }}" width="26" height="22" rx="3"/><text x="{{ p.x|add:14 }}" y="{{ p.y|add:16 }}" text-anchor="middle">{{ p.port }}</text></g></a>{% endfor %}
+  </svg></div>
+  {% endwith %}
+  <ul class="mgmt-panel-key">{% for state, words in panel_states %}<li><svg width="16" height="12" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-{{ state }}" x="1" y="1" width="14" height="10" rx="2"/></svg> {{ words }}</li>{% endfor %}<li><svg width="16" height="12" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-down mgmt-port-wrong" x="1" y="1" width="14" height="10" rx="2"/></svg> red dashed edge: not as the inventory says</li><li><svg width="16" height="12" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-down mgmt-port-known" x="1" y="1" width="14" height="10" rx="2"/></svg> amber dotted edge: not as the inventory says, for a known cause (an open issue, in the port's title)</li></ul>
+  {% endif %}
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
@@ -151,7 +169,7 @@
     </tr></thead>
     <tbody>
     {% for p in s.ports %}
-      <tr>
+      <tr id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.parentloop.counter0 }}{% endif %}-port-{{ p.port }}">
         <th scope="row">{{ p.port }}</th>
         <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}<span>{{ part }}</span>{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
