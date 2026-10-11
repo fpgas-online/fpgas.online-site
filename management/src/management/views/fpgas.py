@@ -8,7 +8,7 @@ the fleet pages (tinytapeout.fpgas.online's urlconf) /management/fpgas/ is the p
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.urls import Resolver404, resolve
 from django.utils import timezone
@@ -146,3 +146,37 @@ def _page(request):
         "zone": localtime.zone_name(),
         "reload": request.GET.get("reload", "") != "off",
     })
+
+
+def _cameras(machine):
+    """The cameras the host's newest registration lists (peripherals.cameras), or None when it lists none at all:
+    None is "not said", never "no camera"."""
+    doc = machine.latest_snapshot.document if machine.latest_snapshot else None
+    peripherals = doc.get("peripherals") if isinstance(doc, dict) else None
+    cameras = peripherals.get("cameras") if isinstance(peripherals, dict) else None
+    return cameras if isinstance(cameras, list) else None
+
+
+def registry_json(request):
+    """/fleet/registry.json: every registered host, for programs (the e2e suite's protection check and camera step,
+    probes). The page /fleet/ is for people and may change its layout; this is the contract. Times are ISO 8601 UTC.
+
+    {"machines": [{"serial", "hostname", "label", "port", "condition", "check", "boards": [label, ...],
+                   "offered": bool, "last_seen", "cameras": [...] | null}, ...]}"""
+    now = timezone.now()
+    machines = []
+    for host in fpga.hosts(now):
+        m = host.machine
+        machines.append({
+            "serial": m.serial,
+            "hostname": m.hostname,
+            "label": fpga.pi_label(m),
+            "port": fpga.port_text(m),
+            "condition": host.condition_title,
+            "check": host.state,
+            "boards": [b["label"] for b in host.boards],
+            "offered": host.condition == OPERATIONAL,
+            "last_seen": m.last_seen.isoformat() if m.last_seen else None,
+            "cameras": _cameras(m),
+        })
+    return JsonResponse({"machines": machines})
