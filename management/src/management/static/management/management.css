@@ -45,6 +45,8 @@
    a span that does not break, the cell may break between them */
 .mgmt-ports td.mgmt-label { white-space: normal; }
 .mgmt-ports td.mgmt-label span { white-space: nowrap; }
+/* a MACs cell may put its "+N" under the MAC when the table needs the room (a MAC itself never breaks) */
+.mgmt-ports td.mgmt-macs { white-space: normal; }
 /* On a phone each port is a block (as the index's rows are): the port, its label and its power button; its link,
    VLAN and GW; its PoE and LLDP neighbour. The counters and MACs are left out (the key says so). */
 @media (max-width: 40rem) {
@@ -146,6 +148,37 @@
   .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
+/* #91: every test of a Pi's check, after the check's word: the name, then a mark that is coloured and said */
+.mgmt-tests { display: block; font-size: 0.85em; }
+.mgmt-tests .mgmt-test { white-space: nowrap; }
+.mgmt-test-pass { color: #1b7a1b; }
+.mgmt-test-fail { color: #b00020; }
+
+/* A switch's front panel (#90): a port's fill and glyph say its state (the key under the panel says each in words,
+   the port's title and accessible name say all of it); a port not as the inventory says has a red dashed edge. */
+.mgmt-panel { display: block; margin: 0.4rem 0; }
+.mgmt-port rect, .mgmt-swatch { stroke: #555; stroke-width: 1; }
+.mgmt-port text, .mgmt-glyph { font-size: 10px; fill: #222; pointer-events: none; }
+.mgmt-glyph { font-weight: 700; }
+.mgmt-panel-key .mgmt-glyph { font-size: 9px; }
+.mgmt-port-power { fill: #4caf50; }
+.mgmt-port-starting { fill: #c5e1a5; }
+.mgmt-port-up { fill: #90caf9; }
+.mgmt-port-searching { fill: #fff3c4; }
+.mgmt-port-off { fill: #cfcfcf; }
+.mgmt-port-down { fill: #f4f4f4; }
+.mgmt-port-fault { fill: #ef9a9a; }
+.mgmt-port-unknown { fill: #d1c4e9; }
+.mgmt-port-wrong rect, rect.mgmt-port-wrong { stroke: #b00020; stroke-width: 2.5; stroke-dasharray: 3 2; }
+.mgmt-port-known rect, rect.mgmt-port-known { stroke: #b36b00; stroke-width: 2.5; stroke-dasharray: 1.5 1.5; }
+/* hover and focus thicken the edge and keep its colour, so a red or amber mark stays visible */
+.mgmt-panel a:hover rect { stroke-width: 3; }
+.mgmt-panel a:focus-visible { outline: 2px solid #0b4f8a; outline-offset: 1px; }
+.mgmt-panel-key { list-style: none; padding: 0; margin: 0 0 0.6rem; display: flex; flex-wrap: wrap; gap: 0.2rem 1rem;
+                  font-size: 0.85em; color: #444; }
+/* the row a panel port links to */
+.mgmt-ports tr:target { outline: 2px solid #0b4f8a; }
+.mgmt-ports tr:target th, .mgmt-ports tr:target td { background: #e8f0fb; }
 
 /* A host's own page (#93): its facts as a two-column table; its registration as highlighted JSON, long strings cut
    (the whole in their title); a test's result coloured as well as said. */
@@ -157,7 +190,6 @@
 .mgmt-json .j-null { color: #888; }
 .mgmt-json [title] { text-decoration: underline dotted; cursor: help; }
 .mgmt-test { white-space: nowrap; }
-.mgmt-test-fail { color: #b00020; }
 .mgmt-this-boot td { font-weight: 600; }
 .mgmt-events td code { font-size: 0.85em; white-space: normal; overflow-wrap: anywhere; }
 .mgmt-notes { font-size: 0.9em; color: #444; }

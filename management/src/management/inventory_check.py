@@ -57,12 +57,14 @@ def check(spec, view):
         if port is None:
             found.append(Failure("unread", number, f"port {number} not read"))
             continue
-        untagged = set(port.untagged_vlans or ())
-        if port.pvid is None and not untagged and not (port.tagged_vlans or ()):
+        # a reader older than the VLAN fields (poe before #15) has none: no VLAN data, said as such
+        untagged = set(getattr(port, "untagged_vlans", None) or ())
+        pvid = getattr(port, "pvid", None)
+        if pvid is None and not untagged and not (getattr(port, "tagged_vlans", None) or ()):
             found.append(Failure("unread", number, f"port {number} has no VLAN data"))
             continue
-        if port.pvid != vlan:
-            found.append(Failure("pvid", number, f"port {number} PVID {port.pvid}, not {vlan}"))
+        if pvid != vlan:
+            found.append(Failure("pvid", number, f"port {number} PVID {pvid}, not {vlan}"))
         for other in sorted(untagged - {vlan}):
             found.append(Failure("untagged", number, f"port {number} also untagged in VLAN {other}", other))
         if vlan not in untagged:
@@ -73,7 +75,7 @@ def check(spec, view):
         if trunk is None:
             found.append(Failure("unread", trunk_port, f"gateway trunk (port {trunk_port}) not read"))
         else:
-            absent = [v for v in wanted.values() if v not in set(trunk.tagged_vlans or ())]
+            absent = [v for v in wanted.values() if v not in set(getattr(trunk, "tagged_vlans", None) or ())]
             if absent:
                 found.append(Failure("trunk", trunk_port,
                                      f"gateway trunk lacks {len(absent)} board VLANs, first {absent[0]}"))
