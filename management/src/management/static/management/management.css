@@ -90,19 +90,20 @@
 .mgmt-key-box summary { cursor: pointer; }
 .mgmt-key-box ul { margin: 0.4rem 0; padding-left: 1.2rem; }
 .mgmt-hosts .badge { white-space: nowrap; }
-/* On a phone each Pi is a block: the state and the Pi; the board and its check; when seen and whether offered. */
+/* On a phone each Pi is a block: the state and the Pi; its port and board; its check; whether offered, when seen. */
 @media (max-width: 40rem) {
   .mgmt-hosts thead { display: none; }
   .mgmt-hosts, .mgmt-hosts tbody { display: block; }
   .mgmt-hosts tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
-                   grid-template-areas: "state pi pi" "board board board" "check check check" "offered offered seen";
+                   grid-template-areas: "state pi pi" "port board board" "check check check" "offered offered seen";
                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
   .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
   .mgmt-table.mgmt-hosts td { border: 0; padding: 0.1rem 0; }
   .mgmt-hosts td:nth-child(1) { grid-area: state; }
   .mgmt-hosts td:nth-child(2) { grid-area: pi; font-weight: 600; }
-  .mgmt-hosts td:nth-child(3) { grid-area: board; }
-  .mgmt-hosts td:nth-child(4) { grid-area: check; }
-  .mgmt-hosts td:nth-child(5) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
-  .mgmt-hosts td:nth-child(6) { grid-area: offered; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(3) { grid-area: port; font-size: 0.85em; color: #666; }
+  .mgmt-hosts td:nth-child(4) { grid-area: board; }
+  .mgmt-hosts td:nth-child(5) { grid-area: check; }
+  .mgmt-hosts td:nth-child(6) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
+  .mgmt-hosts td:nth-child(7) { grid-area: offered; font-size: 0.85em; }
 }

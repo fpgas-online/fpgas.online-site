@@ -193,7 +193,7 @@ def test_a_pi_that_is_not_offered_is_a_row_with_its_board_and_the_reason_and_the
     boards = [r for r in rows if r["area"] == "Boards"]
     assert len(boards) == 5  # four Pis that are not offered, and one row for the rest
     serial = {m.hostname: m.serial for m in Machine.objects.all()}
-    bad = find(boards, item="pi-sw2-p33: TT (not identified)")
+    bad = find(boards, item="pi-sw2-p33: TT board, not identified")
     assert (bad["state"], bad["value"], bad["href"]) == ("failing", "pin-id, spiflash", f"/fleet/{serial['pi-sw2-p33']}/")
     missing = find(boards, item="pi-sw2-p4: Acorn")
     assert (missing["state"], missing["value"]) == ("missing", "missing 7 h")
@@ -301,7 +301,7 @@ def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, brows
     assert newest["value"].startswith("pi-sw2-p10: pass") and newest["state"] == "ok"
     # the Pi whose check failed is its own Boards row; it is not counted again under Boot checks
     assert [r["item"] for r in rows if r["area"] == "Boot checks"] == ["newest check"]
-    assert find(rows, area="Boards", item="pi-sw2-p33: TT (not identified)")["state"] == "failing"
+    assert find(rows, area="Boards", item="pi-sw2-p33: TT board, not identified")["state"] == "failing"
 
 
 @pytest.mark.django_db
@@ -448,7 +448,7 @@ def test_a_check_name_or_result_the_page_does_not_know_is_a_failure_row_naming_i
     switches([as_inventory_says(1)])
     detail = {**REAL["pi-sw2-p33"], "board0_tests": "Bad_Name!=fail"}
     pi("pi-sw2-p5", detail)
-    row = find(table(), item="pi-sw2-p5: TT (not identified)")
+    row = find(table(), item="pi-sw2-p5: TT board, not identified")
     assert row["state"] == "failing" and "check name 'Bad_Name!'" in row["value"]
     pi("pi-sw2-p6", {"result": "sulking"})
     row = find(table(), item="pi-sw2-p6: no board")

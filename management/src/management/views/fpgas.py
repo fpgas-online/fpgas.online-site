@@ -7,6 +7,7 @@ the fleet pages (tinytapeout.fpgas.online's urlconf) /management/fpgas/ is the p
 
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import Resolver404, resolve
@@ -14,6 +15,7 @@ from django.utils import timezone
 from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, UNKNOWN
 from fleet.timeago import ago_time
 from pibfpgas.pis import listed
+from ttsite.middleware import serves_ttsite
 
 from .. import fpga, localtime
 from .index import _board_reason, _url
@@ -50,17 +52,23 @@ def pis(request):
         return _page(request)
 
 
+NONE = "–"  # a value that is not known, as the switch page shows it
+
+
 @dataclass
 class Line:
     """A Pi's row as the page shows it."""
     host: fpga.Host
+    label: str  # the Pi as its label names it
+    port: str  # "sw1 p10": the port its host name says it booted on
     check: str  # "failed: pin-id, spiflash"
     check_title: str  # every test and its result, and the check's reasons
     seen: str  # <time> html, or "" when the time cannot be shown
     seen_error: str  # why it cannot (a time further ahead than clocks differ): shown in the cell
     sort_seen: int
     severity: int
-    reason: str  # why it is not offered, in the index's words ("stopped checking in", "dip-switches"); "" if it is
+    offered: str  # "yes", or "no: <why>" in the index's words ("stopped checking in", "dip-switches")
+    page: str  # the visitor page "yes" links to
 
 
 def _check(host):
@@ -73,24 +81,49 @@ def _check(host):
     return (f"{word}: {', '.join(failing)}" if failing else word), "; ".join(t for t in (tests, reasons) if t)
 
 
-def _reason(host, now):
-    if host.condition == OPERATIONAL:
-        return ""
-    try:
-        return _board_reason(host, now)  # the index's Boards rows say the same
-    except ValueError as exc:  # a value the page does not know: said in the cell, the page stands
-        return str(exc)
+def _offered(host, now, pages):
+    """("yes", its visitor page) or ("no: <why>", "") for one Pi. Every "yes" links a page (rule 20): an offered
+    Pi no visitor page shows is "no: no visitor page"."""
+    if host.condition != OPERATIONAL:
+        try:
+            return f"no: {_board_reason(host, now)}", ""  # the index's Boards rows say the same
+        except ValueError as exc:  # a value the page does not know: said in the cell, the page stands
+            return f"no: {exc}", ""
+    page = pages.get(("pi", host.machine.hostname)) or next(
+        (pages[("tt", b["usb_serial"])] for b in host.boards if b["usb_serial"] and ("tt", b["usb_serial"]) in pages), "")
+    return ("yes", page) if page else ("no: no visitor page", "")
 
 
-def _line(host, now):
+def _port(host):
+    if host.pi is None:
+        return NONE
+    return f"sw{host.pi.switch} p{host.pi.port}" if host.pi.switch else f"p{host.pi.port}"
+
+
+def _visitor_pages(request):
+    """{("pi", hostname): its /fpgas/ page, ("tt", usb serial): its Tiny Tapeout board page}: the visitor pages of
+    this installation, as those pages list them."""
+    pages = {}
+    if _resolves(request, "/fpgas/"):
+        pages.update({("pi", pi.hostname): f"/fpgas/{pi.hostname}.html" for pi in listed()})
+    from ttsite.boards import pages as tt_pages
+
+    # tinytapeout.fpgas.online's board pages: on its own host by path, from any other by its address
+    base = "" if serves_ttsite(request) else f"https://{settings.TTSITE_HOST}"
+    pages.update({("tt", page.live.usb_serial): f"{base}/board/{page.slug}/" for page in tt_pages() if page.live})
+    return pages
+
+
+def _line(host, now, pages):
     check, check_title = _check(host)
     try:
         seen, error = ago_time(host.machine.last_seen), ""
     except ValueError as exc:  # fail loud, in this Pi's cell: the rest of the page stands
         seen, error = "", str(exc)
     stamp = host.machine.last_seen
-    return Line(host, check, check_title, seen, error, int(stamp.timestamp()) if stamp else 0,
-                SEVERITY[host.condition], _reason(host, now))
+    offered, page = _offered(host, now, pages)
+    return Line(host, fpga.pi_label(host.machine), _port(host), check, check_title, seen, error,
+                int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition], offered, page)
 
 
 def _page(request):
@@ -101,18 +134,23 @@ def _page(request):
     if want_condition not in CONDITIONS:  # a filter this page does not have is no filter
         want_condition = ""
     want_type = request.GET.get("type", "")[:100]
-    shown = [_line(r, now) for r in rows if (not want_condition or r.condition == want_condition)
-             and (not want_type or r.board_type == want_type)]
+    pages = _visitor_pages(request)
+    # what needs a person first, then by switch and port (the table's own sort returns to this order)
+    shown = sorted((_line(r, now, pages) for r in rows if (not want_condition or r.condition == want_condition)
+                    and (not want_type or r.board_type == want_type)), key=lambda line: (line.severity, line.host.place))
+    # the reload switch keeps the filter
+    stay = request.GET.copy()
+    stay.pop("reload", None)
+    off = stay.copy()
+    off["reload"] = "off"
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
-        "conditions": [(c, fpga.CONDITION_TITLES[c], fpga.CONDITION_SYMBOLS[c]) for c in CONDITIONS],
+        "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
+        "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),
         "want_condition": want_condition, "want_type": want_type,
         "filtered": bool(want_condition or want_type),
         # each Pi's fleet page, where this host has them (tinytapeout.fpgas.online's urlconf does not)
         "fleet": _url(request, "fleet-list"),
         "zone": localtime.zone_name(),
         "reload": request.GET.get("reload", "") != "off",
-        # the visitor's page of a Pi the /fpgas/ pages list, where this host has them: the same list those pages
-        # show, so a link never points at a page that is not there
-        "listed": {pi.hostname for pi in listed()} if _resolves(request, "/fpgas/") else set(),
     })

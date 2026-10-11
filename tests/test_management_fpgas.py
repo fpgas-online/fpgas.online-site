@@ -82,7 +82,7 @@ def test_the_page_answers_without_a_login_on_every_host(fleet, host):
     assert r.status_code == 200
     html = r.content.decode()
     assert "<title>Raspberry Pis &mdash; Management &mdash; fpgas.online</title>" in html
-    assert "<h1>Raspberry Pis</h1>" in html and "switch 2, port 46" in html
+    assert "<h1>Raspberry Pis</h1>" in html and ">sw2 p46</td>" in html
     assert '<meta http-equiv="refresh" content="60">' in html
 
 
@@ -121,7 +121,7 @@ def test_no_pi_registered_says_so():
 @pytest.mark.django_db
 def test_the_fleet_pages_are_linked_only_where_the_host_has_them(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in welland
+    assert '<a href="/fleet/pi-sw2-p46/">Pi pi-sw2-p46</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "pi-sw2-p46" in tt and 'href="/fleet/' not in tt
 
@@ -210,7 +210,9 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
     assert row.registered is not None
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "by the host name it booted with; registered" in html and "<b>" not in html
+    assert "the port its host name says it booted on, as it registered" in html and "<b>" not in html
+    # its board as the registration names it, escaped and cut
+    assert "tt-demo-board + &lt;b&gt;zzz" in html
 
 
 @pytest.mark.django_db
@@ -279,22 +281,30 @@ def _rows(html):
     body = html.split('class="mgmt-table mgmt-hosts', 1)[1].split("</table>", 1)[0]
     rows = [[htmllib.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
             for tr in re.findall(r"<tr>(.*?)</tr>", body.split("<tbody>", 1)[1], re.S)]
-    assert rows and all(len(r) == 6 for r in rows)
+    assert rows and all(len(r) == 7 for r in rows)
     return rows
 
 
 @pytest.mark.django_db
 def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    rows = {r[1]: r for r in _rows(html)}
-    assert rows["pi-sw2-p33"][0] == "needs attention" and rows["pi-sw2-p33"][3] == "failed: pin-id, spiflash"
-    assert rows["pi-sw2-p46"][0] == "operational" and rows["pi-sw2-p46"][3] == "passed"
-    assert rows["pi-sw2-p46"][5] == "yes"
+    rows = _rows(html)
+    by_port = {r[2]: r for r in rows}
+    # columns: State, Pi (its label), Port, Board (its label), Boot check, Seen, Offered
+    assert by_port["sw2 p33"][0] == "needs attention" and by_port["sw2 p33"][4] == "failed: pin-id, spiflash"
+    assert by_port["sw2 p46"][0] == "operational" and by_port["sw2 p46"][4] == "passed"
+    assert by_port["sw2 p46"][1] == "Pi pi-sw2-p46" and by_port["sw2 p46"][3].startswith("acorn-")
+    assert by_port["sw2 p46"][6] == "yes"
     # why a Pi is not offered, in the index's words
-    assert rows["pi-sw2-p33"][5] == "no: pin-id, spiflash" and rows["pi-sw2-p10"][5] == "no: stopped checking in"
-    assert rows["pi-sw2-p4"][5] == "no: missing 7 h" and rows["pi-sw2-p7"][5] == "no: boot check running"
-    assert rows["pi-sw2-p7"][3] == "running" and rows["pi-sw2-p7"][0] == "unknown"
-    assert rows["pi-sw2-p4"][0] == "missing" and rows["pi-sw2-p4"][4] == "7 h ago"
+    assert by_port["sw2 p33"][6] == "no: pin-id, spiflash" and by_port["sw2 p10"][6] == "no: stopped checking in"
+    assert by_port["sw2 p4"][6] == "no: missing 7 h" and by_port["sw2 p7"][6] == "no: boot check running"
+    assert by_port["sw2 p7"][4] == "running" and by_port["sw2 p7"][0] == "checking"
+    assert by_port["sw2 p4"][0] == "missing" and by_port["sw2 p4"][5] == "7 h ago"
+    assert by_port["sw2 p33"][3] == "TT board, not identified 4df39a7a6856f86f"  # the USB serial its check read
+    # what needs a person first, then by switch and port
+    assert [r[0] for r in rows] == ["needs attention", "needs attention", "missing", "checking", "operational",
+                                    "operational"]
+    assert [r[2] for r in rows][:2] == ["sw2 p10", "sw2 p33"]
     # every test and its result in the check cell's title; the reason the Pi is not offered in the state's title
     import re
 
@@ -308,8 +318,8 @@ def test_a_pi_seen_in_the_future_fails_its_own_cell_and_the_page_stands(fleet):
     Machine.objects.filter(hostname="pi-sw2-p46").update(last_seen=timezone.now() + datetime.timedelta(hours=2))
     r = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/")
     assert r.status_code == 200
-    rows = {row[1]: row for row in _rows(r.content.decode())}
-    assert "future" in rows["pi-sw2-p46"][4] and rows["pi-sw2-p47"][4].endswith("ago")
+    rows = {row[2]: row for row in _rows(r.content.decode())}
+    assert "future" in rows["sw2 p46"][5] and rows["sw2 p47"][5].endswith("ago")
 
 
 @pytest.mark.django_db
@@ -321,3 +331,62 @@ def test_the_explanations_are_one_collapsed_key_after_the_tables(fleet):
     # no paragraph of prose between the heading and the tables
     before_key = body.split("<details", 1)[0]
     assert "operational</strong>" not in before_key and "<p>" not in before_key
+
+
+@pytest.mark.django_db
+def test_a_pi_is_named_by_its_label_from_its_registered_revision():
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw1-p3", serial="285df3f84af242d0")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
+        "machine": {"serial": m.serial, "revision_code": "c04170"}})  # a Pi 5, 4 GB
+    m.save()
+    assert fpga.pi_label(m) == "Pi 5 4 GB 285df3f84af242d0"
+    m.latest_snapshot.document = {"machine": {"revision_code": "zz"}}  # one rpi-hwid cannot read: the serial alone
+    assert fpga.pi_label(m) == "Pi 285df3f84af242d0"
+
+
+def test_a_board_is_named_by_its_label_where_its_check_read_one():
+    from rpi_hwid import names
+
+    def board(name, **identity):
+        return {"board": name, "variant": "", "result": "pass", "reason": "", "identity": identity}
+
+    dna = "0x00200c8664b04854"
+    assert fpga.board_label(board("acorn", dna=dna)) == f"{names.acorn_name(dna)} {dna}"
+    assert fpga.board_label(board("netv2", dna=dna)) == f"{names.netv2_name(dna)} {dna}"
+    assert fpga.board_label(board("tt", chip="fpga", usb_serial="4df39a7a6856f86f")) == "TT FPGA 4df39a7a6856f86f"
+    assert fpga.board_label(board("tt")) == "TT board, not identified"
+    assert fpga.board_label(board("arty", serial="210319A8C1F3")) == "Arty A7 210319A8C1F3"
+
+
+@pytest.mark.django_db
+def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fleet):
+    # a TT chip board: offered, and not on /fpgas/ (that page is not its own): its page is tinytapeout's
+    pi("pi-sw2-p20", {"result": "pass", "board0": "tt tt-asic pass", "board0_identity_chip": "asic",
+                      "board0_identity_usb_serial": "abcd1234"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    rows = {r[2]: r for r in _rows(html)}
+    assert rows["sw2 p20"][6] == "yes"
+    assert '<a href="https://tinytapeout.fpgas.online/board/' in html and 'abcd1234/">yes</a>' in html
+    tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
+    assert 'abcd1234/">yes</a>' in tt and 'href="https://tinytapeout.fpgas.online' not in tt  # its own host: a path
+    # an offered Pi that no visitor page shows
+    from unittest import mock
+
+    with mock.patch("ttsite.boards.pages", return_value=[]):
+        html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert {r[2]: r for r in _rows(html)}["sw2 p20"][6] == "no: no visitor page"
+    for row in _rows(html):
+        assert row[6] in ("yes",) or row[6].startswith("no: ")
+
+
+@pytest.mark.django_db
+def test_the_reload_switch_keeps_the_filter_and_the_redirect_keeps_every_parameter(fleet):
+    c = Client(HTTP_HOST="welland.fpgas.online")
+    html = c.get("/fleet/?type=TT+board%2C+not+identified&condition=attention").content.decode()
+    assert 'href="?type=TT+board%2C+not+identified&amp;condition=attention&amp;reload=off">stop</a>' in html
+    off = c.get("/fleet/?condition=attention&reload=off").content.decode()
+    assert 'href="?condition=attention">reload every minute</a>' in off
+    r = c.get("/management/fpgas/?type=TT+board%2C+not+identified&condition=attention&reload=off")
+    assert r["Location"] == "/fleet/?type=TT+board%2C+not+identified&condition=attention&reload=off"

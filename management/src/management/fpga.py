@@ -9,6 +9,8 @@ from django.utils import timezone
 from fleet.models import BootEvent, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
+from rpi_hwid import names
+from rpi_hwid.revision import decode_revision
 
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
 TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card"}
@@ -18,11 +20,14 @@ SNAPSHOT_TT = "TT, not checked this boot"
 SNAPSHOT_KINDS = {"tt-demo-board": SNAPSHOT_TT, "arty-a7": "Arty A7", "xilinx-pcie": "PCIe card",
                   "netv2": "NeTV2", "fomu": "Fomu", "acorn": "Acorn"}
 NO_BOARD = "no board"
+TT_UNIDENTIFIED = "TT board, not identified"  # the check could not tell which: the Boot check cell says why
+# rpi-hwid's names for a board by its Device DNA (rpi_hwid.names): the name on its label. An Arty's name depends on
+# the order the registry took the serials, so it is not made here; it is shown by its serial.
+DNA_NAMES = {"acorn": names.acorn_name, "netv2": names.netv2_name, "pcileech": names.pcileech_name}
+# "unknown" is the condition of a Pi whose boot check has not finished this boot (not started, or running): the
+# page calls it what it is, "checking" (the coordinator, 11 Oct 2026: no state reads "unknown").
 CONDITION_TITLES = {"operational": "operational", "attention": "needs attention", "missing": "missing",
-                    "unknown": "unknown"}
-# The summary's count columns hold one or two digits: their headers are one symbol each (its title the full name,
-# and a key beside the table), so a column is as wide as its counts, not its header (Tim, 9 Oct 2026).
-CONDITION_SYMBOLS = {"operational": "\u2713", "attention": "!", "missing": "\u2717", "unknown": "?"}
+                    "unknown": "checking"}
 MAX_TEXT = 300
 
 
@@ -34,10 +39,39 @@ def board_title(board):
     """A reported board's type, for the summary: a Tiny Tapeout board by what it said it carries."""
     if board["board"] == "tt":
         chip = _text(board["identity"].get("chip", ""), 20).lower()
-        return {"fpga": "TT FPGA", "asic": "TT chip"}.get(chip, "TT (not identified)")
+        return {"fpga": "TT FPGA", "asic": "TT chip"}.get(chip, TT_UNIDENTIFIED)
     if not board["board"]:
         return "not readable"
     return TYPE_TITLES.get(board["board"], OTHER)
+
+
+def board_label(board):
+    """A board as its label names it: "acorn-holly 0x00200c8664b04854" where its check read the DNA (rpi-hwid's
+    name for it, then the DNA), else its type and the id its check read ("TT FPGA 4df39a7a6856f86f"), else its
+    type."""
+    title = board_title(board)
+    dna = _text(board["identity"].get("dna", ""), 40)
+    namer = DNA_NAMES.get(board["board"])
+    if dna and namer:
+        try:
+            return f"{namer(dna)} {dna}"
+        except ValueError:  # a DNA rpi-hwid cannot read: the type and what was sent
+            return f"{title} {dna}"
+    ident = board_id(board)
+    return f"{title} {ident}" if ident else title
+
+
+def pi_label(machine):
+    """A Pi as its label names it: "Pi 5 2 GB 285df3f84af242d0", from the revision code its registration sent
+    (rpi-hwid's decode_revision) and its serial. Without a revision it can read: "Pi" and the serial."""
+    doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
+    facts = doc.get("machine") if isinstance(doc, dict) else None
+    code = facts.get("revision_code") if isinstance(facts, dict) else None
+    try:
+        rev = decode_revision(code) if isinstance(code, str) and code else None
+    except (ValueError, KeyError):
+        rev = None
+    return f"Pi {rev.model} {rev.memory} {machine.serial}" if rev else f"Pi {machine.serial}"
 
 
 def board_id(board):
@@ -87,6 +121,7 @@ class Host:
     board_type: str = NO_BOARD
     checked_in: bool = False
     pi: Pi | None = None
+    registered_kinds: list = field(default_factory=list)  # the board kinds its registration names, as it named them
 
     @property
     def condition_title(self):
@@ -159,9 +194,11 @@ def hosts(now=None):
         for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
             # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
             variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
-            boards.append({"title": board_title(b), "variant": variant, "id": board_id(b),
+            boards.append({"title": board_title(b), "label": board_label(b), "variant": variant, "id": board_id(b),
+                           "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
                            "failing": failing_tests(detail, i), "tests": board_tests(detail, i)})
+        kinds = []
         if boards:
             board_type = " + ".join(dict.fromkeys(b["title"] for b in boards))
         else:
@@ -170,6 +207,7 @@ def hosts(now=None):
         has_checked_in = m.serial in live
         rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,
+                         registered_kinds=list(dict.fromkeys(_text(k, 40) for k in kinds if k)),
                          pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None))
     return sorted(rows, key=lambda r: r.place)
 
