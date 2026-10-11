@@ -57,6 +57,7 @@ class Line:
     """A Pi's row as the page shows it."""
     host: fpga.Host
     label: str  # the Pi as its label names it
+    model: str  # the model string its registration sent, in full (the label's title, #92)
     port: str  # "sw1 p10": the port its host name says it booted on
     check: str  # "failed: pin-id, spiflash"
     check_title: str  # every test and its result, and the check's reasons
@@ -114,7 +115,7 @@ def _line(host, now, pages):
         seen, error = "", str(exc)
     stamp = host.machine.last_seen
     offered, page = _offered(host, now, pages)
-    return Line(host, fpga.pi_label(host.machine), fpga.port_text(host.machine), check, check_title, seen, error,
+    return Line(host, fpga.pi_label(host.machine), fpga.registered_model(host.machine), fpga.port_text(host.machine), check, check_title, seen, error,
                 int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition], offered, page)
 
 
