@@ -12,6 +12,7 @@
  */
 (function () {
   function value(cell) {
+    if (!cell) { return ""; }  /* a row with fewer cells (a "nothing here" row spanning the table) sorts as empty */
     var v = cell.getAttribute("data-sort");
     return (v === null ? cell.textContent : v).trim();
   }
@@ -59,7 +60,7 @@
     });
   }
 
-  if (typeof module !== "undefined") { module.exports = {compare: compare, order: order}; }
+  if (typeof module !== "undefined") { module.exports = {compare: compare, order: order, value: value}; }
   if (typeof document !== "undefined") {
     Array.prototype.forEach.call(document.querySelectorAll("table.mgmt-sortable"), enhance);
   }

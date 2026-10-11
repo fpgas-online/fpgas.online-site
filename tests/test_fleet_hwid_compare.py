@@ -207,8 +207,8 @@ def test_rpi_hwid_refuses_a_label_with_a_fact_missing(machine):
 # The detail page: complete is every label with nothing missing, not a
 # `missing` with no keys -- rpi-hwid lists each label it can make, with [].
 
-COMPLETE = "Everything rpi-hwid needs for this Pi's labels is here."
-INCOMPLETE = "Not enough for full labels yet."
+COMPLETE = "rpi-hwid has everything it needs for this host's labels."
+INCOMPLETE = '<th scope="col">Still needs</th>'
 
 
 @pytest.mark.django_db
@@ -227,6 +227,7 @@ def test_the_page_says_an_incomplete_pi_is_incomplete(machine, client):
     send(machine, "fpga-board-identified", fpga_board_identified())
     page = client.get(f"/fleet/{machine.serial}/").content.decode()
     assert INCOMPLETE in page and COMPLETE not in page
-    assert '<td>board</td><td class="missing">header</td>' in page
+    # the field, and who sends it (#93 item 4)
+    assert '<td>board</td><td><code>header</code></td><td title="the Pi&#x27;s pi-identified event' in page
     # a label with nothing missing is not listed as needing something
     assert "<td>fpga[0]</td>" not in page

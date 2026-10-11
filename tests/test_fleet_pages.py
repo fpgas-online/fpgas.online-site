@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from django.test import Client
@@ -37,15 +38,19 @@ def test_detail_shows_history_and_events(c):
     BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up",
                              detail={}, ts=timezone.now())
     html = c.get("/fleet/abc123/").content.decode()
-    assert html.count("<details") >= 2 and "ssh-up" in html
+    # the newest registration laid out, the earlier one collapsed; this boot's events in a table
+    assert html.count('<pre class="mgmt-json">') == 2 and html.count("<details") == 1
+    assert "<td>ssh-up</td>" in html
 
 
 @pytest.mark.django_db
 def test_detail_says_what_the_labels_still_need(c):
     register_document(DOC)
     html = c.get("/fleet/abc123/").content.decode()
-    assert "<h2>Labels</h2>" in html and "Not enough for full labels yet" in html
-    assert "<td>board</td><td class=\"missing\">revision, header, fan, rtc_battery</td>" in html
+    assert "<h2>Labels</h2>" in html and '<th scope="col">Still needs</th>' in html
+    # each field rpi-hwid still needs, and who sends it (#93 item 4)
+    for field, owner in (("revision", "registration"), ("header", "pi-identified")):
+        assert re.search(rf'<td><code>{field}</code></td><td title="[^"]*">{owner}</td>', html)
     assert "no usable pi-identified event from this Pi" in html
     assert 'href="/fleet/abc123/rpi-hwid.json"' in html
 

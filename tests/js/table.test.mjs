@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { compare, order } = require(join(here, "..", "..", "management", "src", "management", "static", "management", "table.js"));
+const { compare, order, value } = require(join(here, "..", "..", "management", "src", "management", "static", "management", "table.js"));
 
 const rows = (keys) => keys.map((key, index) => ({ key, index }));
 const keys = (list) => list.map((r) => r.key);
@@ -80,4 +80,10 @@ test("a click on a header sorts, then reverses, then restores the served order",
   buttons[0].listeners.click();  // another column: the first column's text, and the second header resets
   assert.equal(served(), "abc");
   assert.deepEqual(table.heads.map((h) => h.attrs["aria-sort"]), ["ascending", "none"]);
+});
+
+
+test("a row with fewer cells than the column sorts as empty, not an error", () => {
+  assert.equal(value(undefined), "");
+  assert.equal(value({ getAttribute: () => "7", textContent: "x" }), "7");
 });

@@ -243,7 +243,8 @@ def hosts(now=None):
         for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
             # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
             variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
-            boards.append({"title": board_title(b), "label": board_label(b), "variant": variant, "id": board_id(b),
+            boards.append({"kind": _text(b["board"], 40), "title": board_title(b), "label": board_label(b),
+                           "variant": variant, "id": board_id(b),
                            "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
                            "failing": failing_tests(detail, i), "tests": board_tests(detail, i)})
