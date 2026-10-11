@@ -86,7 +86,7 @@ def test_every_management_page_extends_one_base_that_owns_the_header():
 def test_the_landing_has_no_crumb_to_itself_and_a_page_below_it_has_its_parent(welland):
     # a crumb "Management" directly above the heading "Management" says the same word twice (the coordinator, 11 Oct)
     assert "mgmt-crumbs" not in welland.get("/management/").content.decode()
-    below = welland.get("/management/fpgas/").content.decode()
+    below = welland.get("/management/fpgas/", follow=True).content.decode()
     assert re.search(r'<nav class="mgmt-crumbs"[^>]*>\s*<a href="/management/">Management</a> &rsaquo; FPGA hosts', below)
 
 # --- the state at a glance (Tim, 11 Oct 2026) ---------------------------------------------------------------------

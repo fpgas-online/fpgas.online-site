@@ -53,11 +53,17 @@ def board_indices(detail):
     return found[:MAX_BOARDS]
 
 
-def failing_tests(detail, index):
-    """The names of a board's tests that did not pass, from `board<i>_tests` ("sdk=pass dip-switches=fail")."""
+def board_tests(detail, index):
+    """[(name, result)] of a board's tests, in the check's order, from `board<i>_tests` ("sdk=pass
+    dip-switches=fail"); a word without "=" is not a test."""
     tests = detail.get(f"board{index}_tests", "")
     words = tests.split() if isinstance(tests, str) else []
-    return [_text(name, 40) for name, _, result in (w.partition("=") for w in words) if result and result != "pass"]
+    return [(_text(name, 40), _text(result, 20)) for name, _, result in (w.partition("=") for w in words) if result]
+
+
+def failing_tests(detail, index):
+    """The names of a board's tests that did not pass."""
+    return [name for name, result in board_tests(detail, index) if result != "pass"]
 
 
 def _snapshot_kinds(doc):
@@ -77,7 +83,7 @@ class Host:
     condition: str
     state: str  # the check of the boot it is running: "pass", "fail", "verifying", "" (not started), ...
     checked: object  # when that check reported: its event's time, as the Pi stamped it; or None
-    boards: list = field(default_factory=list)  # [{"title", "variant", "id", "result", "reason", "failing"}]
+    boards: list = field(default_factory=list)  # [{"title", "variant", "id", "result", "reason", "failing", "tests"}]
     board_type: str = NO_BOARD
     checked_in: bool = False
     pi: Pi | None = None
@@ -155,7 +161,7 @@ def hosts(now=None):
             variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
             boards.append({"title": board_title(b), "variant": variant, "id": board_id(b),
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
-                           "failing": failing_tests(detail, i)})
+                           "failing": failing_tests(detail, i), "tests": board_tests(detail, i)})
         if boards:
             board_type = " + ".join(dict.fromkeys(b["title"] for b in boards))
         else:

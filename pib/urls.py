@@ -16,6 +16,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
+from management.views.fpgas import pis
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -24,6 +25,8 @@ urlpatterns = [
     path('snmp/', include('snmp_switch.urls')),
     path('pistat/', include('pistat.urls')),
     path('pibup/', include('pibup.urls')),
+    # the Raspberry Pi dashboard is the fleet's front page (#94); the fleet app has each Pi's own pages
+    path('fleet/', pis, name='fleet-list'),
     path('fleet/', include('fleet.urls')),
     path('management/', include('management.urls')),
 ]

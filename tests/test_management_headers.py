@@ -36,7 +36,7 @@ def c():
 
 @pytest.mark.django_db
 def test_the_fpga_dashboard_headers_are_short(c):
-    html = c.get("/management/fpgas/").content.decode()
+    html = c.get("/management/fpgas/", follow=True).content.decode()
     assert headers(html, 0) == ["Type", "✓", "!", "✗", "?", "Σ"]  # one symbol over one-digit counts
     assert headers(html, 1) == ["Pi", "Port", "Board", "Boot check", "Last seen", "Offered"]
     # a screen reader hears each symbol's full name, not the symbol (#81)
