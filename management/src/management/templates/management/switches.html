@@ -61,7 +61,7 @@
       }
     }
     tr.appendChild(l);
-    var macs = cell("td", p.macs); if (p.macs_title) { macs.title = p.macs_title; } tr.appendChild(macs);
+    var macs = cell("td", p.macs); macs.className = "mgmt-macs"; if (p.macs_title) { macs.title = p.macs_title; } tr.appendChild(macs);
     tr.appendChild(cell("td", p.rx)); tr.appendChild(cell("td", p.tx)); tr.appendChild(cell("td", p.errors));
   }
   function say(text) {
@@ -81,7 +81,25 @@
       var readat = box.querySelector(".mgmt-readat"); readat.textContent = s.read_ago; readat.title = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
       var body = box.querySelector("tbody"), fresh = document.createElement("tbody");
-      s.ports.forEach(function (p) { var tr = document.createElement("tr"); fill(tr, p, s.index); fresh.appendChild(tr); });
+      var anchor = "switch-" + (s.index !== null ? s.index : n);
+      s.ports.forEach(function (p) {
+        var tr = document.createElement("tr"); tr.id = anchor + "-port-" + p.port; fill(tr, p, s.index); fresh.appendChild(tr);
+      });
+      /* the front panel (#90): each port's state class, mark and words, from the same reading as the table */
+      var svg = document.getElementById(anchor + "-panel"), panel = s.panel || [];
+      if ((svg ? svg.querySelectorAll(".mgmt-port").length : 0) !== panel.length ||
+          panel.some(function (p) { return !document.getElementById(anchor + "-panel-" + p.port); })) {
+        location.reload();  /* the panel's ports changed: draw the page afresh rather than keep a stale layout */
+        return;
+      }
+      if (svg) { svg.setAttribute("aria-label", s.panel_label + ". A port links to its row."); }
+      panel.forEach(function (p) {
+        var g = document.getElementById(anchor + "-panel-" + p.port);
+        g.setAttribute("class", "mgmt-port mgmt-port-" + p.state + (p.mismatch ? (p.known ? " mgmt-port-known" : " mgmt-port-wrong") : ""));
+        g.querySelector("title").textContent = p.title;
+        g.querySelector(".mgmt-glyph").textContent = p.glyph;
+        g.parentNode.setAttribute("aria-label", p.title);
+      });
       body.replaceWith(fresh);
     });
   }
@@ -137,6 +155,15 @@
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.counter0 }}{% endif %}">
   <h2>{{ s.title }}</h2>
   <p>Status: <span class="mgmt-status">{{ s.status }}</span>. Read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span>.</p>
+  {% if s.panel_problem %}<p class="mgmt-problem">{{ s.panel_problem }}</p>{% endif %}
+  {% if s.panel %}
+  {% with anchor=s.index|default_if_none:forloop.counter0|stringformat:"s" %}
+  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Front panel of {{ s.title }}"><svg class="mgmt-panel" id="switch-{{ anchor }}-panel" viewBox="0 0 {{ s.panel_width }} {{ s.panel_height }}" width="{{ s.panel_width }}" height="{{ s.panel_height }}" role="group" aria-label="{{ s.panel_label }}. A port links to its row.">
+  {% for p in s.panel %}<a href="{{ p.href }}" aria-label="{{ p.title }}"><g id="switch-{{ anchor }}-panel-{{ p.port }}" class="mgmt-port mgmt-port-{{ p.state }}{% if p.mismatch %} mgmt-port-{% if p.known %}known{% else %}wrong{% endif %}{% endif %}"><title>{{ p.title }}</title><rect x="{{ p.x|add:1 }}" y="{{ p.y|add:1 }}" width="26" height="30" rx="3"/><text x="{{ p.x|add:14 }}" y="{{ p.y|add:13 }}" text-anchor="middle">{{ p.port }}</text><text class="mgmt-glyph" x="{{ p.x|add:14 }}" y="{{ p.y|add:27 }}" text-anchor="middle" aria-hidden="true">{{ p.glyph }}</text></g></a>{% endfor %}
+  </svg></div>
+  {% endwith %}
+  <ul class="mgmt-panel-key">{% for state, glyph, words in panel_states %}<li><svg width="16" height="14" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-{{ state }}" x="1" y="1" width="14" height="12" rx="2"/><text class="mgmt-glyph" x="8" y="11" text-anchor="middle">{{ glyph }}</text></svg> {{ words }}</li>{% endfor %}<li><svg width="16" height="14" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-down mgmt-port-wrong" x="1" y="1" width="14" height="12" rx="2"/></svg> red dashed edge: not as the inventory says</li><li><svg width="16" height="14" aria-hidden="true"><rect class="mgmt-swatch mgmt-port-down mgmt-port-known" x="1" y="1" width="14" height="12" rx="2"/></svg> amber dotted edge: not as the inventory says, for a known cause (an open issue, in the port's title)</li></ul>
+  {% endif %}
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports">
     <thead><tr>
@@ -151,7 +178,7 @@
     </tr></thead>
     <tbody>
     {% for p in s.ports %}
-      <tr>
+      <tr id="switch-{% if s.index is not None %}{{ s.index }}{% else %}{{ forloop.parentloop.counter0 }}{% endif %}-port-{{ p.port }}">
         <th scope="row">{{ p.port }}</th>
         <td class="mgmt-label"{% if p.label_title %} title="{{ p.label_title }}"{% endif %}>{% for part in p.label_parts %}<span>{{ part }}</span>{% if not forloop.last %}<wbr>{% endif %}{% endfor %}</td>
         <td class="{% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}">{{ p.link }}</td>
@@ -160,7 +187,7 @@
         <td class="mgmt-poe" title="{{ p.poe_title }}">{{ p.poe }}</td>
         <td class="mgmt-power">{% if p.can_power %}{% if p.poe_action %}<button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.lldp_name }}">{{ p.poe_action }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
         <td{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_name %}{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}{% if p.lldp_port %}<br><span class="mgmt-soon">{{ p.lldp_port }}</span>{% endif %}{% endif %}</td>
-        <td{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
+        <td class="mgmt-macs"{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
         <td>{{ p.rx }}</td>
         <td>{{ p.tx }}</td>
         <td>{{ p.errors }}</td>

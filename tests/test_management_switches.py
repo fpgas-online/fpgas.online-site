@@ -62,7 +62,7 @@ READ_AT = "2026-10-09T10:00:00+09:30"
 
 def make_views():
     return [SwitchView(
-        index=1, name="switch 1", model="GSM7252PS", reachable=True, error="", read_at=READ_AT, good_at=READ_AT,
+        index=1, name="switch 1", model="gsm7252ps", reachable=True, error="", read_at=READ_AT, good_at=READ_AT,
         ports=[
             PortView(port=1, label="uplink", link_up=True, speed_mbps=1000, poe_state="delivering", poe_watts=3.5,
                      lldp_name="pi-sw1-p1", lldp_port="eth0", macs=["aa:00:00:00:00:01", "aa:00:00:00:00:02",
@@ -132,7 +132,7 @@ def test_the_names_reverse_on_both_urlconfs():
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and ">searching</td>" in row and row.count("<td></td>") >= 2
+    assert ">down<" in row and ">searching</td>" in row and len(re.findall(r"<td[^>]*></td>", row)) >= 2
 
 
 @pytest.mark.django_db
