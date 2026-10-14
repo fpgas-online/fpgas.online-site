@@ -191,12 +191,17 @@ def registry_json(request):
       "check": {"result": "pass" | "fail" | "error" | "missing" | "verifying" | "unknown" (unreadable) | ... | null,
                 "at" | null},
       "last_seen" | null, "cameras": [as the registration lists them] | null,
-      "network": {"state", "administrative_state", "changed", "last_ack" | null, "last_ack_source": "pi"} | null}]}
+      "network": null | {"state", "administrative_state", "changed", "last_ack" | null, "last_ack_source": "pi",
+                         "boot_id", "current_boot": true | false, "error": null}
+                 | {"state": null, "administrative_state": null, "changed": null, "last_ack": null,
+                    "last_ack_source": null, "boot_id": null, "current_boot": null, "error": "<what is wrong>"}}]}
 
     "network" is the machine's newest network-state record (management.network): the uplink's operational and
     administrative state, when the record was made, and the last DHCP ACK the Pi itself saw; null when the machine has
-    sent none. A malformed record is {"error": "<what is wrong, naming the event>"} for that machine only, and a
-    warning in the log: the other machines are unaffected."""
+    sent none (the first form). The second form is the record's entry; "boot_id" is the boot it was sent in (""
+    for a record sent without one) and "current_boot" says whether that is the boot the machine is running (if
+    not, the machine has sent no record this boot). A malformed record gives the third form for that machine only,
+    every key null and "error" naming the event, and a warning in the log: the other machines are unaffected."""
     now = timezone.now()
     machines = []
     networks = network.newest()  # one read for every machine

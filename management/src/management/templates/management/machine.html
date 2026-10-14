@@ -94,7 +94,7 @@
   <thead><tr><th scope="col">Family</th><th scope="col">Gateway</th><th scope="col">Metric</th><th scope="col">Protocol</th></tr></thead>
   <tbody>
   {% for r in net.default_routes %}
-    <tr><td>IPv{{ r.family }}</td><td><code>{{ r.gateway }}</code></td><td>{{ r.metric|default_if_none:"–" }}</td><td>{{ r.protocol|default:"–" }}</td></tr>
+    <tr><td>IPv{{ r.family }}</td><td>{% if r.gateway %}<code>{{ r.gateway }}</code>{% else %}–{% endif %}</td><td>{{ r.metric|default_if_none:"–" }}</td><td>{{ r.protocol|default:"–" }}</td></tr>
   {% endfor %}
   </tbody>
 </table></div>

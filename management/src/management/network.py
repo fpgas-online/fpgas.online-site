@@ -35,11 +35,14 @@ from fleet.models import BootEvent, Machine
 log = logging.getLogger(__name__)
 STAGE = "network-state"
 SHOWN = 80  # characters of a Pi-supplied value in an error message or a log line
+MAX_ROWS = 64  # addresses, and default routes
+MAX_TEXT = 256  # characters of any string of the document
 STATE = re.compile(r"^[a-z][a-z-]{0,31}$")
 KEYS = ("schema", "serial", "mac", "hostname", "switch", "port", "at", "interface", "trigger", "operational_state",
         "administrative_state", "addresses", "default_routes", "lease")
 ADDRESS_KEYS = ("family", "address", "prefixlen", "scope", "valid_lifetime_s", "preferred_lifetime_s")
 ROUTE_KEYS = ("family", "gateway", "metric", "protocol")
+ENTRY_KEYS = ("state", "administrative_state", "changed", "last_ack", "last_ack_source", "boot_id", "current_boot")
 LEASE_KEYS = ("address", "server", "lifetime_s", "acked_at", "expires")
 
 
@@ -65,9 +68,16 @@ class Network:
 
 
 def _r(value):
-    """A Pi-supplied value for a message: its repr, cut to SHOWN characters."""
-    text = repr(value)
-    return text if len(text) <= SHOWN else text[:SHOWN - 1] + "…"
+    """A Pi-supplied value for a message, never more than SHOWN characters and never a repr of something large: a
+    string is cut before it is repr'd, a container is named by its type and size."""
+    if isinstance(value, str):
+        text = repr(value[:SHOWN + 1])
+        return text if len(value) <= SHOWN else text[:SHOWN - 1] + "…"
+    if isinstance(value, (list, dict)):
+        return f"a {type(value).__name__} of {len(value)}"
+    if _is_int(value) and value.bit_length() > 64:
+        return f"an integer of {value.bit_length()} bits"
+    return repr(value)[:SHOWN]
 
 
 def _is_int(value):
@@ -114,8 +124,34 @@ def _rows(doc, key, keys):
     return rows
 
 
+def _bounded(value, what):
+    """The document is from a Pi on the open LAN: no string over MAX_TEXT, no object over MAX_ROWS keys."""
+    if isinstance(value, str):
+        _check(len(value) <= MAX_TEXT, value, what, f"a string of at most {MAX_TEXT} characters")
+    elif isinstance(value, list):
+        for item in value:
+            _bounded(item, what)
+    elif isinstance(value, dict):
+        _check(len(value) <= MAX_ROWS, value, what, f"an object of at most {MAX_ROWS} keys")
+        for key, item in value.items():
+            _bounded(key, what)
+            _bounded(item, f"{what}.{key}" if len(str(key)) <= SHOWN else what)
+
+
 def _check_doc(doc):
     _need(doc, KEYS, "the record")
+    for key in ("addresses", "default_routes"):
+        _check(not isinstance(doc[key], list) or len(doc[key]) <= MAX_ROWS, doc[key], key,
+               f"a list of at most {MAX_ROWS}")
+    _bounded(doc, "the record")
+    _check(_text(doc["serial"]), doc["serial"], "serial", "a non-empty string")
+    _check(doc["hostname"] is None or isinstance(doc["hostname"], str), doc["hostname"], "hostname",
+           "a string or null")
+    for key in ("switch", "port"):
+        _check(doc[key] is None or (_is_int(doc[key]) and doc[key] >= 0), doc[key], key,
+               "an integer of 0 or more, or null")
+    _check(_moment(doc["at"], "at") is not None, doc["at"], "at", "an ISO 8601 time with its offset")
+    _check(isinstance(doc["trigger"], str) and STATE.match(doc["trigger"]), doc["trigger"], "trigger", "a state")
     _check(doc["schema"] == 1 and _is_int(doc["schema"]), doc["schema"], "schema", "1")
     for key in ("interface", "mac"):
         _check(_text(doc[key]), doc[key], key, "a non-empty string")
@@ -126,7 +162,8 @@ def _check_doc(doc):
         what = f"addresses[{i}]"
         _check(a["family"] in (4, 6) and _is_int(a["family"]), a["family"], f"{what}.family", "4 or 6")
         _check(_text(a["address"]), a["address"], f"{what}.address", "a non-empty string")
-        _check(_is_int(a["prefixlen"]), a["prefixlen"], f"{what}.prefixlen", "an integer")
+        _check(_is_int(a["prefixlen"]) and 0 <= a["prefixlen"] <= (32 if a["family"] == 4 else 128), a["prefixlen"],
+               f"{what}.prefixlen", f"0 to {32 if a['family'] == 4 else 128} for IPv{a['family']}")
         _check(a["scope"] is None or isinstance(a["scope"], str), a["scope"], f"{what}.scope", "a string or null")
         for key in ("valid_lifetime_s", "preferred_lifetime_s"):
             _check(a[key] is None or (_is_int(a[key]) and a[key] >= 0), a[key], f"{what}.{key}",
@@ -189,11 +226,12 @@ def newest():
 
 
 def summary(net):
-    """The registry.json "network" of one machine: null when it has sent no record, {"error"} for a bad one."""
+    """The registry.json "network" of one machine, in one of three forms (see views.fpgas.registry_json): null when
+    it has sent no record; the record's entry; or, for a bad record, every key of the entry null plus "error"."""
     if net is None:
         return None
     if isinstance(net, ValueError):
-        return {"error": str(net)}
+        return dict.fromkeys(ENTRY_KEYS) | {"error": str(net)}
     return {"state": net.operational_state, "administrative_state": net.administrative_state,
             "changed": utc(net.event.ts), "last_ack": utc(net.last_ack), "last_ack_source": "pi",
-            "boot_id": net.event.boot_id, "current_boot": net.current_boot}
+            "boot_id": net.event.boot_id, "current_boot": net.current_boot, "error": None}
