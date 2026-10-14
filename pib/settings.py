@@ -341,6 +341,9 @@ FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
 SWITCH_POLLER_SITE = ""
 # The period of one poll of the switches' board ports.
 SWITCH_POLL_SECONDS = 2
+# How many days of the gateway's port and lease records the fleet consumer keeps (fleet.services.prune_gateway_records);
+# the newest record of each switch port is always kept.
+GATEWAY_RECORD_DAYS = 7
 # Whether the poller and the PoE views release a port's DHCP leases when its link goes down or its power is cut. Off
 # here; the gateway's generated local_settings.py turns it on.
 SNMP_SWITCH_LEASE_RELEASE = False

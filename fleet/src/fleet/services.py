@@ -10,7 +10,9 @@ import hashlib
 import json
 import logging
 import re
+import time
 
+from django.conf import settings
 from django.db.models import F, Max
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -430,15 +432,36 @@ def match_machine(mac, hostname):
     return Machine.objects.filter(serial=serial).first() if serial else None
 
 
+# A lease `old` comes on every renewal (~11,500 rows a day on a 20-board site), so the table is pruned as records
+# arrive, at most this often per process.
+PRUNE_EVERY_SECONDS = 600
+_last_prune = None  # time.monotonic() of this process's last prune
+
+
+def prune_gateway_records():
+    """Delete the gateway records older than settings.GATEWAY_RECORD_DAYS, except the newest (last stored) of each
+    (site, kind, switch, port): two queries, whatever the number of rows."""
+    cutoff = timezone.now() - datetime.timedelta(days=settings.GATEWAY_RECORD_DAYS)
+    newest = GatewayRecord.objects.values("site", "kind", "switch", "port").annotate(newest=Max("id")).values("newest")
+    deleted, _ = GatewayRecord.objects.filter(at__lt=cutoff).exclude(id__in=newest).delete()
+    return deleted
+
+
 def gateway_record(site, kind, doc):
-    """Validate and store one gateway record, matched to its machine. Returns the GatewayRecord; ValueError when the
-    record is not valid (nothing is stored)."""
+    """Validate and store one gateway record, matched to its machine; then prune the old ones (at most once per
+    PRUNE_EVERY_SECONDS per process). Returns the GatewayRecord; ValueError when the record is not valid (nothing is
+    stored)."""
+    global _last_prune
     doc, at = parse_gateway_record(kind, doc)
     mac = doc.get("mac") or None
     hostname = doc.get("hostname")
-    return GatewayRecord.objects.create(
+    record = GatewayRecord.objects.create(
         site=site, kind=kind, switch=doc.get("switch"), port=doc.get("port"), hostname=hostname or "", mac=mac,
         at=at, doc=doc, machine=match_machine(mac, hostname))
+    if _last_prune is None or time.monotonic() - _last_prune >= PRUNE_EVERY_SECONDS:
+        _last_prune = time.monotonic()
+        prune_gateway_records()
+    return record
 
 
 def latest_gateway_lease(machine):

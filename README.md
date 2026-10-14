@@ -34,6 +34,8 @@ A gateway record is matched to its `Machine` by MAC (the registration's `machine
 
 Each stored gateway record also goes out live: a line in the board page's status log (`switch: link down`, `dhcp: old 10.2.9.2 aa:bb:cc:dd:ee:ff`), and each port record to the switch dashboard (`/management/switches/`) on `ws/switches/`, which draws the port's new link state at once. The dashboard's 15 s refresh stays as the fallback (it reads through a 15 s server cache), and the page is complete without JavaScript. `SWITCH_POLLER_SITE`, `SWITCH_POLL_SECONDS` and `SNMP_SWITCH_LEASE_RELEASE` in `pib/settings.py` configure the poller.
 
+Gateway records are pruned as they arrive (at most once per 10 minutes per process): for each (site, kind, switch, port) the newest record is kept, plus everything from the last `GATEWAY_RECORD_DAYS` days (default 7; overridable in `local_settings.py`).
+
 ## Hosts
 
 The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.

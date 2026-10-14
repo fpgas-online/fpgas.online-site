@@ -209,3 +209,44 @@ def test_a_port_record_reaches_its_board_page_and_the_switch_dashboard_only():
 def test_gateway_text(doc, text):
     kind = doc.pop("kind")
     assert consumer._gateway_text(GatewayRecord(kind=kind, doc=doc)) == text
+
+
+@pytest.mark.django_db
+def test_old_gateway_records_are_pruned_but_each_ports_newest_is_kept(settings, monkeypatch):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    monkeypatch.setattr(services, "_last_prune", None)
+    settings.GATEWAY_RECORD_DAYS = 7
+    now = timezone.now()
+
+    def at(days):
+        return (now - timedelta(days=days)).isoformat()
+
+    send("lease", {**LEASE, "at": at(20)})                      # port 9, old, and not the newest: goes
+    send("lease", {**LEASE, "at": at(10)})                      # port 9, old, but the newest... until one arrives
+    send("lease", {**LEASE, "port": 8, "hostname": "pi-sw2-p8", "at": at(30)})   # port 8's only record: kept
+    send("port", {**PORT, "at": at(10)})                        # another kind of port 9: its own newest, kept
+    assert GatewayRecord.objects.count() == 4                   # the prune ran on the first store only
+    monkeypatch.setattr(services, "_last_prune", None)
+    send("lease", {**LEASE, "at": at(1)})                       # inside the window; runs the prune
+    kept = sorted((r.kind, r.port, r.at.date()) for r in GatewayRecord.objects.all())
+    assert kept == sorted([("lease", 8, (now - timedelta(days=30)).date()), ("port", 9, (now - timedelta(days=10)).date()),
+                           ("lease", 9, (now - timedelta(days=1)).date())])
+
+
+@pytest.mark.django_db
+def test_the_prune_runs_at_most_once_per_interval(settings, monkeypatch):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    monkeypatch.setattr(services, "_last_prune", None)
+    old = (timezone.now() - timedelta(days=30)).isoformat()
+    send("lease", {**LEASE, "at": old})
+    send("lease", {**LEASE, "at": old})   # within the interval: not pruned
+    assert GatewayRecord.objects.count() == 2
+    monkeypatch.setattr(services, "_last_prune", services._last_prune - services.PRUNE_EVERY_SECONDS)
+    send("lease", {**LEASE, "at": timezone.now().isoformat()})
+    assert GatewayRecord.objects.count() == 1

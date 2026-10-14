@@ -215,6 +215,7 @@ def test_switch_poller_defaults(reload_settings):
     assert module.SWITCH_POLLER_SITE == "welland"
     assert module.SWITCH_POLL_SECONDS == 2
     assert module.SNMP_SWITCH_LEASE_RELEASE is False
+    assert module.GATEWAY_RECORD_DAYS == 7
     assert reload_settings(MANAGEMENT_SITE_NAME="ps1", DOMAIN_NAME="x.example").SWITCH_POLLER_SITE == "ps1"
 
 
