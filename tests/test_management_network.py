@@ -2,6 +2,7 @@
 section (the record is fleet.services.boot_event's, stored as it came)."""
 
 import datetime
+import re
 
 import pytest
 from django.test import Client
@@ -12,7 +13,15 @@ from management import network
 from tests.test_management_fpgas import REAL, pi
 
 WELLAND = "welland.fpgas.online"
-NOW = timezone.now().replace(microsecond=0)
+NOW = None  # set per test by the now fixture
+
+
+@pytest.fixture(autouse=True)
+def now(monkeypatch):
+    """NOW for this test: the doc() and net_event() times are relative to it, not to when the module was imported."""
+    moment = timezone.now().replace(microsecond=0)
+    monkeypatch.setitem(globals(), "NOW", moment)
+    return moment
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +78,8 @@ def test_a_registry_entry_has_the_network_of_its_newest_record():
     entry = registry()[m.serial]
     assert entry["network"] == {
         "state": "routable", "administrative_state": "configured", "changed": NOW.isoformat(),
-        "last_ack": (NOW - datetime.timedelta(minutes=5)).isoformat(), "last_ack_source": "pi"}
+        "last_ack": (NOW - datetime.timedelta(minutes=5)).isoformat(), "last_ack_source": "pi",
+        "boot_id": "b1", "current_boot": True}
 
 
 @pytest.mark.django_db
@@ -89,16 +99,52 @@ def test_a_record_with_no_ack_has_a_null_last_ack():
 
 
 @pytest.mark.django_db
-def test_the_newest_record_is_the_highest_ts_of_any_boot_ties_by_id():
+def test_the_newest_record_is_the_last_to_arrive_of_the_current_boot_whatever_the_pi_clock_says():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])  # its current boot is b1
+    net_event(m, doc(operational_state="degraded"), minutes=500, boot_id="old")  # an old boot, a LATER ts
+    net_event(m, doc(operational_state="carrier"), minutes=1, boot_id="b1")
+    net_event(m, doc(operational_state="no-carrier"), minutes=-60, boot_id="b1")  # arrived last, older ts
+    net = registry()[m.serial]["network"]
+    assert (net["state"], net["boot_id"], net["current_boot"]) == ("no-carrier", "b1", True)
+
+
+@pytest.mark.django_db
+def test_a_far_future_ts_does_not_win_forever():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
-    net_event(m, doc(operational_state="degraded"), minutes=5, boot_id="old")  # older boot, newer ts than the first
-    net_event(m, doc(operational_state="carrier"), minutes=1, boot_id="b1")  # this boot, but older
-    assert registry()[m.serial]["network"]["state"] == "degraded"
-    net_event(m, doc(operational_state="no-carrier"), minutes=5, boot_id="b1")  # same ts: the later id
-    assert registry()[m.serial]["network"]["state"] == "no-carrier"
-    # the record of the id order does not beat a newer ts
-    net_event(m, doc(operational_state="routable"), minutes=-60, boot_id="b1")
-    assert registry()[m.serial]["network"]["state"] == "no-carrier"
+    net_event(m, doc(operational_state="carrier"), minutes=60 * 24 * 365 * 20)
+    net_event(m, doc(operational_state="routable"), minutes=1)
+    assert registry()[m.serial]["network"]["state"] == "routable"
+
+
+@pytest.mark.django_db
+def test_with_no_record_of_the_current_boot_the_last_to_arrive_of_any_boot_is_said_to_be_an_earlier_boot():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc(operational_state="degraded"), minutes=9, boot_id="old1")
+    net_event(m, doc(operational_state="carrier"), minutes=1, boot_id="old2")
+    net = registry()[m.serial]["network"]
+    assert (net["state"], net["boot_id"], net["current_boot"]) == ("carrier", "old2", False)
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    assert "<code>old2</code> (an earlier boot" in section
+
+
+@pytest.mark.django_db
+def test_a_machine_that_has_said_no_boot_id_falls_back_to_the_last_to_arrive():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    Machine.objects.filter(pk=m.pk).update(last_boot_id="")
+    net_event(m, doc(operational_state="carrier"), boot_id="")
+    net = registry()[m.serial]["network"]
+    assert net["state"] == "carrier" and net["current_boot"] is False
+
+
+@pytest.mark.django_db
+def test_times_are_in_utc_whatever_offset_the_pi_wrote():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    ack = (NOW - datetime.timedelta(minutes=5)).astimezone(datetime.timezone(datetime.timedelta(hours=10, minutes=30)))
+    assert ack.isoformat().endswith("+10:30")
+    net_event(m, doc(lease=dict(doc()["lease"], acked_at=ack.isoformat())))
+    net = registry()[m.serial]["network"]
+    assert net["last_ack"] == (NOW - datetime.timedelta(minutes=5)).astimezone(datetime.timezone.utc).isoformat()
+    assert net["last_ack"].endswith("+00:00") and net["changed"].endswith("+00:00")
 
 
 @pytest.mark.django_db
@@ -121,17 +167,96 @@ def test_the_registry_reads_every_machines_record_in_a_constant_number_of_querie
     assert count() == few
 
 
+def addr(**changes):
+    return doc(addresses=[dict(doc()["addresses"][0], **changes)])
+
+
+def route(**changes):
+    return doc(default_routes=[dict(doc()["default_routes"][0], **changes)])
+
+
+def lease(**changes):
+    return doc(lease=dict(doc()["lease"], **changes))
+
+
+def without(*keys):
+    return {k: v for k, v in doc().items() if k not in keys}
+
+
+def without_in(key, name):
+    row = {k: v for k, v in doc()[key][0].items() if k != name}
+    return doc(**{key: [row]})
+
+
+BAD = {
+    "not an object": lambda: "text",
+    "no schema": lambda: without("schema"),
+    "schema 2": lambda: doc(schema=2),
+    "schema true": lambda: doc(schema=True),
+    "no interface": lambda: without("interface"),
+    "empty interface": lambda: doc(interface=""),
+    "interface int": lambda: doc(interface=3),
+    "empty mac": lambda: doc(mac=""),
+    "mac null": lambda: doc(mac=None),
+    "no hostname": lambda: without("hostname"),
+    "state int": lambda: doc(operational_state=3),
+    "state upper": lambda: doc(operational_state="Routable"),
+    "state long": lambda: doc(administrative_state="a" * 33),
+    "state html": lambda: doc(operational_state="<b>"),
+    "state empty": lambda: doc(administrative_state=""),
+    "addresses not list": lambda: doc(addresses="x"),
+    "address not object": lambda: doc(addresses=["x"]),
+    "address family 5": lambda: addr(family=5),
+    "address family str": lambda: addr(family="4"),
+    "address empty": lambda: addr(address=""),
+    "address int": lambda: addr(address=4),
+    "prefixlen str": lambda: addr(prefixlen="16"),
+    "prefixlen bool": lambda: addr(prefixlen=True),
+    "scope int": lambda: addr(scope=1),
+    "valid negative": lambda: addr(valid_lifetime_s=-1),
+    "preferred str": lambda: addr(preferred_lifetime_s="1"),
+    "address lacks scope": lambda: without_in("addresses", "scope"),
+    "routes not list": lambda: doc(default_routes={}),
+    "route family 0": lambda: route(family=0),
+    "gateway int": lambda: route(gateway=1),
+    "metric str": lambda: route(metric="1"),
+    "protocol null": lambda: route(protocol=None),
+    "route lacks metric": lambda: without_in("default_routes", "metric"),
+    "no lease": lambda: without("lease"),
+    "lease null": lambda: doc(lease=None),
+    "lease lifetime str": lambda: lease(lifetime_s="1"),
+    "lease address int": lambda: lease(address=1),
+    "lease server list": lambda: lease(server=[]),
+    "lease lacks expires": lambda: doc(lease={k: v for k, v in doc()["lease"].items() if k != "expires"}),
+    "acked_at text": lambda: lease(acked_at="yesterday"),
+    "acked_at no offset": lambda: lease(acked_at="2026-10-14T10:00:00"),
+}
+
+
 @pytest.mark.django_db
-@pytest.mark.parametrize("bad", [
-    "text", {"operational_state": 3, "administrative_state": "configured"},
-    doc(lease=None), doc(addresses="x"), doc(lease=dict(doc()["lease"], acked_at="yesterday")),
-    doc(lease=dict(doc()["lease"], acked_at="2026-10-14T10:00:00")),  # no offset
-])
-def test_a_malformed_record_is_an_error_not_a_guess(bad):
+@pytest.mark.parametrize("bad", BAD.values(), ids=BAD.keys())
+def test_a_record_that_is_not_schema_1_is_an_error_not_a_guess(bad):
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
-    event = net_event(m, bad)
+    event = net_event(m, bad())
     with pytest.raises(ValueError, match=f"network-state event {event.pk}"):
-        network.parse(event)
+        network.parse(event, True)
+
+
+@pytest.mark.django_db
+def test_a_json_null_is_no_value_and_is_accepted():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    nulls = doc(switch=None, port=None, addresses=[dict(doc()["addresses"][0], scope=None, valid_lifetime_s=None)],
+                default_routes=[dict(doc()["default_routes"][0], gateway=None)], lease=dict.fromkeys(network.LEASE_KEYS))
+    assert network.parse(net_event(m, nulls), True).last_ack is None
+
+
+@pytest.mark.django_db
+def test_a_pi_supplied_value_in_an_error_is_cut_short():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    event = net_event(m, doc(interface=["x" * 5000]))
+    with pytest.raises(ValueError) as caught:
+        network.parse(event, True)
+    assert len(str(caught.value)) < 200 and "…" in str(caught.value)
 
 
 # --- the host page -----------------------------------------------------------------------------------------------------
@@ -161,7 +286,8 @@ def test_the_page_shows_the_newest_record_in_its_tables():
     assert "<td>IPv4</td><td><code>10.21.0.1</code></td><td>1024</td><td>dhcp</td>" in section
     assert "<th scope=\"row\">Server</th><td>10.21.0.1</td>" in section
     assert "<th scope=\"row\">Lifetime</th><td>7200 s</td>" in section
-    assert "5 min ago" in section  # the Pi's own last ACK
+    assert re.search(r"<time [^>]*>5 min ago</time>", section)  # the Pi's own last ACK
+    assert "<code>b1</code> (this boot)" in section
     assert "ACDT" in section or "ACST" in section  # the lease expiry, in the site's zone
 
 
@@ -179,14 +305,14 @@ def test_a_record_with_no_lease_and_no_routes_says_so_with_dashes():
 def test_values_the_pi_sent_are_escaped():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     evil = "<script>alert(1)</script>"
-    net_event(m, doc(interface=evil, mac=evil, operational_state=evil, administrative_state=evil,
+    net_event(m, doc(interface=evil, mac=evil,
                      addresses=[{"family": 4, "address": evil, "prefixlen": 16, "scope": evil,
                                  "valid_lifetime_s": None, "preferred_lifetime_s": None}],
                      default_routes=[{"family": 4, "gateway": evil, "metric": 0, "protocol": evil}],
                      lease=dict(doc()["lease"], address=evil, server=evil)))
     html = page(m.serial)
     section = html.split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
-    assert "<script>" not in section and section.count("&lt;script&gt;alert(1)&lt;/script&gt;") == 10
+    assert "<script>" not in section and section.count("&lt;script&gt;alert(1)&lt;/script&gt;") == 8
 
 
 @pytest.mark.django_db
@@ -203,8 +329,8 @@ def test_the_events_table_lists_the_records_of_this_boot():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
     events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
-    assert "<td>network-state</td>" in events
-    assert Machine.objects.count() == 1
+    row = re.search(r"<tr><td>[^<]*</td><td>network-state</td><td><code>(.*?)</code></td></tr>", events)
+    assert row and "&quot;operational_state&quot;: &quot;routable&quot;" in row[1]
 
 
 @pytest.mark.django_db
@@ -220,3 +346,29 @@ def test_one_machines_malformed_record_is_its_own_error_in_the_registry(caplog):
     assert list(error) == ["error"] and f"network-state event {event.pk}" in error["error"]
     assert any(f"network-state event {event.pk}" in r.getMessage() and r.levelname == "WARNING"
                for r in caplog.records)
+
+
+@pytest.mark.django_db
+def test_the_host_page_reads_its_record_in_a_constant_number_of_queries():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def count(serial):
+        with CaptureQueriesContext(connection) as queries:
+            page(serial)
+        return len(queries)
+
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())
+    one = count(m.serial)
+    for n in range(5):
+        net_event(m, doc(operational_state="carrier"), minutes=n + 1)
+    assert count(m.serial) == one
+
+
+@pytest.mark.django_db
+def test_a_value_in_the_error_message_is_escaped_on_the_page():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc(operational_state="<script>alert(1)</script>"))
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    assert "<script>" not in section and "&lt;script&gt;alert(1)&lt;/script&gt;" in section
