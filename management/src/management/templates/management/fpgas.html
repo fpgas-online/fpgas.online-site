@@ -36,7 +36,7 @@
       <td data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
       <td data-label="Offered">{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
       <td data-label="Why not">{{ line.why_not }}</td>
-      <td data-label="Notes" class="mgmt-note">{{ line.notes }}</td>
+      <td data-label="Notes" class="mgmt-note">{% for note in line.notes %}<div>{{ note }}</div>{% endfor %}</td>
     </tr>
   {% endwith %}{% endfor %}
   </tbody>

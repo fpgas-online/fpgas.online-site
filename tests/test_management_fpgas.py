@@ -414,7 +414,7 @@ def test_a_pi_seen_in_the_future_has_the_clock_error_in_notes_and_the_page_stand
     assert r.status_code == 200
     rows = {row[2]: row for row in _rows(r.content.decode())}
     assert rows["sw2 p46"][COLUMNS.index("Seen")] == ""  # Seen is a time or nothing
-    assert rows["sw2 p46"][COLUMNS.index("Notes")] == "no model registered; clock 2 h ahead"
+    assert "<div>no model registered</div><div>clock 2 h ahead</div>" in r.content.decode()  # one fact a line
     assert rows["sw2 p47"][COLUMNS.index("Seen")].endswith("ago")
 
 

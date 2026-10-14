@@ -143,6 +143,7 @@
   .mgmt-hosts td:nth-child(9) { grid-area: why; font-size: 0.85em; }
   .mgmt-hosts td:nth-child(10) { grid-area: notes; }
   .mgmt-hosts td:empty { display: none; }
+  .mgmt-hosts td { white-space: normal; }
   /* each value says what it is: the header row is hidden on a phone */
   .mgmt-hosts td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
   /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
@@ -167,9 +168,12 @@
 /* the check's reason for the board: room to read, wrapping, so a failing row is a few lines and not a tall strip */
 .mgmt-testgrid td.mgmt-why { min-width: 30ch; max-width: 50ch; white-space: normal; font-size: 0.9em; }
 .mgmt-test-other { color: #666; }
-/* a Pi's boards, one label a line; Notes are facts, not alarms: plain, one line */
-.mgmt-hosts .mgmt-boardlist div { white-space: nowrap; }
-.mgmt-hosts td.mgmt-note { white-space: nowrap; }
+/* a Pi's boards, one label a line; Why not may wrap; Notes are facts, not alarms: plain, one line */
+.mgmt-hosts td[data-label="Why not"] { max-width: 20ch; }
+.mgmt-hosts td.mgmt-boardlist { max-width: 20ch; }  /* a label wraps at its space, the name over the id */
+.mgmt-hosts td.mgmt-note div { white-space: nowrap; }
+/* ten columns in the page's width: tighter cells than the shared 0.6rem */
+.mgmt-table.mgmt-hosts th, .mgmt-table.mgmt-hosts td { padding: 0.35rem 0.4rem; font-size: 0.92em; }
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail { color: #b00020; }
 

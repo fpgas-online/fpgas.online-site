@@ -67,7 +67,7 @@ class Line:
     severity: int
     offered: str  # "yes" or "no"
     why_not: str  # in the index's words ("stopped checking in", "pin-id, spiflash"), "" when offered
-    notes: str  # short values, "; "-joined: "revision unreadable", "clock 2 h ahead"
+    notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page "yes" links to
 
 
@@ -168,7 +168,7 @@ def _line(host, now, pages):
     seconds = host.machine.last_uptime_s if host.uptime else 0
     return Line(host, label, fpga.port_text(host.machine), _check_word(host),
                 [b["label"] for b in host.boards] or host.registered_kinds or [host.board_type], host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition],
-                "yes" if offered else "no", why_not, "; ".join(notes), page)
+                "yes" if offered else "no", why_not, notes, page)
 
 
 def _test_tables(lines):
