@@ -10,12 +10,14 @@ import hashlib
 import json
 import logging
 import re
+import time
 
+from django.conf import settings
 from django.db.models import F, Max
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .models import BootEvent, Machine
+from .models import BootEvent, GatewayRecord, Machine
 
 log = logging.getLogger(__name__)
 
@@ -343,3 +345,142 @@ def reporting_machines():
                          "boards": boards,
                          "last_boards": last_boards, "last_report": last_report})
     return machines
+
+
+# --- the gateway's records (switch poller: fpgas/<site>/gw/port; dnsmasq script: fpgas/<site>/gw/lease) ---
+
+PORT_LINKS = ("up", "down", "bounced")
+LEASE_EVENTS = ("add", "old", "del", "released")
+LEASE_CAUSES = ("link-down", "power-cycle", "power-off", "down-port")
+_GATEWAY_HOSTNAME = re.compile(r"pi-sw[0-9]+-p[0-9]+")
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_time(value):
+    """acked_at and expires, as the dnsmasq script writes them (an epoch or an ISO 8601 time), or not given."""
+    return value is None or isinstance(value, (int, float, str)) and not isinstance(value, bool)
+
+
+def parse_gateway_record(kind, doc):
+    """The validated `doc` of a gateway record of `kind` ("port" or "lease") and its time, as (doc, at). Raises
+    ValueError saying what is wrong: the record is strict (schema 1, each field its type and values), so one that is
+    not is dropped by the caller, never stored in part."""
+    if not _is_int(doc.get("schema")) or doc["schema"] != 1:
+        raise ValueError(f"schema {doc.get('schema')!r} is not 1")
+    at = parse_datetime(doc["at"]) if isinstance(doc.get("at"), str) else None
+    if at is None or timezone.is_naive(at):
+        raise ValueError(f"at {doc.get('at')!r} is not an ISO 8601 time with a zone")
+    host = doc.get("hostname")
+    if host is not None and not (isinstance(host, str) and _GATEWAY_HOSTNAME.fullmatch(host)):
+        raise ValueError(f"hostname {host!r} is not pi-sw<s>-p<p>")
+    for name in ("switch", "port"):
+        value = doc.get(name)
+        if not (_is_int(value) and value >= 0 or value is None and kind == "lease"):
+            raise ValueError(f"{name} {value!r} is not a whole number")
+    if host is not None and doc.get("switch") is not None and doc.get("port") is not None \
+            and host != f"pi-sw{doc['switch']}-p{doc['port']}":
+        raise ValueError(f"hostname {host!r} is not pi-sw{doc['switch']}-p{doc['port']}, the record's own switch "
+                         f"and port")
+    if kind == "port":
+        if doc.get("link") not in PORT_LINKS:
+            raise ValueError(f"link {doc.get('link')!r} is not one of {PORT_LINKS}")
+        if host is None:
+            raise ValueError("a port record needs a hostname")
+        return doc, at
+    if doc.get("event") not in LEASE_EVENTS:
+        raise ValueError(f"event {doc.get('event')!r} is not one of {LEASE_EVENTS}")
+    if doc.get("family") not in (4, 6) or not _is_int(doc.get("family")):
+        raise ValueError(f"family {doc.get('family')!r} is not 4 or 6")
+    if not isinstance(doc.get("address"), str) or not doc["address"]:
+        raise ValueError("address is not a string")
+    for name in ("mac", "server", "interface"):
+        if not (doc.get(name) is None or isinstance(doc[name], str)):
+            raise ValueError(f"{name} {doc[name]!r} is not a string")
+    if not (doc.get("lifetime_s") is None or _is_int(doc["lifetime_s"])):
+        raise ValueError(f"lifetime_s {doc['lifetime_s']!r} is not a whole number")
+    for name in ("acked_at", "expires"):
+        if not _is_time(doc.get(name)):
+            raise ValueError(f"{name} {doc.get(name)!r} is not a time")
+    if "cause" in doc and doc["cause"] not in LEASE_CAUSES:
+        raise ValueError(f"cause {doc['cause']!r} is not one of {LEASE_CAUSES}")
+    return doc, at
+
+
+def _mac_key(mac):
+    return mac.strip().lower().replace("-", ":")
+
+
+def _machine_macs():
+    """{mac: Machine} from each machine's latest registration document (`machine.macs`: {interface: mac})."""
+    found = {}
+    for machine in Machine.objects.exclude(latest_snapshot=None).select_related("latest_snapshot"):
+        macs = (machine.latest_snapshot.document.get("machine") or {}).get("macs")
+        if isinstance(macs, dict):
+            for mac in macs.values():
+                if isinstance(mac, str):
+                    found[_mac_key(mac)] = machine
+    return found
+
+
+def match_machine(mac, hostname):
+    """The Machine a gateway record is about: the one whose registration has this MAC. A record with no MAC (the
+    released records of a v6 lease) falls back to the newest machine registered on its hostname (machine_hosts); a
+    record WITH a MAC that no machine has is somebody else's (a visitor's laptop on the port) and matches none, so
+    its ack is never credited to the Pi registered on that port."""
+    if mac:
+        return _machine_macs().get(_mac_key(mac))
+    serial = machine_hosts().get(hostname) if hostname else None
+    return Machine.objects.filter(serial=serial).first() if serial else None
+
+
+# A lease `old` comes on every renewal (~11,500 rows a day on a 20-board site), so the table is pruned as records
+# arrive, at most this often per process.
+PRUNE_EVERY_SECONDS = 600
+_last_prune = None  # time.monotonic() of this process's last prune
+
+
+def prune_gateway_records():
+    """Delete the gateway records older than settings.GATEWAY_RECORD_DAYS, except the newest (last stored) of each
+    (site, kind, switch, port): two queries, whatever the number of rows."""
+    cutoff = timezone.now() - datetime.timedelta(days=settings.GATEWAY_RECORD_DAYS)
+    newest = GatewayRecord.objects.values("site", "kind", "switch", "port").annotate(newest=Max("id")).values("newest")
+    deleted, _ = GatewayRecord.objects.filter(at__lt=cutoff).exclude(id__in=newest).delete()
+    return deleted
+
+
+def gateway_record(site, kind, doc):
+    """Validate and store one gateway record, matched to its machine; then prune the old ones (at most once per
+    PRUNE_EVERY_SECONDS per process). Returns the GatewayRecord; ValueError when the record is not valid (nothing is
+    stored)."""
+    global _last_prune
+    doc, at = parse_gateway_record(kind, doc)
+    mac = doc.get("mac") or None
+    hostname = doc.get("hostname")
+    record = GatewayRecord.objects.create(
+        site=site, kind=kind, switch=doc.get("switch"), port=doc.get("port"), hostname=hostname or "", mac=mac,
+        at=at, doc=doc, machine=match_machine(mac, hostname))
+    if _last_prune is None or time.monotonic() - _last_prune >= PRUNE_EVERY_SECONDS:
+        _last_prune = time.monotonic()
+        try:
+            prune_gateway_records()
+        except Exception:  # the record is stored: a failed prune must not stop it being pushed to the pages
+            log.exception("the gateway records could not be pruned")
+    return record
+
+
+def latest_gateway_lease(machine):
+    """The newest lease record the gateway published for `machine`, or None. `old` comes on every renewal, so the
+    record's doc["acked_at"] is the gateway's last DHCPACK to the machine unless a later `del` or `released` ended
+    the lease (doc["event"] says)."""
+    return machine.gateway_records.filter(kind="lease").order_by("-at", "-id").first()
+
+
+def latest_gateway_ack(machine):
+    """The newest lease record that is a DHCPACK from the gateway to `machine` (doc["acked_at"] set: a new lease or a
+    renewal, not a del, a release, or dnsmasq's re-read at its own start), or None. Its doc["acked_at"] is the
+    gateway's half of the registry's network.last_ack."""
+    return (machine.gateway_records.filter(kind="lease", doc__acked_at__isnull=False)
+            .exclude(doc__acked_at=None).order_by("-at", "-id").first())

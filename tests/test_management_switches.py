@@ -564,7 +564,7 @@ def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
     assert [p["can_power"] for p in ports] == [True, False, False]
     assert [p["poe_action"] for p in ports] == ["off", "", ""]
     html = c.get("/management/switches/").content.decode()
-    assert html.split("</script>")[1].count("<button") == 1  # the one button (the script only builds them)
+    assert html.split("</head>")[1].count("<button") == 1  # the one button (the head's script only builds them)
     assert 'class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">off</button>' \
         in row_of(html, 1)
     for port in (2, 3):  # a non-board port: the cell is as it was, no button and no hint of one
@@ -938,3 +938,17 @@ def test_on_a_phone_the_counters_and_macs_are_left_out_and_the_key_says_so(reade
     headers = re.findall(r'<th scope="col">', thead)
     assert len(headers) == 12  # columns 9-12 are MACs, In, Out, Err
     assert "On a phone the MACs, In, Out and Err columns are left out" in html
+
+
+@pytest.mark.django_db
+def test_the_json_carries_the_good_read_time_with_its_offset(reader):
+    """switch-events.js compares a pushed record's time with this: ISO 8601 with an offset, good_at (a failed read keeps
+    the old ports), read_at where the reader gave no good_at."""
+    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
+    assert switches[0]["good_at_iso"] == READ_AT
+    older = "2026-10-09T09:59:00+09:30"
+    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=False, error="timeout", read_at=READ_AT,
+                            good_at=older),
+                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
+    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
+    assert [s["good_at_iso"] for s in switches] == [older, READ_AT]

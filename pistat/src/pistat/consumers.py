@@ -40,3 +40,27 @@ class PiStatConsumer(AsyncWebsocketConsumer):
 
         # Send message to WebSocket
         await self.send(text_data=json.dumps({"message": message}))
+
+
+# The channel group the switch dashboard's sockets join; fleet.consumer sends each switch port's link change to it
+# as {"type": "switch.event", "record": <the gw/port record>}.
+SWITCH_EVENTS_GROUP = "switch_events"
+
+
+class SwitchEventConsumer(AsyncWebsocketConsumer):
+    """ws/switches/: the switch dashboard's push of link changes. One way only: it forwards what the gateway
+    published and ignores whatever the browser sends (unlike PiStatConsumer, which relays a client's text to its
+    group)."""
+
+    async def connect(self):
+        await self.channel_layer.group_add(SWITCH_EVENTS_GROUP, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(SWITCH_EVENTS_GROUP, self.channel_name)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        pass
+
+    async def switch_event(self, event):
+        await self.send(text_data=json.dumps(event["record"]))
