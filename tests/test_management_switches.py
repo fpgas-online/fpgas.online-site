@@ -938,3 +938,17 @@ def test_on_a_phone_the_counters_and_macs_are_left_out_and_the_key_says_so(reade
     headers = re.findall(r'<th scope="col">', thead)
     assert len(headers) == 12  # columns 9-12 are MACs, In, Out, Err
     assert "On a phone the MACs, In, Out and Err columns are left out" in html
+
+
+@pytest.mark.django_db
+def test_the_json_carries_the_good_read_time_with_its_offset(reader):
+    """switch-events.js compares a pushed record's time with this: ISO 8601 with an offset, good_at (a failed read keeps
+    the old ports), read_at where the reader gave no good_at."""
+    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
+    assert switches[0]["good_at_iso"] == READ_AT
+    older = "2026-10-09T09:59:00+09:30"
+    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=False, error="timeout", read_at=READ_AT,
+                            good_at=older),
+                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
+    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
+    assert [s["good_at_iso"] for s in switches] == [older, READ_AT]

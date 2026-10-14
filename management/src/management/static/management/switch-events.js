@@ -7,7 +7,9 @@
  * record {"schema": 1, "switch", "port", "hostname", "link": "up"|"down"|"bounced", "at"}. applyRecord draws it on
  * the page the way the next reading would: the port's link cell and its front-panel mark. It does not fetch
  * anything: the dashboard's JSON comes through a 15 s server cache and would still show the old state. The page's
- * own 15 s refresh stays as the fallback, and corrects anything this drew.
+ * own 15 s refresh stays as the fallback and rebuilds the table, so a Keeper remembers each applied record per
+ * (switch, port) and draws it again after the rebuild for as long as the reading is older than the record; the
+ * first reading at least as new as the record replaces it and the Keeper forgets it.
  *
  * The panel state is panel.py's state(): the new link with the port's PoE as the row shows it. The PoE is not in
  * a link record, so the row's PoE cell is the port's PoE part and only the link part changes.
@@ -86,6 +88,37 @@
     return true;
   }
 
+  /* Remembers the records it applied, so the refresh cannot undo them with a reading older than the change.
+     `states` is panel.STATES. */
+  function createKeeper(states) {
+    var kept = {};
+    function when(record) { return Date.parse(record.at); }
+    return {
+      /* Draw `record` and remember it (an older record than the one kept for the port is ignored). */
+      apply: function (doc, record) {
+        if (!record) { return false; }
+        var k = record.switch + "/" + record.port, old = kept[k];
+        if (old && when(record) < when(old)) { return false; }
+        var drawn = applyRecord(doc, states, record);
+        if (drawn) { kept[k] = record; }
+        return drawn;
+      },
+      /* After the table was rebuilt from `switches` (the dashboard JSON: index and good_at_iso, when the ports were
+         last read well): forget each record the reading has caught up with, draw the others again. A switch the
+         JSON gives no reading time for cannot be compared, so its records are forgotten (the poll is the truth). */
+      reapply: function (doc, switches) {
+        var read = {};
+        (switches || []).forEach(function (s) { read[s.index] = Date.parse(s.good_at_iso); });
+        Object.keys(kept).forEach(function (k) {
+          var record = kept[k], at = when(record), seen = read[record.switch];
+          if (!(seen < at) || !(at === at)) { delete kept[k]; return; }  /* caught up, unknown, or a bad time */
+          applyRecord(doc, states, record);
+        });
+      },
+      size: function () { return Object.keys(kept).length; }
+    };
+  }
+
   /* Keep the socket open: reconnect 1 s after it drops, doubling up to 30 s while the server stays away, and back
      to 1 s only once a connection has stayed up for 30 s (as pistat's dcws.js does). `env` is the browser's
      WebSocket, location and setTimeout/clearTimeout; `onrecord` gets each record. */
@@ -109,7 +142,7 @@
     connect();
   }
 
-  var api = {applyRecord: applyRecord, stateFor: stateFor, listen: listen};
+  var api = {applyRecord: applyRecord, stateFor: stateFor, listen: listen, createKeeper: createKeeper};
   if (typeof module !== "undefined") { module.exports = api; }
   if (typeof window !== "undefined") { window.SwitchEvents = api; }
 })();

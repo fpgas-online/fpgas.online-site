@@ -106,11 +106,16 @@
       body.replaceWith(fresh);
     });
   }
+  var pushed = null;  /* the SwitchEvents keeper, once the page has loaded */
   function tick() {
     fetch(url, {headers: {"Accept": "application/json"}})
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (d) {
-        if (d.switches && d.switches.length && !d.error) { update(d); }
+        if (d.switches && d.switches.length && !d.error) {
+          update(d);
+          /* the table was rebuilt from a reading that may be older than a pushed change: draw that change again */
+          if (pushed) { pushed.reapply(document, d.switches); }
+        }
         else { say((d.error || "The switches could not be read just now.") + " The tables below are from earlier."); }
       })
       .catch(function () { say("This page cannot reach the site just now. The tables below are from earlier."); });
@@ -147,13 +152,15 @@
     if (b && !b.disabled) { press(b); }
   });
   /* A pushed link change is drawn from the record itself: tick() would read the 15 s server cache and show the old
-     state. The refresh above stays as the fallback, and corrects anything drawn here. */
+     state. The refresh above rebuilds the table, so the keeper draws a record again after each refresh until a reading
+     at least as new as the record has caught up with it. */
   document.addEventListener("DOMContentLoaded", function () {
     if (!window.SwitchEvents || !window.WebSocket) { return; }
     var states = JSON.parse(document.getElementById("mgmt-panel-states").textContent);
+    pushed = SwitchEvents.createKeeper(states);
     SwitchEvents.listen({WebSocket: window.WebSocket, location: location,
                          setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window)},
-                        function (record) { SwitchEvents.applyRecord(document, states, record); });
+                        function (record) { pushed.apply(document, record); });
   });
   setInterval(tick, {{ refresh_seconds }} * 1000);
 })();

@@ -149,3 +149,62 @@ test("it reconnects with a doubling backoff that resets only after a stable conn
   e.sockets[2].onclose();
   e.advance(1000); assert.equal(e.sockets.length, 4);
 });
+
+// --- the keeper: the 15 s refresh must not undo a pushed change with an older reading ---
+
+const { createKeeper } = require(
+  join(here, "..", "..", "management", "src", "management", "static", "management", "switch-events.js"));
+
+// What tick() does: rebuild the row and the mark from a reading (the port is up and delivering), then reapply.
+function rebuild(p) {
+  p.row.children[2].textContent = "up 1G"; p.row.children[2].className = "mgmt-up";
+  p.mark.attrs.class = "mgmt-port mgmt-port-power mgmt-port-known";
+}
+const reading = (goodAt) => [{ index: 2, good_at_iso: goodAt }];
+
+test("a record, then a tick with an older reading, keeps the pushed state", () => {
+  const p = page({});
+  const keeper = createKeeper(STATES);
+  assert.equal(keeper.apply(p.doc, record("down", { at: "2026-10-14T01:02:03+00:00" })), true);
+  rebuild(p);  // the cached reading, taken before the change
+  keeper.reapply(p.doc, reading("2026-10-14T01:02:00+00:00"));
+  assert.equal(p.row.children[2].textContent, "down");
+  assert.match(p.mark.attrs.class, /mgmt-port-starting/);
+  // and again on the next older reading: still kept
+  rebuild(p);
+  keeper.reapply(p.doc, reading("2026-10-14T01:02:02+00:00"));
+  assert.equal(p.row.children[2].textContent, "down");
+  assert.equal(keeper.size(), 1);
+});
+
+test("a tick with a newer reading replaces the pushed state and drops the record", () => {
+  const p = page({});
+  const keeper = createKeeper(STATES);
+  keeper.apply(p.doc, record("down", { at: "2026-10-14T01:02:03+00:00" }));
+  rebuild(p);  // the reading says up (the port came back, or the change was wrong)
+  keeper.reapply(p.doc, reading("2026-10-14T01:02:04+00:00"));
+  assert.equal(p.row.children[2].textContent, "up 1G");
+  assert.equal(p.mark.attrs.class, "mgmt-port mgmt-port-power mgmt-port-known");
+  assert.equal(keeper.size(), 0);
+  // a reading exactly as old as the record has caught up with it too
+  keeper.apply(p.doc, record("down", { at: "2026-10-14T01:03:00+00:00" }));
+  rebuild(p);
+  keeper.reapply(p.doc, reading("2026-10-14T01:03:00+00:00"));
+  assert.equal(p.row.children[2].textContent, "up 1G");
+  assert.equal(keeper.size(), 0);
+});
+
+test("the keeper keeps the newest record per port, ignores records the page cannot draw, and compares per switch", () => {
+  const p = page({});
+  const keeper = createKeeper(STATES);
+  keeper.apply(p.doc, record("down", { at: "2026-10-14T01:05:00+00:00" }));
+  assert.equal(keeper.apply(p.doc, record("up", { at: "2026-10-14T01:04:00+00:00" })), false);  // older: ignored
+  assert.equal(keeper.apply(p.doc, record("bounced")), false);
+  assert.equal(keeper.apply(p.doc, record("down", { port: 10 })), false);  // no such row: nothing to keep
+  assert.equal(keeper.size(), 1);
+  rebuild(p);
+  // another switch's fresh reading says nothing about switch 2; no reading for switch 2 at all: forget it
+  keeper.reapply(p.doc, [{ index: 1, good_at_iso: "2026-10-14T02:00:00+00:00" }]);
+  assert.equal(p.row.children[2].textContent, "up 1G");
+  assert.equal(keeper.size(), 0);
+});
