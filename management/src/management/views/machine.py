@@ -110,7 +110,7 @@ def _history(machine):
 def _network(entry):
     """(Network | None, error): the host's newest network-state record, or why it cannot be shown (said in the
     section; the page stands)."""
-    net = network.newest(entry.serial).get(entry.serial)
+    net = network.of(entry)
     return (None, str(net)) if isinstance(net, ValueError) else (net, "")
 
 

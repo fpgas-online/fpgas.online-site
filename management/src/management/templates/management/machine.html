@@ -72,6 +72,7 @@
     <tr><th scope="row">Interface</th><td>{{ net.doc.interface|default:"–" }}</td></tr>
     <tr><th scope="row">MAC</th><td><code>{{ net.doc.mac|default:"–" }}</code></td></tr>
     <tr><th scope="row">Recorded</th><td>{{ net_changed }}</td></tr>
+    <tr><th scope="row">Boot</th><td><code>{{ net.event.boot_id|default:"–" }}</code> ({% if net.current_boot %}this boot{% else %}an earlier boot: this boot has sent no record{% endif %})</td></tr>
   </tbody>
 </table>
 <h3>Addresses</h3>
