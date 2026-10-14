@@ -1,6 +1,8 @@
 import json
 
 import pytest
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from fleet.models import GatewayRecord, Machine
 
 from fleet import consumer, services
@@ -207,6 +209,14 @@ def test_latest_gateway_ack_skips_records_that_are_not_an_ack():
     ("lease", {**LEASE, "lifetime_s": "600"}),
     ("lease", {**LEASE, "cause": "boredom"}),
     ("lease", {**LEASE, "hostname": "gateway"}),
+    ("lease", {**LEASE, "acked_at": 1791939724}),  # an epoch: the registry reads ISO 8601 only
+    ("lease", {**LEASE, "acked_at": 1791939724.5}),
+    ("lease", {**LEASE, "acked_at": "2026-10-14T01:02:04"}),  # no offset
+    ("lease", {**LEASE, "acked_at": "soon"}),
+    ("lease", {**LEASE, "acked_at": True}),
+    ("lease", {**LEASE, "expires": "1791940024"}),
+    ("lease", {**LEASE, "expires": -1}),
+    ("lease", {**LEASE, "expires": True}),
 ])
 def test_invalid_gateway_records_are_ignored(kind, doc):
     assert send(kind, doc) == "ignored"
@@ -330,3 +340,12 @@ def test_a_failed_prune_does_not_stop_the_record_being_pushed(monkeypatch, caplo
     assert GatewayRecord.objects.count() == 1          # stored
     assert consumer.SWITCH_EVENTS_GROUP in sent        # and bridged
     assert "could not be pruned" in caplog.text
+
+
+@pytest.mark.django_db
+def test_every_stored_acked_at_parses_as_an_iso_time_with_an_offset():
+    for acked in ("2026-10-14T01:02:04+00:00", "2026-10-14T11:32:04+10:30", None):
+        assert send("lease", {**LEASE, "acked_at": acked}) == "gw/lease"
+    for record in GatewayRecord.objects.filter(kind="lease"):
+        acked = record.doc["acked_at"]
+        assert acked is None or not timezone.is_naive(parse_datetime(acked))

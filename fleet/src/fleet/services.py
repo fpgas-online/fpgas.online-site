@@ -359,9 +359,20 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _is_time(value):
-    """acked_at and expires, as the dnsmasq script writes them (an epoch or an ISO 8601 time), or not given."""
-    return value is None or isinstance(value, (int, float, str)) and not isinstance(value, bool)
+def _is_aware_iso(value):
+    """acked_at: an ISO 8601 time with its offset (as fpgas-lease-event writes it), or None. The registry's
+    network.last_ack (site #112) compares it with the Pi's own ack, so no other shape is stored."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    parsed = parse_datetime(value)
+    return parsed is not None and not timezone.is_naive(parsed)
+
+
+def _is_epoch(value):
+    """expires: seconds since the epoch, as dnsmasq gives it (DNSMASQ_LEASE_EXPIRES), or None."""
+    return value is None or _is_int(value) and value >= 0
 
 
 def parse_gateway_record(kind, doc):
@@ -401,9 +412,10 @@ def parse_gateway_record(kind, doc):
             raise ValueError(f"{name} {doc[name]!r} is not a string")
     if not (doc.get("lifetime_s") is None or _is_int(doc["lifetime_s"])):
         raise ValueError(f"lifetime_s {doc['lifetime_s']!r} is not a whole number")
-    for name in ("acked_at", "expires"):
-        if not _is_time(doc.get(name)):
-            raise ValueError(f"{name} {doc.get(name)!r} is not a time")
+    if not _is_aware_iso(doc.get("acked_at")):
+        raise ValueError(f"acked_at {doc.get('acked_at')!r} is not an ISO 8601 time with an offset")
+    if not _is_epoch(doc.get("expires")):
+        raise ValueError(f"expires {doc.get('expires')!r} is not seconds since the epoch")
     if "cause" in doc and doc["cause"] not in LEASE_CAUSES:
         raise ValueError(f"cause {doc['cause']!r} is not one of {LEASE_CAUSES}")
     return doc, at
