@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from django.http import Http404
 from django.shortcuts import render
 from django.utils import timezone
+from django.utils.html import format_html
 from fleet.models import BootEvent, Machine
 from fleet.services import FPGA_STAGES
-from fleet.timeago import ago_time
+from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview
 
-from .. import fpga, localtime
+from .. import fpga, localtime, network
 from .fpgas import CHECK_WORDS, CONDITION_KEYS, _check, _offered, _visitor_pages
 from .index import _url
 
@@ -106,6 +107,25 @@ def _history(machine):
     return rows
 
 
+def _network(entry):
+    """(Network | None, error): the host's newest network-state record, or why it cannot be shown (said in the
+    section; the page stands)."""
+    try:
+        return network.newest(entry.serial).get(entry.serial), ""
+    except ValueError as exc:
+        return None, str(exc)
+
+
+def _lifetime(seconds):
+    """A lifetime in seconds as the page says it: "forever" for null."""
+    return "forever" if seconds is None else f"{seconds} s"
+
+
+def _exact(moment):
+    """A time that may be ahead of now (a lease's expiry) in the active zone, with no "x ago"."""
+    return "–" if moment is None else format_html('<time datetime="{}">{}</time>', moment.isoformat(), exact(moment))
+
+
 def machine(request, serial):
     entry = Machine.objects.select_related("latest_snapshot").filter(serial=serial).first()
     if entry is None:
@@ -128,8 +148,13 @@ def _page(request, entry):
     # this boot's events; a host that has said no boot id yet: its newest events, of any boot
     events = (entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id
               else entry.events.order_by("-ts")[:EVENTS])
+    net, net_error = _network(entry)
     return render(request, "management/machine.html", {
-        "machine": entry, "host": host,
+        "machine": entry, "host": host, "net": net, "net_error": net_error,
+        "net_changed": _when(net.event.ts) if net else "",
+        "net_addresses": [(a, _lifetime(a.get("valid_lifetime_s")), _lifetime(a.get("preferred_lifetime_s")))
+                          for a in net.addresses] if net else [],
+        "net_last_ack": _when(net.last_ack) if net else "", "net_expires": _exact(net.expires) if net else "",
         "label": fpga.pi_label(entry), "model": fpga.registered_model(entry), "port": fpga.port_text(entry),
         "condition": CONDITION_KEYS[host.condition], "check": check, "check_title": check_title,
         "offered": offered, "page": page,
