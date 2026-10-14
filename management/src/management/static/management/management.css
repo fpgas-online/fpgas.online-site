@@ -30,7 +30,9 @@
 .mgmt-table.mgmt-fit { width: auto; }
 .mgmt-key { font-size: 0.85em; color: #666; margin: 0.2rem 0 0.6rem; }
 /* The tables scroll sideways on a phone instead of widening the page. */
-.mgmt-scroll { overflow-x: auto; max-width: 100%; }
+/* relative: the absolutely placed screen-reader text (.mgmt-sr) in a scrolled table stays inside the box instead of
+   widening the page */
+.mgmt-scroll { overflow-x: auto; max-width: 100%; position: relative; }
 
 /* Switch port dashboard (#67) */
 /* its tables carry the full port labels (#89): the page may use the whole window, so no column scrolls out of view */
@@ -127,8 +129,8 @@
   .mgmt-hosts thead { display: none; }
   .mgmt-hosts, .mgmt-hosts tbody { display: block; }
   .mgmt-hosts tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
-                   grid-template-areas: "state pi pi" "port board board" "check up seen" "offered why why"
-                                        "notes notes notes";
+                   grid-template-areas: "state pi pi" "port board board" "check check check" "up seen seen"
+                                        "offered why why" "notes notes notes";
                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
   .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
   .mgmt-table.mgmt-hosts td { border: 0; padding: 0.1rem 0; }
@@ -138,7 +140,7 @@
   .mgmt-hosts td:nth-child(4) { grid-area: board; }
   .mgmt-hosts td:nth-child(5) { grid-area: check; }
   .mgmt-hosts td:nth-child(6) { grid-area: up; font-size: 0.85em; color: #666; }
-  .mgmt-hosts td:nth-child(7) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
+  .mgmt-hosts td:nth-child(7) { grid-area: seen; font-size: 0.85em; color: #666; }
   .mgmt-hosts td:nth-child(8) { grid-area: offered; font-size: 0.85em; }
   .mgmt-hosts td:nth-child(9) { grid-area: why; font-size: 0.85em; }
   .mgmt-hosts td:nth-child(10) { grid-area: notes; }
