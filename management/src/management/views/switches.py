@@ -3,7 +3,11 @@
 The reading is done by `snmp_switch.dashboard` (fpgas.online-poe), cached for 15 s in the site's "poe" cache, so
 the number of viewers does not change the number of reads. This module only lays the result out: the page
 server-side (complete without JavaScript), and the same rows as JSON for the page's auto-refresh. The browser
-never talks to a switch, and no community or credential is in anything built here."""
+never talks to a switch, and no community or credential is in anything built here.
+
+A port's link change reaches an open page sooner than that cache can: the gateway's switch poller publishes it, the
+fleet consumer forwards it on ws/switches/ (pistat), and switch-events.js draws it on the port's row and front-panel
+mark straight from the record. The 15 s refresh stays as the fallback, and corrects anything drawn from a record."""
 
 import dataclasses
 import functools

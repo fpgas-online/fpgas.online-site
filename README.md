@@ -20,6 +20,20 @@ The [fpgas-online-poe](https://github.com/fpgas-online/fpgas.online-poe) package
 
 The PoE endpoints (`/snmp/status`, `/snmp/toggle`) need no login: visitors use the boards, and Reset is part of that. They act on a board's own port and nothing beyond (`pibfpgas/poe.py`, named by `SNMP_SWITCH_PORT_POLICY` in `pib/settings.py`): on the welland and ps1 sites a port some machine in the fleet registry is registered on, whatever state that board is in (a hung, restarting or failing board can be reset; that is when Reset is needed), and on the Tiny Tapeout site the port a Pi is registered on whose last boot check report that named any board named a Tiny Tapeout board, on either switch, whatever that Pi is doing now (stopped checking in, restarting, checking again, or found nothing this boot). A port no board is registered on is refused with a 403. Trunks, uplinks and ports outside a switch's access ports are refused by the package itself, from the switches file, so a wrong or forged registration cannot reach them. A port can be power-cycled once per `SNMP_SWITCH_TOGGLE_INTERVAL` seconds (429 with "try again in N seconds" otherwise); a board cannot usefully be cycled faster than it boots. The time of each port's last power cycle is kept in redis, so that every gunicorn worker sees the same limit.
 
+## Fleet consumer and the switch dashboard
+
+`manage.py fleet_consumer` (a systemd service on the gateway) subscribes two topic patterns on the site's MQTT broker (`FLEET_MQTT`) and feeds every message through `fleet.consumer.dispatch`; anything that is not exactly the agreed shape is logged and ignored:
+
+| Topic | From | Stored as |
+|-------|------|-----------|
+| `fpgas/<site>/pi/<serial>/registration`, `status`, `event` | the Pi's fleet agent | `Machine`, `HardwareSnapshot`, `BootEvent` |
+| `fpgas/<site>/gw/port` | the gateway's switch poller (`switch_poller`, fpgas.online-poe) | `GatewayRecord` kind `port`: `{"schema": 1, "switch", "port", "hostname", "link": "up"\|"down"\|"bounced", "at"}` |
+| `fpgas/<site>/gw/lease` | the gateway's dnsmasq script | `GatewayRecord` kind `lease`: `{"schema": 1, "switch", "port", "hostname", "at", "event": "add"\|"old"\|"del"\|"released", "family", "address", "mac", "server", "lifetime_s", "acked_at", "expires", "interface", "cause"?}` |
+
+A gateway record is matched to its `Machine` by MAC (the registration's `machine.macs`), else by hostname. `fleet.services.latest_gateway_lease(machine)` gives the newest lease record for a machine; `old` comes on every renewal, so its `doc["acked_at"]` is the gateway's last DHCPACK to it.
+
+Each stored gateway record also goes out live: a line in the board page's status log (`switch: link down`, `dhcp: old 10.2.9.2 aa:bb:cc:dd:ee:ff`), and each port record to the switch dashboard (`/management/switches/`) on `ws/switches/`, which draws the port's new link state at once. The dashboard's 15 s refresh stays as the fallback (it reads through a 15 s server cache), and the page is complete without JavaScript. `SWITCH_POLLER_SITE`, `SWITCH_POLL_SECONDS` and `SNMP_SWITCH_LEASE_RELEASE` in `pib/settings.py` configure the poller.
+
 ## Hosts
 
 The main application is served on `fpgas.online`. The Tiny Tapeout catalogue (`ttsite`) is served on the host named by the `TTSITE_HOST` Django setting -- it defaults to `tinytapeout.fpgas.online` in `pib/settings.py` and can be overridden in `pib/local_settings.py`. Routing is done by `ttsite.middleware.TTSiteHostMiddleware`, which compares the HTTP Host header against `TTSITE_HOST` and, on a match, points `request.urlconf` at `ttsite.urls`. Every other host keeps the project urlconf untouched.
