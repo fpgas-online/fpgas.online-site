@@ -564,7 +564,7 @@ def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
     assert [p["can_power"] for p in ports] == [True, False, False]
     assert [p["poe_action"] for p in ports] == ["off", "", ""]
     html = c.get("/management/switches/").content.decode()
-    assert html.split("</script>")[1].count("<button") == 1  # the one button (the script only builds them)
+    assert html.split("</head>")[1].count("<button") == 1  # the one button (the head's script only builds them)
     assert 'class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">off</button>' \
         in row_of(html, 1)
     for port in (2, 3):  # a non-board port: the cell is as it was, no button and no hint of one

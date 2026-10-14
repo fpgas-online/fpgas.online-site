@@ -1,7 +1,10 @@
 {% extends "management/base.html" %}
+{% load static %}
 {% block title %}Switch ports &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}<script>
-/* Refresh the tables in place every {{ refresh_seconds }} s. The page is complete without this. */
+{% block extra_head %}<script src="{% static 'management/switch-events.js' %}" defer></script>
+<script>
+/* Refresh the tables in place every {{ refresh_seconds }} s, and draw a port's link change the moment the gateway
+   publishes it (switch-events.js, over ws/switches/). The page is complete without this. */
 (function () {
   var url = "{{ json_url }}";
   var cols = ["port", "label", "link", "vlan", "gw", "poe", "power", "lldp", "macs", "rx", "tx", "errors"];
@@ -143,12 +146,22 @@
     var b = e.target.closest ? e.target.closest(".mgmt-poe-button") : null;
     if (b && !b.disabled) { press(b); }
   });
+  /* A pushed link change is drawn from the record itself: tick() would read the 15 s server cache and show the old
+     state. The refresh above stays as the fallback, and corrects anything drawn here. */
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.SwitchEvents || !window.WebSocket) { return; }
+    var states = JSON.parse(document.getElementById("mgmt-panel-states").textContent);
+    SwitchEvents.listen({WebSocket: window.WebSocket, location: location,
+                         setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window)},
+                        function (record) { SwitchEvents.applyRecord(document, states, record); });
+  });
   setInterval(tick, {{ refresh_seconds }} * 1000);
 })();
 </script>{% endblock %}
 {% block crumb %} &rsaquo; Switch ports{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
+{{ panel_states|json_script:"mgmt-panel-states" }}
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
@@ -206,7 +219,7 @@
   <li>VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down).</li>
   <li>PoE: the watts drawn, else the state: on (power, no watts given), searching (PoE on, nothing drawing), off, fault, not known; no PoE on a port without it. ⏻ Power: off/on switches the board's PoE (board ports only).</li>
   <li>On a phone the MACs, In, Out and Err columns are left out; a wider screen shows them.</li>
-  <li>Read from the switches by the gateway at most every {{ refresh_seconds }} seconds; the page refreshes itself (without JavaScript, reload it). Times are {{ zone }}.</li>
+  <li>Read from the switches by the gateway at most every {{ refresh_seconds }} seconds; the page refreshes itself (without JavaScript, reload it), and a port's link change is shown the moment the gateway sees it. Times are {{ zone }}.</li>
 </ul>
 </details>
 {% endblock %}
