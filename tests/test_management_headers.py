@@ -44,7 +44,7 @@ def test_the_fpga_dashboard_headers_are_short(c):
                              ("missing", "missing"), ("unknown", "checking")):
         assert f'<th scope="col"><span class="badge mgmt-{condition}">{title}</span></th>' in html
     assert 'class="mgmt-key"' not in html
-    assert headers(html, 1) == ["State", "Pi", "Port", "Board", "Boot check", "Seen", "Offered"]
+    assert headers(html, 1) == ["State", "Pi", "Port", "Board", "Boot check", "Up", "Seen", "Offered", "Why not", "Notes"]
     assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped"' in html  # the counts table is as wide as its counts
 
 

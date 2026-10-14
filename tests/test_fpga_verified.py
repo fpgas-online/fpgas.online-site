@@ -120,7 +120,8 @@ def test_the_fleet_pages_show_the_check(c):
     verified(m, "missing", minutes=5)
     machine("ccc")
     html = c.get("/fleet/").content.decode()  # the Pi dashboard (#94): the check of each Pi's boot as words
-    assert "<td>running</td>" in html and "<td>found no board</td>" in html and "<td>not started</td>" in html
+    assert '<td data-label="Boot check">running</td>' in html and '<td data-label="Boot check">found no board</td>' in html
+    assert '<td data-label="Boot check">not started</td>' in html
     # a host's own page: the condition badge, and the check of this boot as a word (#93)
     aaa = c.get("/fleet/aaa/").content.decode()
     assert re.search(r'<span class="badge mgmt-unknown"[^>]*>checking</span>', aaa) and "<td>running</td>" in aaa
