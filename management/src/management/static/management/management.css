@@ -143,6 +143,8 @@
   .mgmt-hosts td:nth-child(9) { grid-area: why; font-size: 0.85em; }
   .mgmt-hosts td:nth-child(10) { grid-area: notes; }
   .mgmt-hosts td:empty { display: none; }
+  /* each value says what it is: the header row is hidden on a phone */
+  .mgmt-hosts td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
   /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
   .mgmt-summary thead { display: none; }
   .mgmt-summary, .mgmt-summary tbody { display: block; }
@@ -156,7 +158,18 @@
 /* #91, #116: the Tests table, a column per test: a mark that is coloured, with its result in the title and for a
    screen reader */
 .mgmt-testgrid td.mgmt-mark { text-align: center; white-space: nowrap; }
+.mgmt-testgrid td:first-child, .mgmt-testgrid th:first-child { position: sticky; left: 0; z-index: 1; background: #fff;
+                                                              box-shadow: 1px 0 0 #ccc; }
 .mgmt-testgrid td:first-child { white-space: nowrap; }
+.mgmt-testgrid tbody tr:nth-child(even) td:first-child { background: #f4f4f4; }
+.mgmt-testgrid th:first-child { background: #f0f0f0; }
+.mgmt-boardname { font-size: 0.85em; color: #555; }
+/* the check's reason for the board: room to read, wrapping, so a failing row is a few lines and not a tall strip */
+.mgmt-testgrid td.mgmt-why { min-width: 30ch; max-width: 50ch; white-space: normal; font-size: 0.9em; }
+.mgmt-test-other { color: #666; }
+/* a Pi's boards, one label a line; Notes are facts, not alarms: plain, one line */
+.mgmt-hosts .mgmt-boardlist div { white-space: nowrap; }
+.mgmt-hosts td.mgmt-note { white-space: nowrap; }
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail { color: #b00020; }
 

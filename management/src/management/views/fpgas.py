@@ -5,7 +5,7 @@ One page of the Pis (Tim, 9 Oct 2026: "two dashboards of the same Pis"): it is /
 pages (pib/urls.py mounts it there as fleet-list), and /management/fpgas/ sends a browser there. On a host without
 the fleet pages (tinytapeout.fpgas.online's urlconf) /management/fpgas/ is the page itself."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse
@@ -59,8 +59,7 @@ class Line:
     label: str  # the Pi as its label names it ("Pi 5 2 GB 285df3f84af242d0"), the label alone
     port: str  # "sw1 p10": the port its host name says it booted on
     check: str  # the boot check's verdict, one word or phrase: "passed", "failed", "found no board"
-    tests: dict  # {name: result}: every test of the check of this boot
-    reasons: str  # the check's reasons, as the boards gave them ("" when none)
+    boards: list  # each board's label, or the kinds its registration names: one per line in the cell
     uptime: str  # "3 d 4 h", or ""
     sort_uptime: int  # seconds, 0 for none
     seen: str  # <time> html, or "" when the time cannot be shown
@@ -70,25 +69,42 @@ class Line:
     why_not: str  # in the index's words ("stopped checking in", "pin-id, spiflash"), "" when offered
     notes: str  # short values, "; "-joined: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page "yes" links to
-    cells: list = field(default_factory=list)  # one ResultCell per test column of the table (set by the page)
 
 
 @dataclass
 class ResultCell:
-    """One cell of the Tests table: a mark, and the result where the mark alone does not say it."""
-    mark: str  # "✓", "✗" or "" (the Pi does not run the test)
-    result: str  # the result word, shown after the mark only when it is not "pass" or "fail"
+    """One cell of a Tests table: a mark alone, the result in its title and for a screen reader."""
+    mark: str  # "✓" pass, "✗" fail, "–" any other result (skip), "" the board does not run the test
     title: str
-    sort: int  # failures first, then passes, then the Pis that do not run it
+    sort: int  # failures first, then other results, then passes, then the boards that do not run it
     cls: str
 
 
 def _cell(name, result):
     if result is None:
-        return ResultCell("", "", "", 2, "")
-    passed = result == "pass"
-    return ResultCell("✓" if passed else "✗", "" if result in ("pass", "fail") else result, f"{name}: {result}",
-                    1 if passed else 0, "mgmt-test-pass" if passed else "mgmt-test-fail")
+        return ResultCell("", "", 3, "")
+    if result == "pass":
+        return ResultCell("✓", f"{name}: {result}", 2, "mgmt-test-pass")
+    if result == "fail":
+        return ResultCell("✗", f"{name}: {result}", 0, "mgmt-test-fail")
+    return ResultCell("–", f"{name}: {result}", 1, "mgmt-test-other")
+
+
+@dataclass
+class BoardRow:
+    """A board's row of its type's Tests table."""
+    host: fpga.Host
+    label: str  # the Pi's label
+    board: str  # the board's label when the Pi has more than one of this type, else ""
+    cells: list
+    reason: str
+
+
+@dataclass
+class TestTable:
+    title: str  # the board type: "Acorn"
+    columns: list  # test names, in the order the checks gave them
+    rows: list
 
 
 def _check_word(host):
@@ -103,15 +119,6 @@ def _check(host):
     tests = "; ".join(" ".join(f"{name}={result}" for name, result in b["tests"]) for b in host.boards if b["tests"])
     reasons = "; ".join(b["reason"] for b in host.boards if b["reason"])
     return (f"{word}: {', '.join(failing)}" if failing else word), "; ".join(t for t in (tests, reasons) if t)
-
-
-def _tests(host):
-    """[(name, result, passed)] of every test of the check of this boot, board by board (#91 item 2: each check's
-    state, not only the failing ones)."""
-    # with more than one board, each test names its board, so two boards' tests of one name are told apart
-    several = len(host.boards) > 1
-    return [(f"{b['title']} {name}" if several else name, result, result == "pass")
-            for b in host.boards for name, result in b["tests"]]
 
 
 def _offer(host, now, pages):
@@ -148,20 +155,7 @@ def _visitor_pages(request):
     return pages
 
 
-def _test_cells(host):
-    """{name: result} of the check of this boot; a name two boards share (two Acorns) is told apart by a number."""
-    cells = {}
-    for name, result, _ in _tests(host):
-        unique, n = name, 1
-        while unique in cells:
-            n += 1
-            unique = f"{name} {n}"
-        cells[unique] = result
-    return cells
-
-
 def _line(host, now, pages):
-    reasons = "; ".join(b["reason"] for b in host.boards if b["reason"])
     label, _, label_note = fpga.pi_label_parts(host.machine)
     notes = [label_note] if label_note else []
     stamp = host.machine.last_seen
@@ -172,17 +166,30 @@ def _line(host, now, pages):
         notes.append(f"clock {duration(stamp - now)} ahead" if stamp and stamp > now else str(exc))
     offered, why_not, page = _offer(host, now, pages)
     seconds = host.machine.last_uptime_s if host.uptime else 0
-    return Line(host, label, fpga.port_text(host.machine), _check_word(host), _test_cells(host), reasons,
-                host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition],
+    return Line(host, label, fpga.port_text(host.machine), _check_word(host),
+                [b["label"] for b in host.boards] or host.registered_kinds or [host.board_type], host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition],
                 "yes" if offered else "no", why_not, "; ".join(notes), page)
 
 
-def _test_columns(lines):
-    """The test names any shown Pi runs, in the order they first appear; each line gets its cell for each."""
-    columns = list(dict.fromkeys(name for line in lines for name in line.tests))
+def _test_tables(lines):
+    """One table per board type that has tests: a row per board, a column per test name of that type in the order the
+    checks gave them, each cell a mark (blank where the board does not run the test)."""
+    types = {}
     for line in lines:
-        line.cells = [_cell(name, line.tests.get(name)) for name in columns]
-    return columns
+        for b in line.host.boards:
+            if b["tests"]:
+                types.setdefault(b["title"], []).append((line, b))
+    tables = []
+    for title, boards in types.items():
+        columns = list(dict.fromkeys(name for _, b in boards for name, _ in b["tests"]))
+        several = {}
+        for line, _ in boards:
+            several[line.host.machine.pk] = several.get(line.host.machine.pk, 0) + 1
+        rows = [BoardRow(line.host, line.label, b["label"] if several[line.host.machine.pk] > 1 else "",
+                         [_cell(name, dict(b["tests"]).get(name)) for name in columns], b["reason"])
+                for line, b in boards]
+        tables.append(TestTable(title, columns, rows))
+    return tables
 
 
 def _page(request):
@@ -204,7 +211,7 @@ def _page(request):
     off["reload"] = "off"
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
-        "test_columns": _test_columns(shown),
+        "test_tables": _test_tables(shown),
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),
         "want_condition": want_condition, "want_type": want_type,

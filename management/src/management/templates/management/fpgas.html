@@ -22,47 +22,47 @@
 </table></div>
 
 {% if filtered %}<p class="mgmt-filter">Showing {% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %} &middot; <a href="?">show all</a></p>{% endif %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
+<div class="mgmt-scroll" tabindex="0" role="region" aria-label="Raspberry Pis"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col">State</th><th scope="col">Pi</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Up</th><th scope="col">Seen</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Notes</th></tr></thead>
   <tbody>
   {% for line in rows %}{% with h=line.host %}
     <tr>
       <td data-sort="{{ line.severity }}"><span class="badge mgmt-{{ h.condition }}"{% if h.why %} title="{{ h.why }}"{% endif %}>{{ h.condition_title }}</span></td>
       <td>{% if fleet %}<a href="{{ fleet }}{{ h.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
-      <td title="{% if h.pi %}the port its host name says it booted on{% if h.registered %}, as it registered {{ h.registered|date:'j M H:i' }}{% endif %}{% else %}its host name names no port{% endif %}">{{ line.port }}</td>
-      <td>{{ h.board_text }}</td>
-      <td>{{ line.check }}</td>
-      <td data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
-      <td data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
-      <td>{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
-      <td>{{ line.why_not }}</td>
-      <td class="mgmt-reason">{{ line.notes }}</td>
+      <td data-label="Port" title="{% if h.pi %}the port its host name says it booted on{% if h.registered %}, as it registered {{ h.registered|date:'j M H:i' }}{% endif %}{% else %}its host name names no port{% endif %}">{{ line.port }}</td>
+      <td data-label="Board" class="mgmt-boardlist">{% for label in line.boards %}<div>{{ label }}</div>{% endfor %}</td>
+      <td data-label="Boot check">{{ line.check }}</td>
+      <td data-label="Up" data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
+      <td data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
+      <td data-label="Offered">{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
+      <td data-label="Why not">{{ line.why_not }}</td>
+      <td data-label="Notes" class="mgmt-note">{{ line.notes }}</td>
     </tr>
   {% endwith %}{% endfor %}
   </tbody>
 </table></div>
-{% if rows and test_columns %}
-<h2>Tests</h2>
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-testgrid mgmt-fit mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">Pi</th>{% for name in test_columns %}<th scope="col">{{ name }}</th>{% endfor %}<th scope="col">Reason</th></tr></thead>
+{% for t in test_tables %}
+<h2>{{ t.title }} tests</h2>
+<div class="mgmt-scroll" tabindex="0" role="region" aria-label="{{ t.title }} tests"><table class="mgmt-table mgmt-testgrid mgmt-fit mgmt-striped mgmt-sortable">
+  <thead><tr><th scope="col">Pi</th>{% for name in t.columns %}<th scope="col">{{ name }}</th>{% endfor %}<th scope="col">Reason</th></tr></thead>
   <tbody>
-  {% for line in rows %}
+  {% for row in t.rows %}
     <tr>
-      <td>{% if fleet %}<a href="{{ fleet }}{{ line.host.machine.serial }}/">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
-      {% for cell in line.cells %}<td class="mgmt-mark {{ cell.cls }}" data-sort="{{ cell.sort }}"{% if cell.title %} title="{{ cell.title }}"{% endif %}>{{ cell.mark }}{% if cell.result %} {{ cell.result }}{% endif %}{% if cell.mark %}<span class="mgmt-sr"> {{ cell.title }}</span>{% endif %}</td>{% endfor %}
-      <td>{{ line.reasons }}</td>
+      <td>{% if fleet %}<a href="{{ fleet }}{{ row.host.machine.serial }}/">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}{% if row.board %}<div class="mgmt-boardname">{{ row.board }}</div>{% endif %}</td>
+      {% for cell in row.cells %}<td class="mgmt-mark {{ cell.cls }}" data-sort="{{ cell.sort }}"{% if cell.title %} title="{{ cell.title }}"{% endif %}>{{ cell.mark }}{% if cell.mark %}<span class="mgmt-sr"> {{ cell.title }}</span>{% endif %}</td>{% endfor %}
+      <td class="mgmt-why">{{ row.reason }}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table></div>
-{% endif %}
+{% endfor %}
 {% if not rows %}<p>No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</p>{% endif %}
 
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
   <li>Pi: its label (model, memory, serial). Port: the port its host name says it booted on. Board: each board's label where its check read one.</li>
-  <li>Boot check: the verdict of the check of the boot it is running. Tests: one column per test any Pi runs, ✓ passed, ✗ did not, blank when the Pi does not run it; the result is in the mark's title, the check's reasons in the Reason column.</li>
+  <li>Boot check: the verdict of the check of the boot it is running. Tests: a table for each board type, a row per board and a column per test it runs: ✓ passed, ✗ failed, – another result (skipped), blank when the board does not run it; the result is in the mark's title, the check's reasons in the Reason column.</li>
   <li>Up: the uptime it last reported. Seen: its last status beat. Times are {{ zone }}. The Pi's host name and model are on its own page.</li>
   <li>Offered: "yes" links its visitor page; Why not says why a Pi is not offered. Notes: what the page could not read (a revision, a clock).</li>
   <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>
