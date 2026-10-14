@@ -201,8 +201,8 @@ def registry_json(request):
 
     "network" is the machine's newest network-state record (management.network): the uplink's operational and
     administrative state, when the record was made, and the last DHCP ACK the Pi itself saw; null when the machine has
-    sent none (the first form; a machine the gateway has acknowledged is never null). The second form is the record's entry; "boot_id" is the boot it was sent in (""
-    for a record sent without one) and "current_boot" says whether that is the boot the machine is running (if
+    sent none (the first form; a machine the gateway has acknowledged is never null). The second form is the
+    record's entry; "boot_id" is the boot it was sent in ("" for a record sent without one) and "current_boot" says whether that is the boot the machine is running (if
     not, the machine has sent no record this boot). A malformed record gives the fourth form for that machine only,
     every key null and "error" naming the event, and a warning in the log: the other machines are unaffected.
 

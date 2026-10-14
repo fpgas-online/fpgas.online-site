@@ -23,7 +23,7 @@ at every read that meets it; that repeats, which is acceptable because the recor
 and the log is the only place the Pi's bad document is named besides the page that shows it.
 
 The gateway's half: fleet.services.latest_gateway_ack(machine), the newest lease GatewayRecord of the machine with an
-acked_at (a UTC ISO 8601 string). last_ack is the newer of the Pi's own lease.acked_at and that, compared as UTC
+acked_at (an ISO 8601 string with an offset). last_ack is the newer of the Pi's own lease.acked_at and that, compared as UTC
 datetimes, and last_ack_source says "pi" or "gateway" (null when neither exists). A machine known only from the
 gateway gets the entry with the record's fields null. A gateway acked_at that is not ISO 8601 with its offset is that
 machine's error, as a bad Pi record is."""
@@ -56,7 +56,7 @@ LEASE_KEYS = ("address", "server", "lifetime_s", "acked_at", "expires")
 @dataclass
 class Network:
     """The newest network-state record of one machine, checked."""
-    event: BootEvent
+    event: BootEvent | None  # None for a machine known only from the gateway
     doc: dict
     current_boot: object  # True | False; None for a machine known only from the gateway
     addresses: list = field(default_factory=list)
