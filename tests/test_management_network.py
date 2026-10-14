@@ -205,3 +205,18 @@ def test_the_events_table_lists_the_records_of_this_boot():
     events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
     assert "<td>network-state</td>" in events
     assert Machine.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_one_machines_malformed_record_is_its_own_error_in_the_registry(caplog):
+    good = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    bad = pi("pi-sw2-p47", REAL["pi-sw2-p47"], serial="10000000bbbb0001")
+    net_event(good, doc())
+    event = net_event(bad, {"operational_state": "<b>"})
+    with caplog.at_level("WARNING"):
+        entries = registry()
+    assert entries[good.serial]["network"]["state"] == "routable"
+    error = entries[bad.serial]["network"]
+    assert list(error) == ["error"] and f"network-state event {event.pk}" in error["error"]
+    assert any(f"network-state event {event.pk}" in r.getMessage() and r.levelname == "WARNING"
+               for r in caplog.records)

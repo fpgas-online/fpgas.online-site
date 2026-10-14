@@ -110,10 +110,8 @@ def _history(machine):
 def _network(entry):
     """(Network | None, error): the host's newest network-state record, or why it cannot be shown (said in the
     section; the page stands)."""
-    try:
-        return network.newest(entry.serial).get(entry.serial), ""
-    except ValueError as exc:
-        return None, str(exc)
+    net = network.newest(entry.serial).get(entry.serial)
+    return (None, str(net)) if isinstance(net, ValueError) else (net, "")
 
 
 def _lifetime(seconds):

@@ -14,12 +14,14 @@ every time, null where there is no value:
 "Newest" is the highest ts, ties by id, of any boot. A record that is not this document is a ValueError saying what
 is wrong with it: the documents come from the Pis, and nothing here guesses."""
 
+import logging
 from dataclasses import dataclass, field
 
 from django.db.models import OuterRef, Subquery
 from django.utils.dateparse import parse_datetime
 from fleet.models import BootEvent, Machine
 
+log = logging.getLogger(__name__)
 STAGE = "network-state"
 LEASE_KEYS = ("address", "server", "lifetime_s", "acked_at", "expires")
 
@@ -80,7 +82,7 @@ def parse(event):
 
 
 def newest(serial=None):
-    """{serial: Network} of the newest network-state event of each machine that has sent one (or of `serial`
+    """{serial: Network, or the ValueError that its record is} of the newest network-state event of each machine that has sent one (or of `serial`
     alone): two queries however many machines there are."""
     machines = Machine.objects.all()
     if serial is not None:
@@ -88,13 +90,22 @@ def newest(serial=None):
     latest = BootEvent.objects.filter(machine=OuterRef("pk"), stage=STAGE).order_by("-ts", "-id").values("pk")[:1]
     ids = [i for i in machines.annotate(latest_network=Subquery(latest)).values_list("latest_network", flat=True)
            if i is not None]
-    return {e.machine.serial: parse(e) for e in BootEvent.objects.filter(pk__in=ids).select_related("machine")}
+    found = {}
+    for event in BootEvent.objects.filter(pk__in=ids).select_related("machine"):
+        try:
+            found[event.machine.serial] = parse(event)
+        except ValueError as exc:  # one Pi's bad document is that Pi's error, not every reader's
+            log.warning("%s", exc)
+            found[event.machine.serial] = exc
+    return found
 
 
 def summary(net):
     """The registry.json "network" of one machine: null when it has sent no record."""
     if net is None:
         return None
+    if isinstance(net, ValueError):
+        return {"error": str(net)}
     return {"state": net.operational_state, "administrative_state": net.administrative_state,
             "changed": net.event.ts.isoformat(), "last_ack": net.last_ack.isoformat() if net.last_ack else None,
             "last_ack_source": "pi"}

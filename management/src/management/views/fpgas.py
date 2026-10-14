@@ -195,7 +195,8 @@ def registry_json(request):
 
     "network" is the machine's newest network-state record (management.network): the uplink's operational and
     administrative state, when the record was made, and the last DHCP ACK the Pi itself saw; null when the machine has
-    sent none. A malformed record is an error (500), not a guess."""
+    sent none. A malformed record is {"error": "<what is wrong, naming the event>"} for that machine only, and a
+    warning in the log: the other machines are unaffected."""
     now = timezone.now()
     machines = []
     networks = network.newest()  # one read for every machine
