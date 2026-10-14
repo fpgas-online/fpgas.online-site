@@ -209,6 +209,21 @@ def reload_settings(monkeypatch):
     importlib.reload(importlib.import_module("pib.settings"))
 
 
+def test_switch_poller_defaults(reload_settings):
+    module = reload_settings(DOMAIN_NAME="welland.fpgas.online")
+    # the site name follows the e2e site name: DOMAIN_NAME's first label, or MANAGEMENT_SITE_NAME
+    assert module.SWITCH_POLLER_SITE == "welland"
+    assert module.SWITCH_POLL_SECONDS == 2
+    assert module.SNMP_SWITCH_LEASE_RELEASE is False
+    assert reload_settings(MANAGEMENT_SITE_NAME="ps1", DOMAIN_NAME="x.example").SWITCH_POLLER_SITE == "ps1"
+
+
+def test_local_settings_can_set_the_switch_poller(reload_settings):
+    module = reload_settings(SWITCH_POLLER_SITE="lab", SWITCH_POLL_SECONDS=5, SNMP_SWITCH_LEASE_RELEASE=True,
+                             MANAGEMENT_SITE_NAME="ps1")
+    assert (module.SWITCH_POLLER_SITE, module.SWITCH_POLL_SECONDS, module.SNMP_SWITCH_LEASE_RELEASE) == ("lab", 5, True)
+
+
 def test_log_level_defaults_to_info(reload_settings, monkeypatch):
     monkeypatch.delenv("DJANGO_LOG_LEVEL", raising=False)
     module = reload_settings()

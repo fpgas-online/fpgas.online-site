@@ -335,11 +335,26 @@ def _build_logging(level, request_level):
 # Overridable in local_settings.py.
 FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
 
+# The switch poller (snmp_switch's `switch_poller`, a service on the gateway). SWITCH_POLLER_SITE is the site's name
+# in its MQTT topic (fpgas/<site>/gw/port); empty => the name MANAGEMENT_SITE_NAME resolves to, worked out below the
+# local_settings import so that either of them set there is used.
+SWITCH_POLLER_SITE = ""
+# The period of one poll of the switches' board ports.
+SWITCH_POLL_SECONDS = 2
+# Whether the poller and the PoE views release a port's DHCP leases when its link goes down or its power is cut. Off
+# here; the gateway's generated local_settings.py turns it on.
+SNMP_SWITCH_LEASE_RELEASE = False
+
 try:
     from pib.local_settings import *  # noqa: E402, F403
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings
     if exc.name != "pib.local_settings":
         raise
+
+# After the star-import on purpose: SWITCH_POLLER_SITE follows MANAGEMENT_SITE_NAME (else the first label of
+# DOMAIN_NAME, as management.e2e.site_name has it), either of which local_settings.py may set.
+if not SWITCH_POLLER_SITE:
+    SWITCH_POLLER_SITE = MANAGEMENT_SITE_NAME or globals().get("DOMAIN_NAME", "").split(".")[0]
 
 # After the star-import on purpose: LOG_LEVEL and REQUEST_LOG_LEVEL are read
 # here, so local_settings.py can set either of them and have it take effect.
