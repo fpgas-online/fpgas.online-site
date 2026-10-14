@@ -349,3 +349,21 @@ def test_every_stored_acked_at_parses_as_an_iso_time_with_an_offset():
     for record in GatewayRecord.objects.filter(kind="lease"):
         acked = record.doc["acked_at"]
         assert acked is None or not timezone.is_naive(parse_datetime(acked))
+
+
+@pytest.mark.django_db
+def test_the_migration_drops_every_ipv6_lease_record_and_nothing_else():
+    """fleet 0003 (site #115): IPv6 lease records stored before infra #293 were filed under the wrong port."""
+    import importlib
+
+    from django.apps import apps
+
+    send("lease", {**LEASE, "family": 6, "address": "2404:e80:a137:2102::30", "mac": None,
+                   "acked_at": "2026-10-14T05:45:02+00:00"})
+    send("lease", LEASE)
+    send("port", PORT)
+    assert GatewayRecord.objects.count() == 3
+    migration = importlib.import_module("fleet.migrations.0003_drop_misfiled_ipv6_lease_records")
+    migration.drop_ipv6_lease_records(apps, None)
+    assert sorted((r.kind, r.doc["family"] if r.kind == "lease" else None) for r in GatewayRecord.objects.all()) == [
+        ("lease", 4), ("port", None)]
