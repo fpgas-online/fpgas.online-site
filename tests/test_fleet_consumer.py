@@ -75,10 +75,23 @@ def test_widget_group_is_the_short_hostname(hostname, group):
 
 # --- the gateway's records: fpgas/<site>/gw/port and fpgas/<site>/gw/lease ---
 
+# Golden records: copied by hand from what the real producers print. PORT is fpgas.online-poe's Change.record()
+# (poller.py); LEASE is fpgas.online-infra's fpgas-lease-event record() for an "old" renewal on v2209 (switch 2,
+# port 9); DEL_LEASE the same script's "del"; RELEASED_V6 and RELEASED_V4 are fpgas-release-port-lease's
+# lease_record() (a v6 lease has no MAC; the release carries its cause).
 PORT = {"schema": 1, "switch": 2, "port": 9, "hostname": "pi-sw2-p9", "link": "down", "at": "2026-10-14T01:02:03+00:00"}
 LEASE = {"schema": 1, "switch": 2, "port": 9, "hostname": "pi-sw2-p9", "at": "2026-10-14T01:02:04+00:00",
-         "event": "old", "family": 4, "address": "10.2.9.2", "mac": "88:A2:9E:45:85:77", "server": "10.2.9.1",
-         "lifetime_s": 600, "acked_at": 1791939724, "expires": 1791940324, "interface": "v2109"}
+         "event": "old", "family": 4, "address": "10.2.9.2", "mac": "88:a2:9e:45:85:77", "server": None,
+         "lifetime_s": 300, "acked_at": "2026-10-14T01:02:04+00:00", "expires": 1791940024, "interface": "v2209"}
+DEL_LEASE = {"schema": 1, "switch": 2, "port": 9, "hostname": "pi-sw2-p9", "at": "2026-10-14T01:02:04+00:00",
+             "event": "del", "family": 4, "address": "10.2.9.2", "mac": "88:a2:9e:45:85:77", "server": None,
+             "lifetime_s": None, "acked_at": None, "expires": 1791940024, "interface": "v2209"}
+RELEASED_V6 = {"schema": 1, "switch": 2, "port": 9, "hostname": "pi-sw2-p9", "at": "2026-10-14T01:02:05+00:00",
+               "event": "released", "family": 6, "address": "fd00::9", "mac": None, "server": None,
+               "lifetime_s": None, "acked_at": None, "expires": 1791940024, "interface": "v2209",
+               "cause": "link-down"}
+RELEASED_V4 = {**RELEASED_V6, "family": 4, "address": "10.2.9.2", "mac": "88:a2:9e:45:85:77",
+               "cause": "power-cycle"}
 GW = "fpgas/welland/gw/"
 
 
@@ -96,7 +109,7 @@ def test_gateway_records_are_stored_and_matched_by_mac_then_hostname():
     assert send("lease", LEASE) == "gw/lease"
     lease = GatewayRecord.objects.get(kind="lease")
     # the MAC wins over the hostname (pi-sw2-p9 is "def"'s)
-    assert lease.machine.serial == "abc" and lease.mac == "88:A2:9E:45:85:77"
+    assert lease.machine.serial == "abc" and lease.mac == "88:a2:9e:45:85:77"
     assert (lease.site, lease.switch, lease.port, lease.hostname) == ("welland", 2, 9, "pi-sw2-p9")
     assert lease.doc == LEASE and lease.at.isoformat() == "2026-10-14T01:02:04+00:00"
     assert send("port", PORT) == "gw/port"
@@ -111,8 +124,43 @@ def test_gateway_record_of_an_unknown_machine_is_kept_unmatched():
 
 
 @pytest.mark.django_db
+def test_the_producers_golden_records_are_all_accepted():
+    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(
+        {**DOC, "machine": {"serial": "abc", "macs": {"eth0": "88:A2:9E:45:85:77"}}}).encode())
+    for kind, doc in (("port", PORT), ("lease", LEASE), ("lease", DEL_LEASE), ("lease", RELEASED_V6),
+                      ("lease", RELEASED_V4)):
+        assert send(kind, doc) == f"gw/{kind}"
+    stored = {(r.kind, r.doc.get("event"), r.doc["family"] if r.kind == "lease" else None): r
+              for r in GatewayRecord.objects.all()}
+    assert len(stored) == 5 and all(r.doc in (PORT, LEASE, DEL_LEASE, RELEASED_V6, RELEASED_V4) for r in stored.values())
+    # a v4 record matches by its MAC; the v6 release has none and falls back to the port's hostname (abc's)
+    assert stored[("lease", "old", 4)].machine.serial == "abc"
+    assert stored[("lease", "released", 6)].machine.serial == "abc" and stored[("lease", "released", 6)].mac is None
+
+
+@pytest.mark.django_db
+def test_a_stranger_mac_is_not_credited_to_the_pi_on_the_port():
+    """A visitor's laptop answered by the gateway on a board's port: the record has a MAC no machine has, so it is
+    stored unmatched, not given to the Pi registered on that port by hostname."""
+    consumer.dispatch("fpgas/welland/pi/def/registration", json.dumps(
+        {**DOC, "machine": {"serial": "def", "macs": {"eth0": "88:a2:9e:00:00:01"}}}).encode())
+    send("lease", {**LEASE, "mac": "aa:bb:cc:dd:ee:ff"})
+    assert GatewayRecord.objects.get().machine is None
+    assert services.latest_gateway_ack(Machine.objects.get(serial="def")) is None
+
+
+@pytest.mark.django_db
+def test_a_record_without_a_mac_falls_back_to_the_hostname():
+    consumer.dispatch("fpgas/welland/pi/def/registration", json.dumps(
+        {**DOC, "machine": {"serial": "def"}}).encode())
+    send("lease", RELEASED_V6)
+    assert GatewayRecord.objects.get().machine.serial == "def"
+
+
+@pytest.mark.django_db
 def test_latest_gateway_lease_is_the_newest():
-    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(DOC).encode())
+    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(
+        {**DOC, "machine": {"serial": "abc", "macs": {"eth0": LEASE["mac"]}}}).encode())
     machine = Machine.objects.get(serial="abc")
     assert services.latest_gateway_lease(machine) is None
     send("lease", {**LEASE, "at": "2026-10-14T01:00:00+00:00", "event": "add"})
@@ -124,7 +172,8 @@ def test_latest_gateway_lease_is_the_newest():
 
 @pytest.mark.django_db
 def test_latest_gateway_ack_skips_records_that_are_not_an_ack():
-    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(DOC).encode())
+    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(
+        {**DOC, "machine": {"serial": "abc", "macs": {"eth0": LEASE["mac"]}}}).encode())
     machine = Machine.objects.get(serial="abc")
     assert services.latest_gateway_ack(machine) is None
     send("lease", {**LEASE, "at": "2026-10-14T01:00:00+00:00", "event": "old", "acked_at": "2026-10-14T01:00:00+00:00"})
@@ -144,6 +193,9 @@ def test_latest_gateway_ack_skips_records_that_are_not_an_ack():
     ("port", {**PORT, "hostname": None}),
     ("port", {**PORT, "hostname": "pi9"}),
     ("port", {**PORT, "hostname": "pi-sw2-p9; drop"}),
+    ("port", {**PORT, "hostname": "pi-sw2-p8"}),      # the hostname of another port than the record's own
+    ("port", {**PORT, "hostname": "pi-sw3-p9"}),
+    ("lease", {**LEASE, "hostname": "pi-sw1-p9"}),
     ("port", {**PORT, "at": "yesterday"}),
     ("port", {**PORT, "at": "2026-10-14T01:02:03"}),
     ("port", {k: v for k, v in PORT.items() if k != "at"}),
@@ -207,7 +259,7 @@ def test_a_port_record_reaches_its_board_page_and_the_switch_dashboard_only():
 
     got = asyncio.run(listen_and_fire())
     assert [m["message"] for m in got["page"]] == [
-        "switch: link down", "dhcp: old 10.2.9.2 88:A2:9E:45:85:77"]
+        "switch: link down", "dhcp: old 10.2.9.2 88:a2:9e:45:85:77"]
     assert all(m["type"] == "stat.message" for m in got["page"])
     assert got["dashboard"] == {"type": "switch.event", "record": PORT}
 
@@ -262,3 +314,19 @@ def test_the_prune_runs_at_most_once_per_interval(settings, monkeypatch):
     monkeypatch.setattr(services, "_last_prune", services._last_prune - services.PRUNE_EVERY_SECONDS)
     send("lease", {**LEASE, "at": timezone.now().isoformat()})
     assert GatewayRecord.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_failed_prune_does_not_stop_the_record_being_pushed(monkeypatch, caplog):
+    def broken():
+        raise RuntimeError("database is locked")
+
+    sent = []
+    monkeypatch.setattr(services, "_last_prune", None)
+    monkeypatch.setattr(services, "prune_gateway_records", broken)
+    monkeypatch.setattr(consumer, "_send", lambda group, message: sent.append(group))
+    with caplog.at_level("ERROR"):
+        assert send("port", PORT) == "gw/port"
+    assert GatewayRecord.objects.count() == 1          # stored
+    assert consumer.SWITCH_EVENTS_GROUP in sent        # and bridged
+    assert "could not be pruned" in caplog.text

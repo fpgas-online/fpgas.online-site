@@ -380,6 +380,10 @@ def parse_gateway_record(kind, doc):
         value = doc.get(name)
         if not (_is_int(value) and value >= 0 or value is None and kind == "lease"):
             raise ValueError(f"{name} {value!r} is not a whole number")
+    if host is not None and doc.get("switch") is not None and doc.get("port") is not None \
+            and host != f"pi-sw{doc['switch']}-p{doc['port']}":
+        raise ValueError(f"hostname {host!r} is not pi-sw{doc['switch']}-p{doc['port']}, the record's own switch "
+                         f"and port")
     if kind == "port":
         if doc.get("link") not in PORT_LINKS:
             raise ValueError(f"link {doc.get('link')!r} is not one of {PORT_LINKS}")
@@ -422,12 +426,12 @@ def _machine_macs():
 
 
 def match_machine(mac, hostname):
-    """The Machine a gateway record is about: the one whose registration has this MAC, else the newest machine
-    registered on this hostname (machine_hosts), else None."""
+    """The Machine a gateway record is about: the one whose registration has this MAC. A record with no MAC (the
+    released records of a v6 lease) falls back to the newest machine registered on its hostname (machine_hosts); a
+    record WITH a MAC that no machine has is somebody else's (a visitor's laptop on the port) and matches none, so
+    its ack is never credited to the Pi registered on that port."""
     if mac:
-        machine = _machine_macs().get(_mac_key(mac))
-        if machine is not None:
-            return machine
+        return _machine_macs().get(_mac_key(mac))
     serial = machine_hosts().get(hostname) if hostname else None
     return Machine.objects.filter(serial=serial).first() if serial else None
 
@@ -460,7 +464,10 @@ def gateway_record(site, kind, doc):
         at=at, doc=doc, machine=match_machine(mac, hostname))
     if _last_prune is None or time.monotonic() - _last_prune >= PRUNE_EVERY_SECONDS:
         _last_prune = time.monotonic()
-        prune_gateway_records()
+        try:
+            prune_gateway_records()
+        except Exception:  # the record is stored: a failed prune must not stop it being pushed to the pages
+            log.exception("the gateway records could not be pruned")
     return record
 
 
