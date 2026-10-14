@@ -7,7 +7,7 @@ import re
 import pytest
 from django.test import Client
 from django.utils import timezone
-from fleet.models import BootEvent, Machine
+from fleet.models import BootEvent, GatewayRecord, Machine
 
 from management import network
 from tests.test_management_fpgas import REAL, pi
@@ -54,6 +54,16 @@ def doc(**changes):
 def net_event(machine, detail, minutes=0, boot_id="b1"):
     return BootEvent.objects.create(machine=machine, boot_id=boot_id, stage="network-state", detail=detail,
                                     ts=NOW + datetime.timedelta(minutes=minutes))
+
+
+def gateway_ack(machine, acked_at, minutes=0, kind="lease", **doc_changes):
+    """A gateway record about `machine`: a lease record whose DHCPACK was at `acked_at` (a datetime or a string)."""
+    if isinstance(acked_at, datetime.datetime):
+        acked_at = acked_at.astimezone(datetime.timezone.utc).isoformat()
+    at = NOW + datetime.timedelta(minutes=minutes)
+    return GatewayRecord.objects.create(site="welland", kind=kind, hostname="pi-sw2-p43", mac="d8:3a:dd:00:00:01",
+                                        at=at, machine=machine,
+                                        doc=dict({"acked_at": acked_at}, **doc_changes))
 
 
 def registry():
@@ -159,11 +169,15 @@ def test_the_registry_reads_every_machines_record_in_a_constant_number_of_querie
 
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
+    gateway_ack(m, NOW)
     few = count()
     for n in range(3):
         other = pi(f"pi-sw2-p{50 + n}", REAL["pi-sw2-p47"], serial=f"10000000aaaa000{n}")
         net_event(other, doc(), minutes=n)
         net_event(other, doc(operational_state="carrier"), minutes=n + 1)
+        gateway_ack(other, NOW, minutes=n)
+        gateway_ack(other, NOW, minutes=n + 1)
+    gateway_ack(pi("pi-sw2-p60", serial="10000000aaaa0009"), NOW)  # known only from the gateway
     assert count() == few
 
 
@@ -454,3 +468,115 @@ def test_nulls_are_dashes_on_the_page():
     assert "None" not in section
     assert "<td>IPv4</td><td>–</td><td>1024</td><td>dhcp</td>" in section
     assert "<code>10.21.2.43/16</code></td><td>–</td><td>forever</td><td>forever</td>" in section
+
+
+# --- the gateway's half of last_ack ------------------------------------------------------------------------------------
+
+PLUS_10_30 = datetime.timezone(datetime.timedelta(hours=10, minutes=30))
+
+
+def ack_of(m):
+    net = registry()[m.serial]["network"]
+    return net["last_ack"], net["last_ack_source"]
+
+
+def iso(moment):
+    return moment.astimezone(datetime.timezone.utc).isoformat()
+
+
+@pytest.mark.django_db
+def test_the_pi_ack_is_newer_than_the_gateways():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())  # the Pi's ack: 5 minutes ago
+    gateway_ack(m, NOW - datetime.timedelta(minutes=30))
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=5)), "pi")
+
+
+@pytest.mark.django_db
+def test_the_gateway_ack_is_newer_than_the_pis():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())
+    gateway_ack(m, NOW - datetime.timedelta(minutes=1))
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=1)), "gateway")
+    net = registry()[m.serial]["network"]
+    assert net["state"] == "routable" and net["boot_id"] == "b1"  # the record's own fields stay the Pi's
+
+
+@pytest.mark.django_db
+def test_the_pi_alone_is_the_source_pi_and_neither_is_null():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=5)), "pi")
+    lease = dict(doc()["lease"], acked_at=None)
+    net_event(m, doc(lease=lease), minutes=1)
+    assert ack_of(m) == (None, None)
+
+
+@pytest.mark.django_db
+def test_a_machine_known_only_from_the_gateway_has_the_one_shape_with_null_fields():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    gateway_ack(m, NOW - datetime.timedelta(minutes=2))
+    assert registry()[m.serial]["network"] == {
+        "state": None, "administrative_state": None, "changed": None,
+        "last_ack": iso(NOW - datetime.timedelta(minutes=2)), "last_ack_source": "gateway", "boot_id": None,
+        "current_boot": None, "error": None}
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    assert "This host has sent no network-state record." in section and "2 min ago" in section
+
+
+@pytest.mark.django_db
+def test_acks_are_compared_as_utc_instants_whatever_their_offset():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    pi_ack = (NOW - datetime.timedelta(minutes=5)).astimezone(PLUS_10_30)
+    net_event(m, doc(lease=dict(doc()["lease"], acked_at=pi_ack.isoformat())))
+    # the gateway's string sorts after the Pi's as text, but is the same instant minus a minute: older
+    older = (NOW - datetime.timedelta(minutes=6)).astimezone(datetime.timezone(datetime.timedelta(hours=-5)))
+    gateway_ack(m, older.isoformat())
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=5)), "pi")
+    newer = (NOW - datetime.timedelta(minutes=4)).astimezone(PLUS_10_30)
+    gateway_ack(m, newer.isoformat(), minutes=1)
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=4)), "gateway")
+
+
+@pytest.mark.django_db
+def test_a_gateway_record_of_no_registered_machine_is_never_counted():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    gateway_ack(None, NOW)
+    assert registry()[m.serial]["network"] is None
+    net_event(m, doc())
+    assert ack_of(m) == (iso(NOW - datetime.timedelta(minutes=5)), "pi")
+
+
+@pytest.mark.django_db
+def test_only_lease_records_with_an_ack_count():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    gateway_ack(m, NOW, kind="port")
+    GatewayRecord.objects.create(site="welland", kind="lease", at=NOW, machine=m, doc={"acked_at": None})
+    assert registry()[m.serial]["network"] is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["yesterday", "2026-10-14T10:00:00", 5])
+def test_a_malformed_gateway_ack_is_that_machines_error(bad):
+    good = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    broken = pi("pi-sw2-p47", REAL["pi-sw2-p47"], serial="10000000bbbb0003")
+    net_event(good, doc())
+    net_event(broken, doc())
+    record = gateway_ack(broken, bad)
+    entries = registry()
+    assert entries[good.serial]["network"]["error"] is None
+    error = entries[broken.serial]["network"]
+    assert set(error) == set(network.ENTRY_KEYS) | {"error"} and error["state"] is None
+    assert f"gateway lease record {record.pk}" in error["error"]
+    assert "gateway lease record" in page(broken.serial)
+
+
+@pytest.mark.django_db
+def test_the_page_shows_the_source_next_to_the_last_ack():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    assert "5 min ago</time> (seen by the pi)" in section
+    gateway_ack(m, NOW - datetime.timedelta(minutes=1))
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    assert "1 min ago</time> (seen by the gateway)" in section
