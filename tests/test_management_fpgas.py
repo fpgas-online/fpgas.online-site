@@ -80,12 +80,12 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     # every test is a column of the Tests table; a failed one is ✗ in its own column, its reason in the last cell
-    cells = _grid(html)
-    assert cells["header"][0] == "Pi" and cells["header"][-1] == "Reason"
-    failing = cells["rows"]["pi-sw2-p33"]
-    assert dict(zip(cells["header"], failing))["pin-id"] == "✗" and dict(zip(cells["header"], failing))["uart"] == "✓"
+    grid = _grid(html, "TT board, not identified")
+    assert grid["header"][0] == "Pi" and grid["header"][-1] == "Reason"
+    failing = dict(zip(grid["header"], grid["rows"][0]))
+    assert failing["Pi"] == "pi-sw2-p33" and failing["pin-id"] == "✗" and failing["uart"] == "✓"
     assert '<td class="mgmt-mark mgmt-test-fail" data-sort="0" title="pin-id: fail">✗' in html
-    assert "pin-id fail: the test exited 1" in failing[-1]
+    assert "pin-id fail: the test exited 1" in failing["Reason"]
 
 
 @pytest.mark.django_db
@@ -225,7 +225,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "the port its host name says it booted on, as it registered" in html and "<b>" not in html
     # its board as the registration names it, escaped and cut
-    assert "tt-demo-board + &lt;b&gt;zzz" in html
+    assert "<div>tt-demo-board</div><div>&lt;b&gt;zzz" in html
 
 
 @pytest.mark.django_db
@@ -308,17 +308,22 @@ def _rows(html):
     return rows
 
 
-def _grid(html):
-    """The Tests table: {"header": [column names], "rows": {Pi label: [cell text, ...]}}, a cell's text without the
-    words only a screen reader hears."""
-    import re
+def _tables(html):
+    """The titles of the Tests tables, in page order."""
+    return re.findall(r"<h2>(.*?) tests</h2>", html)
 
-    body = html.split('class="mgmt-table mgmt-testgrid', 1)[1].split("</table>", 1)[0]
+
+def _grid(html, title):
+    """A Tests table: {"header": [column names], "rows": [[cell text, ...]]}, a cell's text without the words only a
+    screen reader hears; a Pi's label and its board's name in the first cell are told apart by a newline."""
+    import html as htmllib
+
+    body = html.split(f"<h2>{title} tests</h2>", 1)[1].split("</table>", 1)[0]
     header = [re.sub(r"<[^>]+>", "", th).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", body, re.S)]
-    cleaned = re.sub(r'<span class="mgmt-sr">.*?</span>', "", body, flags=re.S)
-    rows = {r[0]: r for r in _cells(cleaned)}
-    assert rows and all(len(r) == len(header) for r in rows.values())
-    return {"header": header, "rows": rows}
+    cleaned = re.sub(r'<span class="mgmt-sr">.*?</span>', "", body, flags=re.S).replace("<div", "\n<div")
+    rows = _cells(cleaned)
+    assert rows and all(len(r) == len(header) for r in rows)
+    return {"header": header, "rows": [[htmllib.unescape(c) for c in r] for r in rows]}
 
 
 @pytest.mark.django_db
@@ -355,25 +360,51 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
 
 
 @pytest.mark.django_db
-def test_every_test_is_a_column_with_a_mark_blank_where_the_pi_does_not_run_it(fleet):
+def test_a_table_for_each_board_type_with_its_tests_as_columns_and_a_row_per_board(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    grid = _grid(html)
-    header = grid["header"]
-    # one column per test name any shown Pi runs: the Acorns' and the Tiny Tapeout board's
-    assert header[0] == "Pi" and header[-1] == "Reason" and len(set(header)) == len(header)
-    assert {"pcie-link", "jtag", "ddr", "uart", "pin-id", "spiflash"} <= set(header)
-    row = lambda pi_name: dict(zip(header, grid["rows"][pi_name]))  # noqa: E731
-    assert row("pi-sw2-p46")["jtag"] == "✓" and row("pi-sw2-p46")["pin-id"] == ""  # an Acorn runs no pin-id
-    tt = row("pi-sw2-p33")
-    assert (tt["pin-id"], tt["spiflash"], tt["uart"], tt["jtag"]) == ("✗", "✗", "✓", "")
-    assert tt["Reason"].startswith("pin-id fail: the test exited 1")
-    assert row("pi-sw2-p7")["jtag"] == "" and row("pi-sw2-p7")["Reason"] == ""  # no check result yet: all blank
-    # the result is in the mark's title, and said to a screen reader; sorting by the mark puts failures first
-    assert re.search(r'<td class="mgmt-mark mgmt-test-pass" data-sort="1" title="jtag: pass">✓<span class="mgmt-sr"> '
+    assert sorted(_tables(html)) == ["Acorn", "TT board, not identified"]  # a type with no tests has no table
+    acorn = _grid(html, "Acorn")
+    header = acorn["header"]
+    # the Acorn's own tests in the check's order, and no other type's
+    assert header[:5] == ["Pi", "pcie-link", "pcie-bar0", "rp1-pio", "jtag"] and header[-1] == "Reason"
+    assert "pin-id" not in header and "spiflash" not in header and len(set(header)) == len(header)
+    rows = {r[0]: dict(zip(header, r)) for r in acorn["rows"]}
+    assert set(rows) == {"pi-sw2-p46", "pi-sw2-p47", "10000000f536c51f", "10000000f77b8415"}
+    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["Reason"] == ""
+    tt = _grid(html, "TT board, not identified")
+    assert tt["header"] == ["Pi", "pin-id", "uart", "spiflash", "Reason"]
+    (row,) = (dict(zip(tt["header"], r)) for r in tt["rows"])
+    assert (row["Pi"], row["pin-id"], row["spiflash"], row["uart"]) == ("pi-sw2-p33", "✗", "✗", "✓")
+    assert row["Reason"].startswith("pin-id fail: the test exited 1")
+    # the result is in the mark's title, and said to a screen reader
+    assert re.search(r'<td class="mgmt-mark mgmt-test-pass" data-sort="2" title="jtag: pass">✓<span class="mgmt-sr"> '
                      r'jtag: pass</span></td>', html)
-    assert '<td class="mgmt-mark mgmt-test-fail" data-sort="0" title="pin-id: fail">✗' in html
-    assert '<td class="mgmt-mark " data-sort="2"></td>' in html
     assert 'class="mgmt-table mgmt-testgrid mgmt-fit mgmt-striped mgmt-sortable"' in html
+    assert html.count('role="region"') == 3 and 'aria-label="Acorn tests"' in html  # a scrolling table is reachable
+
+
+@pytest.mark.django_db
+def test_a_result_that_is_neither_pass_nor_fail_is_a_mark_of_its_own_sorted_between(fleet):
+    pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=skip ddr=pass flash=fail"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert ('<td class="mgmt-mark mgmt-test-other" data-sort="1" title="jtag: skip">–<span class="mgmt-sr"> jtag: skip'
+            '</span></td>') in html
+    assert "✗ skip" not in html and "skip</td>" not in html  # the mark alone; the word is in the title
+    assert 'data-sort="0" title="flash: fail">✗' in html and 'data-sort="2" title="ddr: pass">✓' in html
+    grid = _grid(html, "Acorn")
+    row = dict(zip(grid["header"], next(r for r in grid["rows"] if r[0] == "pi-sw2-p30")))
+    assert (row["jtag"], row["ddr"], row["flash"]) == ("–", "✓", "✗")  # the mark is the cell's whole text
+
+
+@pytest.mark.django_db
+def test_the_up_column_sorts_by_seconds_not_text(fleet):
+    for hostname, seconds in (("pi-sw2-p46", 3 * 86400), ("pi-sw2-p47", 700), ("pi-sw2-p33", 90000)):
+        Machine.objects.filter(hostname=hostname).update(last_uptime_s=seconds)
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    keys = re.findall(r'<td data-label="Up" data-sort="(\d+)">([^<]*)</td>', html)
+    assert ("259200", "3 d 0 h") in keys and ("700", "11 min") in keys and ("90000", "1 d 1 h") in keys
+    # an unreported or stale uptime sorts as 0, with nothing shown
+    assert ("0", "") in keys
 
 
 @pytest.mark.django_db
@@ -570,7 +601,9 @@ def test_with_two_boards_each_test_names_its_board(fleet):
     pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "pin-id=pass",
                       "board1": "tt tt-fpga pass", "board1_identity_chip": "fpga", "board1_tests": "pin-id=pass"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert _grid(html)["header"].count("Acorn pin-id") == 1 and _grid(html)["header"].count("TT FPGA pin-id") == 1
+    # each board type has its own table, so a test name two types share (pin-id) is a column of each
+    assert {"Acorn", "TT FPGA"} <= set(_tables(html))
+    assert "pin-id" in _grid(html, "Acorn")["header"] and "pin-id" in _grid(html, "TT FPGA")["header"]
 
 
 @pytest.mark.django_db
@@ -589,8 +622,23 @@ def test_a_revision_that_cannot_be_read_is_a_short_note_and_the_label_is_the_ser
 
 
 @pytest.mark.django_db
-def test_two_boards_of_one_kind_get_a_column_each(fleet):
+def test_two_boards_of_one_type_are_two_rows_each_with_its_board_label(fleet):
     pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=pass",
-                      "board1": "acorn - pass", "board1_tests": "jtag=fail"})
-    header = _grid(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())["header"]
-    assert "Acorn jtag" in header and "Acorn jtag 2" in header
+                      "board0_identity_dna": "0x00200c8664b04854",
+                      "board1": "acorn - pass", "board1_tests": "jtag=fail", "board1_identity_dna": "0x0054b48664b04854"})
+    grid = _grid(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode(), "Acorn")
+    assert "Acorn jtag 2" not in grid["header"] and grid["header"].count("jtag") == 1
+    two = [dict(zip(grid["header"], r)) for r in grid["rows"] if r[0].startswith("pi-sw2-p31")]
+    assert [(r["Pi"].split("\n")[0], r["jtag"]) for r in two] == [("pi-sw2-p31", "✓"), ("pi-sw2-p31", "✗")]
+    assert two[0]["Pi"].split("\n")[1].startswith("acorn-") and two[0]["Pi"] != two[1]["Pi"]
+    # a Pi with one board of the type has the Pi's label alone
+    assert next(r[0] for r in grid["rows"] if r[0].startswith("pi-sw2-p46")) == "pi-sw2-p46"
+
+
+@pytest.mark.django_db
+def test_the_board_cell_lists_a_label_a_line(fleet):
+    pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board1": "acorn - pass",
+                      "board0_identity_dna": "0x00200c8664b04854", "board1_identity_dna": "0x0054b48664b04854"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert re.search(r'<td data-label="Board" class="mgmt-boardlist"><div>acorn-\w+ 0x00200c8664b04854</div>'
+                     r'<div>acorn-\w+ 0x0054b48664b04854</div></td>', html)

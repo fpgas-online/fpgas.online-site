@@ -26,9 +26,9 @@ def test_the_fleet_front_page_is_the_pi_dashboard(c):
     # the Pi by its label, linked to its own page; the port apart. This registration names a Raspberry Pi but sends
     # no revision code, so rpi-hwid cannot make its label: the serial stands, and Notes says why
     assert f'<a href="/fleet/{m.serial}/">abc123</a>' in html and ">sw2 p47</td>" in html
-    assert '<td class="mgmt-reason">no revision code</td>' in html
+    assert '<td data-label="Notes" class="mgmt-note">no revision code</td>' in html
     # registered, no status beat yet: not offered; its board as the registration names it
-    assert "<td>acorn-cle-215+</td>" in html and "needs attention" in html
+    assert "<div>acorn-cle-215+</div>" in html and "needs attention" in html
 
 
 @pytest.mark.django_db
