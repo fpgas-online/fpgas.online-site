@@ -580,3 +580,52 @@ def test_the_page_shows_the_source_next_to_the_last_ack():
     gateway_ack(m, NOW - datetime.timedelta(minutes=1))
     section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
     assert "1 min ago</time> (seen by the gateway)" in section
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("extra", [
+    [],
+    [dict(minutes=5, acked_at=None)],  # newer records whose acked_at is JSON null
+    [dict(minutes=5, missing=True)],  # ... or absent
+    [dict(minutes=5, empty=True)],  # ... or whose doc is empty
+    [dict(minutes=5, acked_at=None), dict(minutes=6, missing=True), dict(minutes=7, empty=True)],
+    [dict(minutes=0, acked_at="same-at")],  # the same `at`: the higher id wins
+], ids=["alone", "null", "missing", "empty", "all three", "same at"])
+def test_the_registry_and_the_page_pick_the_same_gateway_record(extra):
+    from fleet.services import latest_gateway_ack
+
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    oldest = NOW - datetime.timedelta(minutes=30)
+    gateway_ack(m, oldest, minutes=0)
+    for case in extra:
+        at = case["minutes"]
+        if case.get("acked_at") == "same-at":
+            gateway_ack(m, NOW - datetime.timedelta(minutes=20), minutes=0)  # same `at`, later id, other ack
+        elif case.get("missing"):
+            GatewayRecord.objects.create(site="welland", kind="lease", at=NOW + datetime.timedelta(minutes=at),
+                                         machine=m, doc={"other": 1})
+        elif case.get("empty"):
+            GatewayRecord.objects.create(site="welland", kind="lease", at=NOW + datetime.timedelta(minutes=at),
+                                         machine=m, doc={})
+        else:
+            gateway_ack(m, None, minutes=at)
+    chosen = latest_gateway_ack(m)
+    expected = iso(NOW - datetime.timedelta(minutes=20 if extra and extra[0].get("acked_at") == "same-at" else 30))
+    assert utc_of(chosen) == expected
+    assert ack_of(m) == (expected, "gateway")
+    assert network.of(m).last_ack.astimezone(datetime.timezone.utc).isoformat() == expected
+    assert network.newest()[m.serial].last_ack.astimezone(datetime.timezone.utc).isoformat() == expected
+
+
+def utc_of(record):
+    return iso(datetime.datetime.fromisoformat(record.doc["acked_at"]))
+
+
+@pytest.mark.django_db
+def test_equal_instants_in_different_offsets_are_a_tie_and_the_pi_wins():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    instant = NOW - datetime.timedelta(minutes=5)
+    net_event(m, doc(lease=dict(doc()["lease"], acked_at=instant.astimezone(PLUS_10_30).isoformat())))
+    gateway_ack(m, instant.astimezone(datetime.timezone(datetime.timedelta(hours=-5))).isoformat())
+    assert ack_of(m) == (iso(instant), "pi")
+    assert network.of(m).last_ack_source == "pi"
