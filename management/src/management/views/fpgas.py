@@ -17,7 +17,7 @@ from fleet.timeago import ago_time, duration
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import e2e, fpga, localtime
+from .. import e2e, fpga, localtime, network
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -247,9 +247,29 @@ def registry_json(request):
       "boards": [{"label", "type", "id" | null, "result", "tests": {name: result}}],
       "check": {"result": "pass" | "fail" | "error" | "missing" | "verifying" | "unknown" (unreadable) | ... | null,
                 "at" | null},
-      "last_seen" | null, "cameras": [as the registration lists them] | null}]}"""
+      "last_seen" | null, "cameras": [as the registration lists them] | null,
+      "network": null | {"state", "administrative_state", "changed", "last_ack" | null,
+                         "last_ack_source": "pi" | "gateway" | null, "boot_id", "current_boot": true | false,
+                         "error": null}
+                 | {"state": null, "administrative_state": null, "changed": null, "last_ack",
+                    "last_ack_source": "gateway", "boot_id": null, "current_boot": null, "error": null}
+                 | {"state": null, "administrative_state": null, "changed": null, "last_ack": null,
+                    "last_ack_source": null, "boot_id": null, "current_boot": null, "error": "<what is wrong>"}}]}
+
+    "network" is the machine's newest network-state record (management.network): the uplink's operational and
+    administrative state, when the record was made, and the last DHCP ACK the Pi itself saw; null when the machine has
+    sent none (the first form; a machine the gateway has acknowledged is never null). The second form is the
+    record's entry; "boot_id" is the boot it was sent in ("" for a record sent without one) and "current_boot" says whether that is the boot the machine is running (if
+    not, the machine has sent no record this boot). A malformed record gives the fourth form for that machine only,
+    every key null and "error" naming the event, and a warning in the log: the other machines are unaffected.
+
+    "last_ack" is the newer of the Pi's own last DHCP ACK (the record's lease.acked_at) and the gateway's (the newest
+    acked_at of its lease records of the machine), "last_ack_source" says which. A machine the gateway has seen
+    acknowledged but that has sent no record gets the third form: the same keys, the record's fields null, "last_ack"
+    and "last_ack_source": "gateway"."""
     now = timezone.now()
     machines = []
+    networks = network.newest()  # one read for every machine
     for host in fpga.hosts(now):
         m = host.machine
         machines.append({
@@ -264,5 +284,6 @@ def registry_json(request):
             "check": {"result": host.state or None, "at": host.checked.isoformat() if host.checked else None},
             "last_seen": m.last_seen.isoformat() if m.last_seen else None,
             "cameras": _cameras(m),
+            "network": network.summary(networks.get(m.serial)),
         })
     return JsonResponse({"site": e2e.site_name(), "generated_at": now.isoformat(), "machines": machines})

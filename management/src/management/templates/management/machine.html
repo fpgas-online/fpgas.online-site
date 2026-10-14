@@ -62,6 +62,60 @@
 <p>No boot check has reported.</p>
 {% endif %}
 
+<h2>Network</h2>
+{% if net_error %}
+<p class="mgmt-reason">The newest network-state record cannot be shown: {{ net_error }}</p>
+{% elif net and net.event %}
+<table class="mgmt-table mgmt-facts mgmt-fit mgmt-network">
+  <tbody>
+    <tr><th scope="row">State</th><td>{{ net.operational_state }} / {{ net.administrative_state }}</td></tr>
+    <tr><th scope="row">Interface</th><td>{{ net.doc.interface|default:"–" }}</td></tr>
+    <tr><th scope="row">MAC</th><td><code>{{ net.doc.mac|default:"–" }}</code></td></tr>
+    <tr><th scope="row">Recorded</th><td>{{ net_changed }}</td></tr>
+    <tr><th scope="row">Boot</th><td><code>{{ net.event.boot_id|default:"–" }}</code> ({% if net.current_boot %}this boot{% else %}an earlier boot: this boot has sent no record{% endif %})</td></tr>
+  </tbody>
+</table>
+<h3>Addresses</h3>
+{% if net_addresses %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-addresses">
+  <thead><tr><th scope="col">Family</th><th scope="col">Address</th><th scope="col">Scope</th><th scope="col">Valid</th><th scope="col">Preferred</th></tr></thead>
+  <tbody>
+  {% for a, valid, preferred in net_addresses %}
+    <tr><td>IPv{{ a.family }}</td><td><code>{{ a.address }}/{{ a.prefixlen }}</code></td><td>{{ a.scope|default:"–" }}</td><td>{{ valid }}</td><td>{{ preferred }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>The record lists no address.</p>
+{% endif %}
+<h3>Default routes</h3>
+{% if net.default_routes %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-routes">
+  <thead><tr><th scope="col">Family</th><th scope="col">Gateway</th><th scope="col">Metric</th><th scope="col">Protocol</th></tr></thead>
+  <tbody>
+  {% for r in net.default_routes %}
+    <tr><td>IPv{{ r.family }}</td><td>{% if r.gateway %}<code>{{ r.gateway }}</code>{% else %}–{% endif %}</td><td>{{ r.metric|default_if_none:"–" }}</td><td>{{ r.protocol|default:"–" }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>The record lists no default route.</p>
+{% endif %}
+<h3>DHCP lease</h3>
+<table class="mgmt-table mgmt-facts mgmt-fit mgmt-lease">
+  <tbody>
+    <tr><th scope="row">Address</th><td>{{ net.lease.address|default:"–" }}</td></tr>
+    <tr><th scope="row">Server</th><td>{{ net.lease.server|default:"–" }}</td></tr>
+    <tr><th scope="row">Lifetime</th><td>{% if net.lease.lifetime_s is None %}–{% else %}{{ net.lease.lifetime_s }} s{% endif %}</td></tr>
+    <tr><th scope="row">Last ACK</th><td>{{ net_last_ack|default:"–" }}{% if net.last_ack_source %} (seen by the {{ net.last_ack_source }}){% endif %}</td></tr>
+    <tr><th scope="row">Expires</th><td>{{ net_expires }}</td></tr>
+  </tbody>
+</table>
+{% else %}
+<p>This host has sent no network-state record.</p>
+{% if net %}<p>The gateway last saw it acknowledged a DHCP lease {{ net_last_ack }}.</p>{% endif %}
+{% endif %}
+
 <h2>Labels</h2>
 {% if labels %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
