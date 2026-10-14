@@ -65,7 +65,7 @@
 <h2>Network</h2>
 {% if net_error %}
 <p class="mgmt-reason">The newest network-state record cannot be shown: {{ net_error }}</p>
-{% elif net %}
+{% elif net and net.event %}
 <table class="mgmt-table mgmt-facts mgmt-fit mgmt-network">
   <tbody>
     <tr><th scope="row">State</th><td>{{ net.operational_state }} / {{ net.administrative_state }}</td></tr>
@@ -107,12 +107,13 @@
     <tr><th scope="row">Address</th><td>{{ net.lease.address|default:"–" }}</td></tr>
     <tr><th scope="row">Server</th><td>{{ net.lease.server|default:"–" }}</td></tr>
     <tr><th scope="row">Lifetime</th><td>{% if net.lease.lifetime_s is None %}–{% else %}{{ net.lease.lifetime_s }} s{% endif %}</td></tr>
-    <tr><th scope="row">Last ACK</th><td>{{ net_last_ack|default:"–" }}</td></tr>
+    <tr><th scope="row">Last ACK</th><td>{{ net_last_ack|default:"–" }}{% if net.last_ack_source %} (seen by the {{ net.last_ack_source }}){% endif %}</td></tr>
     <tr><th scope="row">Expires</th><td>{{ net_expires }}</td></tr>
   </tbody>
 </table>
 {% else %}
 <p>This host has sent no network-state record.</p>
+{% if net %}<p>The gateway last saw it acknowledged a DHCP lease {{ net_last_ack }}.</p>{% endif %}
 {% endif %}
 
 <h2>Labels</h2>

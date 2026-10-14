@@ -20,7 +20,13 @@ one that arrived last of any boot, said so by current_boot false.
 A record that is not this document is a ValueError saying what is wrong with it (every key required, only a JSON
 null is "no value"): the documents come from the Pis, and nothing here guesses. An error is logged at warning level
 at every read that meets it; that repeats, which is acceptable because the record stays bad until a new one arrives
-and the log is the only place the Pi's bad document is named besides the page that shows it."""
+and the log is the only place the Pi's bad document is named besides the page that shows it.
+
+The gateway's half: fleet.services.latest_gateway_ack(machine), the newest lease GatewayRecord of the machine with an
+acked_at (a UTC ISO 8601 string). last_ack is the newer of the Pi's own lease.acked_at and that, compared as UTC
+datetimes, and last_ack_source says "pi" or "gateway" (null when neither exists). A machine known only from the
+gateway gets the entry with the record's fields null. A gateway acked_at that is not ISO 8601 with its offset is that
+machine's error, as a bad Pi record is."""
 
 import datetime
 import logging
@@ -30,7 +36,8 @@ from dataclasses import dataclass, field
 from django.db.models import OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_datetime
-from fleet.models import BootEvent, Machine
+from fleet.models import BootEvent, GatewayRecord, Machine
+from fleet.services import latest_gateway_ack
 
 log = logging.getLogger(__name__)
 STAGE = "network-state"
@@ -51,20 +58,21 @@ class Network:
     """The newest network-state record of one machine, checked."""
     event: BootEvent
     doc: dict
-    current_boot: bool  # the record is of the boot the machine is running
+    current_boot: object  # True | False; None for a machine known only from the gateway
     addresses: list = field(default_factory=list)
     default_routes: list = field(default_factory=list)
     lease: dict = field(default_factory=dict)
     last_ack: object = None  # datetime | None
     expires: object = None  # datetime | None
+    last_ack_source: object = None  # "pi" | "gateway" | None
 
     @property
     def operational_state(self):
-        return self.doc["operational_state"]
+        return self.doc.get("operational_state")
 
     @property
     def administrative_state(self):
-        return self.doc["administrative_state"]
+        return self.doc.get("administrative_state")
 
 
 def _r(value):
@@ -189,49 +197,90 @@ def parse(event, current_boot):
     """The Network a network-state BootEvent says; ValueError (naming the event) for a document that is not one."""
     try:
         addresses, routes, lease = _check_doc(event.detail)
-        return Network(event, event.detail, current_boot, addresses, routes, lease,
-                       _moment(lease["acked_at"], "lease.acked_at"), _moment(lease["expires"], "lease.expires"))
+        acked = _moment(lease["acked_at"], "lease.acked_at")
+        return Network(event, event.detail, current_boot, addresses, routes, lease, acked,
+                       _moment(lease["expires"], "lease.expires"), "pi" if acked else None)
     except ValueError as exc:
         error = ValueError(f"network-state event {event.pk} of machine {event.machine_id}: {exc}")
         log.warning("%s", error)  # at every read that meets it: the record stays bad until a new one arrives
         raise error from exc
 
 
-def _kept(event, boot_id):
-    """(Network, or the ValueError the record is) of one machine's newest event."""
-    current = bool(boot_id) and event.boot_id == boot_id
+def _gateway_ack(record):
+    """The DHCP ACK time (a datetime) the gateway's lease record says, None for no record; ValueError, logged, for an
+    acked_at that is not an ISO 8601 time with its offset."""
+    if record is None:
+        return None
     try:
-        return parse(event, current)
+        return _moment(record.doc.get("acked_at"), "acked_at")
+    except ValueError as exc:
+        error = ValueError(f"gateway lease record {record.pk} of machine {record.machine_id}: {exc}")
+        log.warning("%s", error)
+        raise error from exc
+
+
+def _combined(event, boot_id, gateway):
+    """The machine's Network (or the ValueError its Pi record or its gateway ack is) from its newest event, if any,
+    and its newest gateway lease record with an acked_at, if any (at least one is given). last_ack is the newer of the
+    Pi's own and the gateway's, compared as UTC datetimes; on a tie the Pi's."""
+    try:
+        gateway_ack = _gateway_ack(gateway)
+        if event is None:
+            net = Network(None, {}, None)
+        else:
+            net = parse(event, bool(boot_id) and event.boot_id == boot_id)
     except ValueError as exc:
         return exc
+    if gateway_ack is not None and (net.last_ack is None or gateway_ack > net.last_ack):
+        net.last_ack, net.last_ack_source = gateway_ack, "gateway"
+    return net
 
 
 def of(machine):
-    """The newest record of one machine (Network, or its ValueError), None if it has sent none: the one machine's
-    page reads it in one query for the current boot, one more only when that boot has none."""
+    """The newest record of one machine (Network, or its ValueError), None if it has neither a record nor a gateway
+    ack: the one machine's page reads it in one query for the current boot, one more only when that boot has none,
+    and one for the gateway's ack."""
     events = BootEvent.objects.filter(machine=machine, stage=STAGE).order_by("-id")
     event = (events.filter(boot_id=machine.last_boot_id).first() if machine.last_boot_id else None) or events.first()
-    return None if event is None else _kept(event, machine.last_boot_id)
+    gateway = latest_gateway_ack(machine)
+    return None if event is None and gateway is None else _combined(event, machine.last_boot_id, gateway)
+
+
+def _gateway_acks():
+    """The gateway's newest ack record of a machine as a Subquery, ordered as fleet.services.latest_gateway_ack
+    orders it (the newest lease record with an acked_at, by at then id)."""
+    return Subquery(GatewayRecord.objects.filter(machine=OuterRef("pk"), kind="lease", doc__acked_at__isnull=False)
+                    .exclude(doc__acked_at=None).order_by("-at", "-id").values("pk")[:1])
 
 
 def newest():
-    """{serial: Network, or the ValueError its record is} of each machine that has sent a record: two queries
-    however many machines there are."""
+    """{serial: Network, or the ValueError it is} of each machine that has a network-state record or a gateway ack:
+    three queries however many machines there are (machines with both newest ids, the events, the gateway records).
+    Records of no registered machine (GatewayRecord.machine None) are never counted."""
     events = BootEvent.objects.filter(machine=OuterRef("pk"), stage=STAGE).order_by("-id").values("pk")
     current = events.filter(boot_id=OuterRef("last_boot_id")).exclude(boot_id="")[:1]
-    ids = [i for i in Machine.objects.annotate(
-        newest_id=Coalesce(Subquery(current), Subquery(events[:1]))).values_list("newest_id", flat=True) if i is not None]
-    return {e.machine.serial: _kept(e, e.machine.last_boot_id)
-            for e in BootEvent.objects.filter(pk__in=ids).select_related("machine")}
+    machines = list(Machine.objects.annotate(
+        event_id=Coalesce(Subquery(current), Subquery(events[:1])), gateway_id=_gateway_acks(),
+    ).values_list("serial", "last_boot_id", "event_id", "gateway_id"))
+    event_ids = [e for _, _, e, _ in machines if e is not None]
+    gateway_ids = [g for _, _, _, g in machines if g is not None]
+    found_events = BootEvent.objects.in_bulk(event_ids) if event_ids else {}
+    found_gateway = GatewayRecord.objects.in_bulk(gateway_ids) if gateway_ids else {}
+    return {serial: _combined(found_events.get(event_id), boot_id, found_gateway.get(gateway_id))
+            for serial, boot_id, event_id, gateway_id in machines if event_id is not None or gateway_id is not None}
 
 
 def summary(net):
-    """The registry.json "network" of one machine, in one of three forms (see views.fpgas.registry_json): null when
-    it has sent no record; the record's entry; or, for a bad record, every key of the entry null plus "error"."""
+    """The registry.json "network" of one machine, in one of four forms (see views.fpgas.registry_json): null when it
+    has neither a record nor a gateway ack; the record's entry; the entry of a machine known only from the gateway
+    (the record's fields null, last_ack and last_ack_source the gateway's); or, for a bad record, every key null plus
+    "error"."""
     if net is None:
         return None
     if isinstance(net, ValueError):
         return dict.fromkeys(ENTRY_KEYS) | {"error": str(net)}
+    event = net.event
     return {"state": net.operational_state, "administrative_state": net.administrative_state,
-            "changed": utc(net.event.ts), "last_ack": utc(net.last_ack), "last_ack_source": "pi",
-            "boot_id": net.event.boot_id, "current_boot": net.current_boot, "error": None}
+            "changed": utc(event.ts) if event else None, "last_ack": utc(net.last_ack),
+            "last_ack_source": net.last_ack_source, "boot_id": event.boot_id if event else None,
+            "current_boot": net.current_boot, "error": None}

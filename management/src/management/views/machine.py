@@ -149,7 +149,7 @@ def _page(request, entry):
     net, net_error = _network(entry)
     return render(request, "management/machine.html", {
         "machine": entry, "host": host, "net": net, "net_error": net_error,
-        "net_changed": _when(net.event.ts) if net else "",
+        "net_changed": _when(net.event.ts) if net and net.event else "",
         "net_addresses": [(a, _lifetime(a.get("valid_lifetime_s")), _lifetime(a.get("preferred_lifetime_s")))
                           for a in net.addresses] if net else [],
         "net_last_ack": _when(net.last_ack) if net else "", "net_expires": _exact(net.expires) if net else "",
