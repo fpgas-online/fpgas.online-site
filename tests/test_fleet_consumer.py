@@ -123,6 +123,18 @@ def test_latest_gateway_lease_is_the_newest():
 
 
 @pytest.mark.django_db
+def test_latest_gateway_ack_skips_records_that_are_not_an_ack():
+    consumer.dispatch("fpgas/welland/pi/abc/registration", json.dumps(DOC).encode())
+    machine = Machine.objects.get(serial="abc")
+    assert services.latest_gateway_ack(machine) is None
+    send("lease", {**LEASE, "at": "2026-10-14T01:00:00+00:00", "event": "old", "acked_at": "2026-10-14T01:00:00+00:00"})
+    send("lease", {**LEASE, "at": "2026-10-14T01:02:00+00:00", "event": "del", "acked_at": None})
+    assert services.latest_gateway_ack(machine).doc["acked_at"] == "2026-10-14T01:00:00+00:00"
+    send("lease", {**LEASE, "at": "2026-10-14T01:04:00+00:00", "event": "add", "acked_at": "2026-10-14T01:04:00+00:00"})
+    assert services.latest_gateway_ack(machine).doc["acked_at"] == "2026-10-14T01:04:00+00:00"
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("kind, doc", [
     ("port", {**PORT, "schema": 2}),
     ("port", {**PORT, "schema": True}),

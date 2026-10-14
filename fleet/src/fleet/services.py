@@ -469,3 +469,11 @@ def latest_gateway_lease(machine):
     record's doc["acked_at"] is the gateway's last DHCPACK to the machine unless a later `del` or `released` ended
     the lease (doc["event"] says)."""
     return machine.gateway_records.filter(kind="lease").order_by("-at", "-id").first()
+
+
+def latest_gateway_ack(machine):
+    """The newest lease record that is a DHCPACK from the gateway to `machine` (doc["acked_at"] set: a new lease or a
+    renewal, not a del, a release, or dnsmasq's re-read at its own start), or None. Its doc["acked_at"] is the
+    gateway's half of the registry's network.last_ack."""
+    return (machine.gateway_records.filter(kind="lease", doc__acked_at__isnull=False)
+            .exclude(doc__acked_at=None).order_by("-at", "-id").first())
