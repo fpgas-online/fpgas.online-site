@@ -30,7 +30,9 @@
 .mgmt-table.mgmt-fit { width: auto; }
 .mgmt-key { font-size: 0.85em; color: #666; margin: 0.2rem 0 0.6rem; }
 /* The tables scroll sideways on a phone instead of widening the page. */
-.mgmt-scroll { overflow-x: auto; max-width: 100%; }
+/* relative: the absolutely placed screen-reader text (.mgmt-sr) in a scrolled table stays inside the box instead of
+   widening the page */
+.mgmt-scroll { overflow-x: auto; max-width: 100%; position: relative; }
 
 /* Switch port dashboard (#67) */
 /* its tables carry the full port labels (#89): the page may use the whole window, so no column scrolls out of view */
@@ -121,13 +123,14 @@
 .mgmt-hosts .badge { white-space: nowrap; }
 .mgmt-summary { margin-bottom: 1rem; }
 /* a time and a port are one value each: they do not break */
-.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6) { white-space: nowrap; }
+.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6), .mgmt-hosts td:nth-child(7) { white-space: nowrap; }
 /* On a phone each Pi is a block: the state and the Pi; its port and board; its check; whether offered, when seen. */
 @media (max-width: 40rem) {
   .mgmt-hosts thead { display: none; }
   .mgmt-hosts, .mgmt-hosts tbody { display: block; }
   .mgmt-hosts tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
-                   grid-template-areas: "state pi pi" "port board board" "check check check" "offered offered seen";
+                   grid-template-areas: "state pi pi" "port board board" "check check check" "up seen seen"
+                                        "offered why why" "notes notes notes";
                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
   .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
   .mgmt-table.mgmt-hosts td { border: 0; padding: 0.1rem 0; }
@@ -136,8 +139,15 @@
   .mgmt-hosts td:nth-child(3) { grid-area: port; font-size: 0.85em; color: #666; }
   .mgmt-hosts td:nth-child(4) { grid-area: board; }
   .mgmt-hosts td:nth-child(5) { grid-area: check; }
-  .mgmt-hosts td:nth-child(6) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
-  .mgmt-hosts td:nth-child(7) { grid-area: offered; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(6) { grid-area: up; font-size: 0.85em; color: #666; }
+  .mgmt-hosts td:nth-child(7) { grid-area: seen; font-size: 0.85em; color: #666; }
+  .mgmt-hosts td:nth-child(8) { grid-area: offered; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(9) { grid-area: why; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(10) { grid-area: notes; }
+  .mgmt-hosts td:empty { display: none; }
+  .mgmt-hosts td { white-space: normal; }
+  /* each value says what it is: the header row is hidden on a phone */
+  .mgmt-hosts td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
   /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
   .mgmt-summary thead { display: none; }
   .mgmt-summary, .mgmt-summary tbody { display: block; }
@@ -148,9 +158,24 @@
   .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
-/* #91: every test of a Pi's check, after the check's word: the name, then a mark that is coloured and said */
-.mgmt-tests { display: block; font-size: 0.85em; }
-.mgmt-tests .mgmt-test { white-space: nowrap; }
+/* #91, #116: the Tests table, a column per test: a mark that is coloured, with its result in the title and for a
+   screen reader */
+.mgmt-testgrid td.mgmt-mark { text-align: center; white-space: nowrap; }
+.mgmt-testgrid td:first-child, .mgmt-testgrid th:first-child { position: sticky; left: 0; z-index: 1; background: #fff;
+                                                              box-shadow: 1px 0 0 #ccc; }
+.mgmt-testgrid td:first-child { white-space: nowrap; }
+.mgmt-testgrid tbody tr:nth-child(even) td:first-child { background: #f4f4f4; }
+.mgmt-testgrid th:first-child { background: #f0f0f0; }
+.mgmt-boardname { font-size: 0.85em; color: #555; }
+/* the check's reason for the board: room to read, wrapping, so a failing row is a few lines and not a tall strip */
+.mgmt-testgrid td.mgmt-why { min-width: 30ch; max-width: 50ch; white-space: normal; font-size: 0.9em; }
+.mgmt-test-other { color: #666; }
+/* a Pi's boards, one label a line; Why not may wrap; Notes are facts, not alarms: plain, one line */
+.mgmt-hosts td[data-label="Why not"] { max-width: 20ch; }
+.mgmt-hosts td.mgmt-boardlist { max-width: 20ch; }  /* a label wraps at its space, the name over the id */
+.mgmt-hosts td.mgmt-note div { white-space: nowrap; }
+/* ten columns in the page's width: tighter cells than the shared 0.6rem */
+.mgmt-table.mgmt-hosts th, .mgmt-table.mgmt-hosts td { padding: 0.35rem 0.4rem; font-size: 0.92em; }
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail { color: #b00020; }
 

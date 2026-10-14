@@ -4,6 +4,7 @@ board type, from the fleet registry, by the one rule that offers a Pi (fleet.ser
 import datetime
 import json
 import pathlib
+import re
 
 import pytest
 from django.test import Client
@@ -78,10 +79,13 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     assert row.boards[0]["failing"] == ["pin-id", "spiflash"]
     assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    # every test by name with its state; the reason in the cell's title
-    assert '<span class="mgmt-test mgmt-test-fail" title="pin-id: fail">pin-id' in html
-    assert '<span class="mgmt-test mgmt-test-fail" title="spiflash: fail">spiflash' in html
-    assert "pin-id fail: the test exited 1" in html
+    # every test is a column of the Tests table; a failed one is ✗ in its own column, its reason in the last cell
+    grid = _grid(html, "TT board, not identified")
+    assert grid["header"][0] == "Pi" and grid["header"][-1] == "Reason"
+    failing = dict(zip(grid["header"], grid["rows"][0]))
+    assert failing["Pi"] == "pi-sw2-p33" and failing["pin-id"] == "✗" and failing["uart"] == "✓"
+    assert '<td class="mgmt-mark mgmt-test-fail" data-sort="0" title="pin-id: fail">✗' in html
+    assert "pin-id fail: the test exited 1" in failing["Reason"]
 
 
 @pytest.mark.django_db
@@ -103,7 +107,7 @@ def test_each_count_links_to_the_pis_it_counts(fleet):
     only = c.get("/management/fpgas/?type=Acorn&condition=operational", follow=True).content.decode()
     assert "pi-sw2-p46" in only and "pi-sw2-p47" in only and "pi-sw2-p33" not in only and "show all" in only
     missing = c.get("/management/fpgas/?condition=missing", follow=True).content.decode()
-    assert "pi-sw2-p4" in missing and "it has stopped checking in" in missing and "pi-sw2-p46" not in missing
+    assert "10000000f536c51f" in missing and "it has stopped checking in" in missing and "pi-sw2-p46" not in missing
 
 
 @pytest.mark.django_db
@@ -130,7 +134,7 @@ def test_no_pi_registered_says_so():
 @pytest.mark.django_db
 def test_the_fleet_pages_are_linked_only_where_the_host_has_them(fleet):
     welland = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46 (no model registered)</a>' in welland
+    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in welland
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "pi-sw2-p46" in tt and 'href="/fleet/' not in tt
 
@@ -221,7 +225,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     assert "the port its host name says it booted on, as it registered" in html and "<b>" not in html
     # its board as the registration names it, escaped and cut
-    assert "tt-demo-board + &lt;b&gt;zzz" in html
+    assert "<div>tt-demo-board</div><div>&lt;b&gt;zzz" in html
 
 
 @pytest.mark.django_db
@@ -283,57 +287,135 @@ def test_management_fpgas_sends_a_browser_to_fleet_where_the_host_has_it_keeping
     assert tt.status_code == 200 and "<h1>Raspberry Pis</h1>" in tt.content.decode()
 
 
-def _rows(html):
-    """The Pi table's rows as [[cell text, ...]]."""
+def _cells(table_html):
+    """[[cell text, ...]] of a table's body rows (tags removed)."""
     import html as htmllib
     import re
 
+    body = table_html.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    return [[htmllib.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+            for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
+
+
+COLUMNS = ["State", "Pi", "Port", "Board", "Boot check", "Up", "Seen", "Offered", "Why not", "Notes"]
+
+
+def _rows(html):
+    """The Pi table's rows as [[cell text, ...]], one per column of COLUMNS."""
     body = html.split('class="mgmt-table mgmt-hosts', 1)[1].split("</table>", 1)[0]
-    rows = [[htmllib.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
-            for tr in re.findall(r"<tr>(.*?)</tr>", body.split("<tbody>", 1)[1], re.S)]
-    assert rows and all(len(r) == 7 for r in rows)
+    rows = _cells(body)
+    assert rows and all(len(r) == len(COLUMNS) for r in rows)
     return rows
 
 
+def _tables(html):
+    """The titles of the Tests tables, in page order."""
+    return re.findall(r"<h2>(.*?) tests</h2>", html)
+
+
+def _grid(html, title):
+    """A Tests table: {"header": [column names], "rows": [[cell text, ...]]}, a cell's text without the words only a
+    screen reader hears; a Pi's label and its board's name in the first cell are told apart by a newline."""
+    import html as htmllib
+
+    body = html.split(f"<h2>{title} tests</h2>", 1)[1].split("</table>", 1)[0]
+    header = [re.sub(r"<[^>]+>", "", th).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", body, re.S)]
+    cleaned = re.sub(r'<span class="mgmt-sr">.*?</span>', "", body, flags=re.S).replace("<div", "\n<div")
+    rows = _cells(cleaned)
+    assert rows and all(len(r) == len(header) for r in rows)
+    return {"header": header, "rows": [[htmllib.unescape(c) for c in r] for r in rows]}
+
+
 @pytest.mark.django_db
-def test_each_pi_is_one_row_of_values_state_pi_board_check_seen_offered(fleet):
+def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     rows = _rows(html)
     by_port = {r[2]: r for r in rows}
-    # columns: State, Pi (its label), Port, Board (its label), Boot check, Seen, Offered
-    # the check's word, then every test with its state (#91): a failing one marked and said
-    assert by_port["sw2 p33"][0] == "needs attention"
-    assert by_port["sw2 p33"][4] == "failed pin-id ✗ fail uart ✓ pass spiflash ✗ fail"
-    assert by_port["sw2 p46"][0] == "operational" and by_port["sw2 p46"][4].startswith("passed ")
-    assert "✗" not in by_port["sw2 p46"][4]
-    assert by_port["sw2 p46"][1] == "pi-sw2-p46 (no model registered)" and by_port["sw2 p46"][3].startswith("acorn-")
-    assert by_port["sw2 p46"][6] == "yes"
-    # why a Pi is not offered, in the index's words
-    assert by_port["sw2 p33"][6] == "no: pin-id, spiflash" and by_port["sw2 p10"][6] == "no: stopped checking in"
-    assert by_port["sw2 p4"][6] == "no: missing 7 h" and by_port["sw2 p7"][6] == "no: boot check running"
-    assert by_port["sw2 p7"][4] == "running" and by_port["sw2 p7"][0] == "checking"
-    assert by_port["sw2 p4"][0] == "missing" and by_port["sw2 p4"][5] == "7 h ago"
-    assert by_port["sw2 p33"][3] == "TT board, not identified 4df39a7a6856f86f"  # the USB serial its check read
+    col = {name: i for i, name in enumerate(COLUMNS)}
+    # the Boot check cell holds the verdict word and nothing else: no test, no mark
+    assert by_port["sw2 p33"][col["Boot check"]] == "failed"
+    assert by_port["sw2 p46"][col["Boot check"]] == "passed" and by_port["sw2 p7"][col["Boot check"]] == "running"
+    assert by_port["sw2 p7"][col["State"]] == "checking" and by_port["sw2 p4"][col["State"]] == "missing"
+    for row in rows:
+        assert row[col["Boot check"]] in ("passed", "failed", "running", "found no board", "could not finish",
+                                          "not started")
+        assert row[col["Offered"]] in ("yes", "no")
+        assert "(" not in row[col["Pi"]]  # the label alone, never a sentence beside it
+    assert by_port["sw2 p46"][col["Pi"]] == "pi-sw2-p46" and by_port["sw2 p46"][col["Board"]].startswith("acorn-")
+    assert by_port["sw2 p33"][col["Board"]] == "TT board, not identified 4df39a7a6856f86f"
+    # Offered is yes or no; Why not is the reason as a value, empty for a Pi that is offered
+    assert by_port["sw2 p46"][col["Offered"]] == "yes" and by_port["sw2 p46"][col["Why not"]] == ""
+    assert (by_port["sw2 p33"][col["Offered"]], by_port["sw2 p33"][col["Why not"]]) == ("no", "pin-id, spiflash")
+    assert by_port["sw2 p10"][col["Why not"]] == "stopped checking in"
+    assert by_port["sw2 p4"][col["Why not"]] == "missing 7 h" and by_port["sw2 p7"][col["Why not"]] == "boot check running"
+    # Seen is the time only
+    assert by_port["sw2 p4"][col["Seen"]] == "7 h ago" and by_port["sw2 p46"][col["Seen"]].endswith("ago")
+    # the registration fact (a serial standing for the label) is a short value in Notes
+    assert by_port["sw2 p46"][col["Notes"]] == "no model registered"
     # what needs a person first, then by switch and port
     assert [r[0] for r in rows] == ["needs attention", "needs attention", "missing", "checking", "operational",
                                     "operational"]
     assert [r[2] for r in rows][:2] == ["sw2 p10", "sw2 p33"]
-    # every test and its result in the check cell's title; the reason the Pi is not offered in the state's title
-    import re
-
-    # every test and its result also in the cell's title, the check's word first in the cell
-    assert re.search(r'<td title="[^"]*pin-id=fail[^"]*spiflash=fail[^"]*">failed<span class="mgmt-tests">', html)
-    assert 'title="its boot check failed: pin-id fail: the test exited 1' in html
     assert 'class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable"' in html
 
 
 @pytest.mark.django_db
-def test_a_pi_seen_in_the_future_fails_its_own_cell_and_the_page_stands(fleet):
-    Machine.objects.filter(hostname="pi-sw2-p46").update(last_seen=timezone.now() + datetime.timedelta(hours=2))
+def test_a_table_for_each_board_type_with_its_tests_as_columns_and_a_row_per_board(fleet):
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert sorted(_tables(html)) == ["Acorn", "TT board, not identified"]  # a type with no tests has no table
+    acorn = _grid(html, "Acorn")
+    header = acorn["header"]
+    # the Acorn's own tests in the check's order, and no other type's
+    assert header[:5] == ["Pi", "pcie-link", "pcie-bar0", "rp1-pio", "jtag"] and header[-1] == "Reason"
+    assert "pin-id" not in header and "spiflash" not in header and len(set(header)) == len(header)
+    rows = {r[0]: dict(zip(header, r)) for r in acorn["rows"]}
+    assert set(rows) == {"pi-sw2-p46", "pi-sw2-p47", "10000000f536c51f", "10000000f77b8415"}
+    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["Reason"] == ""
+    tt = _grid(html, "TT board, not identified")
+    assert tt["header"] == ["Pi", "pin-id", "uart", "spiflash", "Reason"]
+    (row,) = (dict(zip(tt["header"], r)) for r in tt["rows"])
+    assert (row["Pi"], row["pin-id"], row["spiflash"], row["uart"]) == ("pi-sw2-p33", "✗", "✗", "✓")
+    assert row["Reason"].startswith("pin-id fail: the test exited 1")
+    # the result is in the mark's title, and said to a screen reader
+    assert re.search(r'<td class="mgmt-mark mgmt-test-pass" data-sort="2" title="jtag: pass">✓<span class="mgmt-sr"> '
+                     r'jtag: pass</span></td>', html)
+    assert 'class="mgmt-table mgmt-testgrid mgmt-fit mgmt-striped mgmt-sortable"' in html
+    assert html.count('role="region"') == 3 and 'aria-label="Acorn tests"' in html  # a scrolling table is reachable
+
+
+@pytest.mark.django_db
+def test_a_result_that_is_neither_pass_nor_fail_is_a_mark_of_its_own_sorted_between(fleet):
+    pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=skip ddr=pass flash=fail"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert ('<td class="mgmt-mark mgmt-test-other" data-sort="1" title="jtag: skip">–<span class="mgmt-sr"> jtag: skip'
+            '</span></td>') in html
+    assert "✗ skip" not in html and "skip</td>" not in html  # the mark alone; the word is in the title
+    assert 'data-sort="0" title="flash: fail">✗' in html and 'data-sort="2" title="ddr: pass">✓' in html
+    grid = _grid(html, "Acorn")
+    row = dict(zip(grid["header"], next(r for r in grid["rows"] if r[0] == "pi-sw2-p30")))
+    assert (row["jtag"], row["ddr"], row["flash"]) == ("–", "✓", "✗")  # the mark is the cell's whole text
+
+
+@pytest.mark.django_db
+def test_the_up_column_sorts_by_seconds_not_text(fleet):
+    for hostname, seconds in (("pi-sw2-p46", 3 * 86400), ("pi-sw2-p47", 700), ("pi-sw2-p33", 90000)):
+        Machine.objects.filter(hostname=hostname).update(last_uptime_s=seconds)
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    keys = re.findall(r'<td data-label="Up" data-sort="(\d+)">([^<]*)</td>', html)
+    assert ("259200", "3 d 0 h") in keys and ("700", "11 min") in keys and ("90000", "1 d 1 h") in keys
+    # an unreported or stale uptime sorts as 0, with nothing shown
+    assert ("0", "") in keys
+
+
+@pytest.mark.django_db
+def test_a_pi_seen_in_the_future_has_the_clock_error_in_notes_and_the_page_stands(fleet):
+    Machine.objects.filter(hostname="pi-sw2-p46").update(last_seen=timezone.now() + datetime.timedelta(hours=2, minutes=1))
     r = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/")
     assert r.status_code == 200
     rows = {row[2]: row for row in _rows(r.content.decode())}
-    assert "future" in rows["sw2 p46"][5] and rows["sw2 p47"][5].endswith("ago")
+    assert rows["sw2 p46"][COLUMNS.index("Seen")] == ""  # Seen is a time or nothing
+    assert "<div>no model registered</div><div>clock 2 h ahead</div>" in r.content.decode()  # one fact a line
+    assert rows["sw2 p47"][COLUMNS.index("Seen")].endswith("ago")
 
 
 @pytest.mark.django_db
@@ -385,7 +467,7 @@ def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fl
                       "board0_identity_usb_serial": "abcd1234"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     rows = {r[2]: r for r in _rows(html)}
-    assert rows["sw2 p20"][6] == "yes"
+    assert rows["sw2 p20"][COLUMNS.index("Offered")] == "yes"
     assert '<a href="https://tinytapeout.fpgas.online/board/' in html and 'abcd1234/">yes</a>' in html
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
     assert 'abcd1234/">yes</a>' in tt and 'href="https://tinytapeout.fpgas.online' not in tt  # its own host: a path
@@ -394,9 +476,10 @@ def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fl
 
     with mock.patch("ttsite.boards.pages", return_value=[]):
         html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert {r[2]: r for r in _rows(html)}["sw2 p20"][6] == "no: no visitor page"
-    for row in _rows(html):
-        assert row[6] in ("yes",) or row[6].startswith("no: ")
+    row = {r[2]: r for r in _rows(html)}["sw2 p20"]
+    assert (row[COLUMNS.index("Offered")], row[COLUMNS.index("Why not")]) == ("no", "no visitor page")
+    for row in _rows(html):  # every yes has a page, every no a reason
+        assert (row[COLUMNS.index("Offered")] == "yes") == (row[COLUMNS.index("Why not")] == "")
 
 
 @pytest.mark.django_db
@@ -445,7 +528,9 @@ def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
     assert fpga.pi_label(m) == "Orange Pi PC 02c0008164c2a1b0"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert '<a href="/fleet/02c0008164c2a1b0/">Orange Pi PC 02c0008164c2a1b0</a>' in html
-    assert 'title="model Xunlong Orange Pi PC; host name pi-sw2-p20' in html  # the registered model in full
+    # the registered model in full is on the host's own page, not only in a tooltip here
+    assert "<td>Xunlong Orange Pi PC</td>" in Client(HTTP_HOST="welland.fpgas.online").get(
+        "/fleet/02c0008164c2a1b0/").content.decode()
 
 
 # --- /fleet/registry.json: the hosts for programs (the e2e suite, probes) ------------------------------------------
@@ -516,4 +601,44 @@ def test_with_two_boards_each_test_names_its_board(fleet):
     pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "pin-id=pass",
                       "board1": "tt tt-fpga pass", "board1_identity_chip": "fpga", "board1_tests": "pin-id=pass"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert 'title="Acorn pin-id: pass">Acorn pin-id' in html and 'title="TT FPGA pin-id: pass">TT FPGA pin-id' in html
+    # each board type has its own table, so a test name two types share (pin-id) is a column of each
+    assert {"Acorn", "TT FPGA"} <= set(_tables(html))
+    assert "pin-id" in _grid(html, "Acorn")["header"] and "pin-id" in _grid(html, "TT FPGA")["header"]
+
+
+@pytest.mark.django_db
+def test_a_revision_that_cannot_be_read_is_a_short_note_and_the_label_is_the_serial_alone():
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw1-p3", serial="285df3f84af242d0")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
+        "machine": {"serial": m.serial, "revision_code": "zz"}})
+    m.save()
+    assert fpga.pi_label_parts(m) == ("285df3f84af242d0", "revision 'zz' not readable", "revision unreadable")
+    assert fpga.pi_label(m) == "285df3f84af242d0 (revision 'zz' not readable)"  # the registry JSON's one string
+    row = _rows(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[0]
+    assert row[COLUMNS.index("Pi")] == "285df3f84af242d0" and row[COLUMNS.index("Notes")] == "revision unreadable"
+    assert "not readable" not in Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+
+
+@pytest.mark.django_db
+def test_two_boards_of_one_type_are_two_rows_each_with_its_board_label(fleet):
+    pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=pass",
+                      "board0_identity_dna": "0x00200c8664b04854",
+                      "board1": "acorn - pass", "board1_tests": "jtag=fail", "board1_identity_dna": "0x0054b48664b04854"})
+    grid = _grid(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode(), "Acorn")
+    assert "Acorn jtag 2" not in grid["header"] and grid["header"].count("jtag") == 1
+    two = [dict(zip(grid["header"], r)) for r in grid["rows"] if r[0].startswith("pi-sw2-p31")]
+    assert [(r["Pi"].split("\n")[0], r["jtag"]) for r in two] == [("pi-sw2-p31", "✓"), ("pi-sw2-p31", "✗")]
+    assert two[0]["Pi"].split("\n")[1].startswith("acorn-") and two[0]["Pi"] != two[1]["Pi"]
+    # a Pi with one board of the type has the Pi's label alone
+    assert next(r[0] for r in grid["rows"] if r[0].startswith("pi-sw2-p46")) == "pi-sw2-p46"
+
+
+@pytest.mark.django_db
+def test_the_board_cell_lists_a_label_a_line(fleet):
+    pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board1": "acorn - pass",
+                      "board0_identity_dna": "0x00200c8664b04854", "board1_identity_dna": "0x0054b48664b04854"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert re.search(r'<td data-label="Board" class="mgmt-boardlist"><div>acorn-\w+ 0x00200c8664b04854</div>'
+                     r'<div>acorn-\w+ 0x0054b48664b04854</div></td>', html)

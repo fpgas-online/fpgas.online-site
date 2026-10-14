@@ -72,36 +72,45 @@ def registered_model(machine):
     return _text(model, MAX_TEXT) if isinstance(model, str) else ""
 
 
-def pi_label(machine):
-    """A host as its label names it, by rpi-hwid's own rules: "Pi 5 2 GB 285df3f84af242d0" from the revision code its
-    registration sent (decode_revision, the label header's "Pi <model>"), and a host with no revision code (an Orange
-    Pi) by rpi-hwid's identify(): "Orange Pi PC 02c0008164c2a1b0". What keeps a host from its label is said, in one
-    form: "<serial> (<why>)" (fail loud: the page does not quietly lose it)."""
+def pi_label_parts(machine):
+    """(label, why, note) of a host: its label by rpi-hwid's own rules ("Pi 5 2 GB 285df3f84af242d0", from the revision
+    code its registration sent: decode_revision, the label header's "Pi <model>"; a host with no revision code, an
+    Orange Pi, by rpi-hwid's identify(): "Orange Pi PC 02c0008164c2a1b0"). What keeps a host from its label is
+    `why` in full ("revision 'zz' not readable") and `note` as a short value ("revision unreadable"); both are ""
+    for a host with a label. The label of such a host is its serial alone."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
     facts = facts if isinstance(facts, dict) else {}
     code, model = facts.get("revision_code"), facts.get("model")
+    serial = machine.serial
     if code is not None and (not isinstance(code, str) or not code):
-        return f"{machine.serial} (revision {_text(str(code), 20)!r} not readable)"
+        return serial, f"revision {_text(str(code), 20)!r} not readable", "revision unreadable"
     if code:
         try:
             rev = decode_revision(code)
         except (ValueError, KeyError):
-            return f"{machine.serial} (revision {_text(code, 20)!r} not readable)"
-        return f"Pi {rev.model} {rev.memory} {machine.serial}"
+            return serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable"
+        return f"Pi {rev.model} {rev.memory} {serial}", "", ""
     if model is None:
-        return f"{machine.serial} (no model registered)"
+        return serial, "no model registered", "no model registered"
     if not isinstance(model, str) or not model.strip():
-        return f"{machine.serial} (model {_text(str(model), 40)!r} not readable)"
+        return serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable"
     kb = facts.get("mem_total_kb")
     memory = nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
     try:
-        ident = identify(Summary(model=model.strip(), serial=machine.serial, revision="", memory=memory))
+        ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
     except (ValueError, KeyError):  # a Raspberry Pi by its model, with no revision code to decode
-        return f"{machine.serial} (no revision code registered)"
+        return serial, "no revision code registered", "no revision code"
     if ident is None:
-        return f"{machine.serial} (model {_text(model.strip(), 40)!r} not known to rpi-hwid)"
-    return " ".join(part for part in (ident.short, memory, machine.serial) if part)
+        return serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown"
+    return " ".join(part for part in (ident.short, memory, serial) if part), "", ""
+
+
+def pi_label(machine):
+    """A host as its label names it, in one form for a program: the label, or "<serial> (<why>)" for a host that
+    has none (fail loud: the page does not quietly lose it). The Pi dashboard shows the two apart."""
+    label, why, _ = pi_label_parts(machine)
+    return f"{label} ({why})" if why else label
 
 
 NONE = "–"  # a value that is not known, as the switch page shows it
