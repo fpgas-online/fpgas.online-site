@@ -12,6 +12,7 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from pistat.consumers import SWITCH_EVENTS_GROUP
 
 from . import services
 
@@ -20,8 +21,6 @@ log = logging.getLogger(__name__)
 KINDS = ("registration", "status", "event")
 # The gateway's own records (the switch poller's, dnsmasq's script's): fpgas/<site>/gw/<kind>
 GATEWAY_KINDS = ("port", "lease")
-# The channel group the switch dashboard's socket (pistat.consumers.SwitchEventConsumer) listens on
-SWITCH_EVENTS_GROUP = "switch_events"
 
 # A Pi's short hostname, in its one spelling (as pibfpgas.pis reads it):
 # pi-sw<s>-p<p>, or pi<p> at a flat site.

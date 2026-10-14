@@ -168,3 +168,44 @@ def test_gateway_lease_may_have_no_port_and_a_cause():
 def test_gateway_garbage_and_foreign_topics_are_ignored(topic, payload):
     assert consumer.dispatch(topic, payload) == "ignored"
     assert GatewayRecord.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_port_record_reaches_its_board_page_and_the_switch_dashboard_only():
+    import asyncio
+
+    from asgiref.sync import sync_to_async
+    from channels.layers import get_channel_layer
+
+    async def listen_and_fire():
+        layer = get_channel_layer()
+        page, other, dashboard = [await layer.new_channel() for _ in range(3)]
+        await layer.group_add("pistat_pi-sw2-p9", page)
+        await layer.group_add("pistat_pi-sw1-p9", other)  # another switch's port 9
+        await layer.group_add("switch_events", dashboard)
+        await sync_to_async(send)("port", PORT)
+        await sync_to_async(send)("lease", LEASE)
+        got = {"page": [await asyncio.wait_for(layer.receive(page), timeout=1) for _ in range(2)],
+               "dashboard": await asyncio.wait_for(layer.receive(dashboard), timeout=1)}
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(layer.receive(other), timeout=0.2)
+        with pytest.raises(asyncio.TimeoutError):  # only port records go to the dashboard
+            await asyncio.wait_for(layer.receive(dashboard), timeout=0.2)
+        return got
+
+    got = asyncio.run(listen_and_fire())
+    assert [m["message"] for m in got["page"]] == [
+        "switch: link down", "dhcp: old 10.2.9.2 88:A2:9E:45:85:77"]
+    assert all(m["type"] == "stat.message" for m in got["page"])
+    assert got["dashboard"] == {"type": "switch.event", "record": PORT}
+
+
+@pytest.mark.parametrize("doc, text", [
+    ({"kind": "port", "link": "bounced"}, "switch: link bounced"),
+    ({"kind": "lease", "event": "released", "address": "10.2.9.2", "mac": "aa:bb", "cause": "link-down"},
+     "dhcp: released 10.2.9.2 aa:bb (link-down)"),
+    ({"kind": "lease", "event": "del", "address": "fd00::9", "mac": None}, "dhcp: del fd00::9"),
+])
+def test_gateway_text(doc, text):
+    kind = doc.pop("kind")
+    assert consumer._gateway_text(GatewayRecord(kind=kind, doc=doc)) == text
