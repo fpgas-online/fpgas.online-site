@@ -121,13 +121,14 @@
 .mgmt-hosts .badge { white-space: nowrap; }
 .mgmt-summary { margin-bottom: 1rem; }
 /* a time and a port are one value each: they do not break */
-.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6) { white-space: nowrap; }
+.mgmt-hosts td:nth-child(3), .mgmt-hosts td:nth-child(6), .mgmt-hosts td:nth-child(7) { white-space: nowrap; }
 /* On a phone each Pi is a block: the state and the Pi; its port and board; its check; whether offered, when seen. */
 @media (max-width: 40rem) {
   .mgmt-hosts thead { display: none; }
   .mgmt-hosts, .mgmt-hosts tbody { display: block; }
   .mgmt-hosts tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem;
-                   grid-template-areas: "state pi pi" "port board board" "check check check" "offered offered seen";
+                   grid-template-areas: "state pi pi" "port board board" "check up seen" "offered why why"
+                                        "notes notes notes";
                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
   .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
   .mgmt-table.mgmt-hosts td { border: 0; padding: 0.1rem 0; }
@@ -136,8 +137,12 @@
   .mgmt-hosts td:nth-child(3) { grid-area: port; font-size: 0.85em; color: #666; }
   .mgmt-hosts td:nth-child(4) { grid-area: board; }
   .mgmt-hosts td:nth-child(5) { grid-area: check; }
-  .mgmt-hosts td:nth-child(6) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
-  .mgmt-hosts td:nth-child(7) { grid-area: offered; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(6) { grid-area: up; font-size: 0.85em; color: #666; }
+  .mgmt-hosts td:nth-child(7) { grid-area: seen; font-size: 0.85em; color: #666; text-align: right; }
+  .mgmt-hosts td:nth-child(8) { grid-area: offered; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(9) { grid-area: why; font-size: 0.85em; }
+  .mgmt-hosts td:nth-child(10) { grid-area: notes; }
+  .mgmt-hosts td:empty { display: none; }
   /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
   .mgmt-summary thead { display: none; }
   .mgmt-summary, .mgmt-summary tbody { display: block; }
@@ -148,9 +153,10 @@
   .mgmt-summary td:first-child { flex-basis: 100%; font-weight: 600; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
-/* #91: every test of a Pi's check, after the check's word: the name, then a mark that is coloured and said */
-.mgmt-tests { display: block; font-size: 0.85em; }
-.mgmt-tests .mgmt-test { white-space: nowrap; }
+/* #91, #116: the Tests table, a column per test: a mark that is coloured, with its result in the title and for a
+   screen reader */
+.mgmt-testgrid td.mgmt-mark { text-align: center; white-space: nowrap; }
+.mgmt-testgrid td:first-child { white-space: nowrap; }
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail { color: #b00020; }
 
