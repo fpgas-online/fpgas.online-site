@@ -1,4 +1,5 @@
-"""Long-running MQTT consumer: subscribes fpgas/+/pi/+/+ and feeds every
+"""Long-running MQTT consumer: subscribes fpgas/+/pi/+/+ (the Pis) and
+fpgas/+/gw/+ (the gateway's switch and DHCP records) and feeds every
 message through fleet.consumer.dispatch. Run under systemd (Restart=always);
 paho's loop_forever handles broker reconnects itself."""
 
@@ -12,11 +13,11 @@ from fleet import consumer
 
 log = logging.getLogger(__name__)
 
-TOPIC = "fpgas/+/pi/+/+"
+TOPICS = ("fpgas/+/pi/+/+", "fpgas/+/gw/+")
 
 
 class Command(BaseCommand):
-    help = "Consume fleet registration/status/event messages from MQTT"
+    help = "Consume fleet registration/status/event and gateway port/lease messages from MQTT"
 
     def handle(self, *args, **options):
         cfg = settings.FLEET_MQTT
@@ -24,7 +25,8 @@ class Command(BaseCommand):
 
         def on_connect(client, userdata, flags, reason_code, properties):
             log.info("connected to %(host)s:%(port)s", cfg)
-            client.subscribe(TOPIC, qos=1)
+            for topic in TOPICS:
+                client.subscribe(topic, qos=1)
 
         def on_message(client, userdata, msg):
             try:

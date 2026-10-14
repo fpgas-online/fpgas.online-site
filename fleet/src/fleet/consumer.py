@@ -12,12 +12,15 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from pistat.consumers import SWITCH_EVENTS_GROUP
 
 from . import services
 
 log = logging.getLogger(__name__)
 
 KINDS = ("registration", "status", "event")
+# The gateway's own records (the switch poller's, dnsmasq's script's): fpgas/<site>/gw/<kind>
+GATEWAY_KINDS = ("port", "lease")
 
 # A Pi's short hostname, in its one spelling (as pibfpgas.pis reads it):
 # pi-sw<s>-p<p>, or pi<p> at a flat site.
@@ -47,9 +50,59 @@ def _bridge(hostname, stage):
         log.exception("widget bridge failed for %s (%s)", hostname, stage)
 
 
+def _send(group, message):
+    """Send to a channel group; never breaks ingest: a failure is logged and swallowed."""
+    try:
+        layer = get_channel_layer()
+        if layer is not None:
+            async_to_sync(layer.group_send)(group, message)
+    except Exception:
+        log.exception("channel send to %s failed", group)
+
+
+def _gateway_text(record):
+    """The line a gateway record adds to the board page's status log."""
+    doc = record.doc
+    if record.kind == "port":
+        return f"switch: link {doc['link']}"
+    text = f"dhcp: {doc['event']} {doc['address']} {doc.get('mac') or ''}".rstrip()
+    return f"{text} ({doc['cause']})" if doc.get("cause") else text
+
+
+def _bridge_gateway(record):
+    """Mirror a stored gateway record into the board page's status log, and a port record into the switch
+    dashboard's group."""
+    group = _widget_group(record.hostname)
+    if group is not None:
+        text = _gateway_text(record)
+        _send(group, {"type": "stat.message", "status": record.kind, "message": text})
+    if record.kind == "port":
+        _send(SWITCH_EVENTS_GROUP, {"type": "switch.event", "record": record.doc})
+
+
+def _gateway(topic, kind, site, payload):
+    try:
+        doc = json.loads(payload)
+    except (ValueError, UnicodeDecodeError):
+        log.warning("malformed JSON on %s ignored", topic)
+        return "ignored"
+    if not isinstance(doc, dict):
+        log.warning("non-object payload on %s ignored", topic)
+        return "ignored"
+    try:
+        record = services.gateway_record(site, kind, doc)
+    except ValueError as exc:
+        log.warning("invalid gateway record on %s ignored: %s", topic, exc)
+        return "ignored"
+    _bridge_gateway(record)
+    return f"gw/{kind}"
+
+
 def dispatch(topic, payload):
     """Route one message. Returns the handler that ran, or "ignored"."""
     parts = topic.split("/")
+    if len(parts) == 4 and parts[0] == "fpgas" and parts[2] == "gw" and parts[3] in GATEWAY_KINDS:
+        return _gateway(topic, parts[3], parts[1], payload)
     if len(parts) != 5 or parts[0] != "fpgas" or parts[2] != "pi":
         return "ignored"
     _, _site, _, serial, kind = parts

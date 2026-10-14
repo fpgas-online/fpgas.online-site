@@ -51,3 +51,27 @@ class BootEvent(models.Model):
 
     class Meta:
         ordering = ["ts"]
+
+
+class GatewayRecord(models.Model):
+    """One record the site's gateway published about a board port: a link change (kind "port", from the switch
+    poller) or a DHCP lease event (kind "lease", from dnsmasq's script). `doc` is the record as published and
+    validated (services.parse_gateway_record); the columns are the parts a query needs. `machine` is the Pi it was
+    matched to (by MAC first, else by hostname), or None when none is registered yet."""
+
+    KINDS = ("port", "lease")
+
+    site = models.CharField(max_length=32)
+    kind = models.CharField(max_length=8, choices=[(k, k) for k in KINDS])
+    switch = models.PositiveIntegerField(null=True, blank=True)
+    port = models.PositiveIntegerField(null=True, blank=True)
+    hostname = models.CharField(max_length=64, blank=True)
+    mac = models.CharField(max_length=17, null=True, blank=True)
+    at = models.DateTimeField(db_index=True)
+    doc = models.JSONField()
+    machine = models.ForeignKey(Machine, null=True, blank=True, on_delete=models.SET_NULL,
+                                related_name="gateway_records")
+
+    class Meta:
+        ordering = ["at", "id"]
+        indexes = [models.Index(fields=["machine", "kind", "at"])]
