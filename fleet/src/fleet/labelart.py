@@ -20,9 +20,11 @@ from rpi_hwid import label_input, labels, placement
 
 # Every kind of full-size label rpi-hwid makes (the micro labels are for small devices, not fleet hosts).
 KINDS = tuple(labels.KINDS)
-# What rpi-hwid raises when a label cannot be made from the facts given: each names the label and what it lacks. Any
-# other exception is a fault and is not caught.
-REFUSALS = (label_input.InputError, placement.PlacementError) + tuple(
+# What rpi-hwid raises when a label cannot be made from the facts given: each names the label and what it lacks; and
+# ValueError, which its label code raises for a value it cannot print ("not a hex Device DNA: 'nan'": the broker
+# takes events from anything on the site LAN, so a forged one must not take the page down). Each is shown on the
+# page in rpi-hwid's own words; any other exception is a fault and is not caught.
+REFUSALS = (ValueError, label_input.InputError, placement.PlacementError) + tuple(
     getattr(labels, name) for name in dir(labels)
     if isinstance(getattr(labels, name), type) and issubclass(getattr(labels, name), Exception)
     and getattr(labels, name).__module__ == labels.__name__)
@@ -49,10 +51,31 @@ def made(document):
         try:
             listed = labels.list_labels([document], only={kind})
         except REFUSALS as exc:
-            refused.append((kind, exc))
-            continue
+            # one board's refusal must not keep another board's label off the page: each board alone
+            alone = list(_one_board_each(document))
+            if not alone:
+                refused.append((kind, exc))
+                continue
+            listed = []
+            for single in alone:
+                try:
+                    listed.extend(labels.list_labels([single], only={kind}))
+                except REFUSALS as one:
+                    refused.append((kind, one))
         out.extend(Made(e["id"], e["kind"], e["title"]) for e in listed)
-    return out, refused
+    return list(dict.fromkeys(out)), refused
+
+
+def _one_board_each(document):
+    """The document once per board it lists (FPGA and Tiny Tapeout boards), each copy with only that board; nothing
+    for a document with fewer than two boards."""
+    summary = document["summary"]
+    boards = [("fpga", b) for b in summary.get("fpga") or []] + [("tinytapeout", b) for b in
+                                                                 summary.get("tinytapeout") or []]
+    if len(boards) < 2:
+        return
+    for key, board in boards:
+        yield {**document, "summary": {**summary, "fpga": [], "tinytapeout": [], key: [board]}}
 
 
 def _key(document, label_id, form):
@@ -65,9 +88,22 @@ def pdf(document, label_id):
     key = _key(document, label_id, "pdf")
     data = cache.get(key)
     if data is None:
-        data = labels.render_label([document], label_id)
+        data = _render(document, label_id)
         cache.set(key, data, CACHE_SECONDS)
     return data
+
+
+def _render(document, label_id):
+    """render_label from the whole document, else from the one-board copy that makes it (as made() listed it)."""
+    try:
+        return labels.render_label([document], label_id)
+    except REFUSALS + (KeyError,) as whole:
+        for single in _one_board_each(document):
+            try:
+                return labels.render_label([single], label_id)
+            except REFUSALS + (KeyError,):
+                continue
+        raise KeyError(label_id) from whole
 
 
 def png(document, label_id):

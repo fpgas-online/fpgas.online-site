@@ -296,3 +296,19 @@ def test_a_host_none_of_whose_labels_can_be_made_shows_no_image_and_every_gap(mo
     assert "<img" not in labels
     for field in ("header", "flash_jedec", "flash_uid_state"):
         assert f"<code>{field}</code>" in labels
+
+
+def test_a_board_rpi_hwid_refuses_keeps_no_other_boards_label_off():
+    """A forged second board with a DNA rpi-hwid cannot print (the broker takes events from anything on the LAN):
+    the Acorn's label is still made and drawn; the bad board is a refusal in rpi-hwid's words."""
+    import json
+
+    from fleet import labelart
+
+    document = json.loads((DATA / "label-input-acorn-linden.json").read_text())
+    good = document["summary"]["fpga"][0]
+    document["summary"]["fpga"].append({**good, "dna": "nan", "serial": None})
+    made, refused = labelart.made(document)
+    assert [m.title for m in made] == ["acorn-linden 0x0044a48664b0485c"]
+    assert any(kind == "fpga" and "nan" in str(exc) for kind, exc in refused)
+    assert labelart.png(document, made[0].id).startswith(b"\x89PNG")
