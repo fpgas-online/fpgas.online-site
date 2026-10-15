@@ -19,7 +19,7 @@ from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview, labelart
 
-from .. import check_groups, fpga, localtime, network, states
+from .. import check_docs, check_groups, fpga, localtime, network, states
 from .fpgas import (
     CHECK_WORDS,
     CONDITION_KEYS,
@@ -136,8 +136,8 @@ def _boards(host):
         cells = []
         for name in columns:
             mark, sort = _mark(b, name)
-            docs_url = (DOCS + per_test[raw.get(name, name)] if raw.get(name, name) in per_test else checks) \
-                if mark.mark != "–" else ""
+            # the check's own section (#140); a board page of its own where the board's docs have one for it
+            docs_url = DOCS + per_test[raw.get(name, name)] if raw.get(name, name) in per_test else check_docs.url(name)
             cells.append((name, mark, sort, docs_url))
         result = _result_mark(b["result"], b["reason"])
         boards.append(Board(b["title"], b["type"], b["label_id"], b["label"], result, 2 if b["result"] == "pass" else 0,
@@ -321,7 +321,10 @@ def _page(request, entry):
         "seen": _when(entry.last_seen), "first_seen": _when(entry.first_seen), "checked": _when(host.checked),
         "groups": [(group, len(members)) for group, members in groups], "boards": boards,
         "columns": [name for _, members in groups for name in members],
-        "head_titles": HEAD_TITLES, "history": history,
+        "head_titles": HEAD_TITLES, "history": history, "boot_check_docs": check_docs.BOOT_CHECK,
+        "check_ran_docs": check_docs.CHECK_RAN,
+        "column_docs": {name: check_docs.url(name) for name in
+                        [n for _, members in groups for n in members] + [n for _, m in history_groups for n in m]},
         "history_groups": [(group, len(members)) for group, members in history_groups],
         "history_columns": [name for _, members in history_groups for name in members],
         # one row per field, the label repeated, so the table sorts (rule 22)

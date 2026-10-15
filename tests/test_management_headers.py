@@ -12,7 +12,9 @@ from django.test import Client
 
 
 def _ths(html, n):
-    return re.findall(r"<th[^>]*>(.*?)</th>", re.findall(r"<table.*?</table>", html, re.S)[n], re.S)
+    # a header's docs link (#140) is not its text
+    return [re.sub(r'<a class="mgmt-doc"[^>]*>\?</a>', "", th)
+            for th in re.findall(r"<th[^>]*>(.*?)</th>", re.findall(r"<table.*?</table>", html, re.S)[n], re.S)]
 
 
 def _text(fragment):
@@ -66,7 +68,8 @@ def test_a_check_header_is_set_upright_so_its_column_is_as_wide_as_a_mark(c):
     pi("pi-sw2-p33", REAL["pi-sw2-p33"])
     html = c.get("/fleet/").content.decode()
     # its title names its group and the board types that get it (the review of #134)
-    assert re.search(r'<th scope="col" class="mgmt-checkhead" title="wiring \(basic\): Arty A7, TT FPGA, TT chip get it\. [^"]+">wiring</th>', html)
+    assert re.search(r'<th scope="col" class="mgmt-checkhead" title="wiring \(basic\): Arty A7, TT FPGA, TT chip get it\. [^"]+">wiring<a class="mgmt-doc" href="https://docs\.fpgas\.online/en/latest/verify/checks\.html#wiring" '
+                     r'title="wiring: what it checks, in the docs" aria-label="wiring in the docs">\?</a></th>', html)
     css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
     rule = next(body for sels, body in _rules(css) if ".mgmt-table th.mgmt-checkhead" in sels)
     assert "writing-mode: vertical-rl" in rule

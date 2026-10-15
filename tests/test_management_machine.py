@@ -62,7 +62,7 @@ def test_the_page_names_the_host_by_its_label_and_says_how_it_is():
     # registered one on hover, the boot check as one character
     assert 'title="the gateway leased it an address on this port at ' in html and ">sw2 p46</td>" in html
     assert 'title="registered as Raspberry Pi 5 Model B Rev 1.0">Pi 5</td>' in html
-    assert re.search(r'Boot check</th><td title="passed, [^"]*"><span class="mgmt-test-pass">✓</span>', html)
+    assert re.search(r'Boot check<a class="mgmt-doc"[^>]*>\?</a></th><td title="passed, [^"]*"><span class="mgmt-test-pass">✓</span>', html)
     # under Raspberry Pis in the one navigation (#131); the page's heading names the host by its label
     assert '<a href="/fleet/" aria-current="page">Raspberry Pis</a>' in html and "Pi 5 4 GB 285df3f84af242d0" in html
 
@@ -83,15 +83,19 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
     # on a phone each cell says its column (the review of #135: a row of bare marks at 390 px)
     assert re.search(r'<td class="mgmt-mark" data-label="jtag" data-sort="\d"', boards)
     docs = "https://docs.fpgas.online/en/latest/boards/"
-    # each mark links its check's docs page (by the name the check sent: pin-id), else the board's checks page
+    # each mark links its check's docs page (by the name the check sent: pin-id), else the check's own section of the
+    # checks page (#140: "Why doesn't the check link take you to the docs for the specific check")
     assert re.search(rf'title="wiring passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/pin-id.html">✓</a>',
                      boards)
     assert re.search(rf'title="ddr fail"><span class="mgmt-test-fail"><a href="{docs}acorn/checks/ddr-memory.html">✗</a>',
                      boards)
-    assert re.search(rf'title="sdk passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/">✓</a>', boards)
-    # a check the Acorn gets and did not report is ⊘; one that does not apply is –, with no link
+    assert re.search(r'title="sdk passed"><span class="mgmt-test-pass"><a href="https://docs\.fpgas\.online/en/latest/verify/checks\.html#sdk">✓</a>',
+                     boards)
+    # a check the Acorn gets and did not report is ⊘; one that does not apply is –
     assert re.search(r'title="jtag was not reported[^"]*"><span class="mgmt-test-notrun"><a ', boards)
-    assert re.search(r'title="uart not applicable to Acorn: [^"]+"><span class="mgmt-test-none">–</span>', boards)
+    # a – links the check's section too: it says which boards the check is not for, and why (#140)
+    assert re.search(r'title="uart not applicable to Acorn: [^"]+"><span class="mgmt-test-none"><a href="https://docs'
+                     r'\.fpgas\.online/en/latest/verify/checks\.html#uart">–</a></span>', boards)
     assert f'<a href="{docs}fomu-evt/">board</a>' in boards
     assert "mgmt-fit" in html.split('<h2 id="boards">', 1)[1].split("<table", 2)[1][:80]  # as wide as its values
 

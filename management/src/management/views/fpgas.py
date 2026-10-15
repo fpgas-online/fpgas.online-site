@@ -17,7 +17,7 @@ from fleet.timeago import ago_time, duration
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import check_groups, e2e, fpga, localtime, network, states
+from .. import check_docs, check_groups, e2e, fpga, localtime, network, states
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -414,7 +414,8 @@ def _page(request):
         "summary": table, "total": total, "everything": everything, "rows": shown,
         "tables": [(title, lines) for title, lines in (("", present), ("Missing", missing)) if lines],
         "groups": [(group, len(names), ", ".join(names)) for group, names in groups],
-        "columns": [(name, check_titles[name]) for name in columns],
+        "columns": [(name, check_titles[name], check_docs.url(name)) for name in columns],
+        "boot_check_docs": check_docs.BOOT_CHECK, "check_ran_docs": check_docs.CHECK_RAN,
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),
         "want_condition": want_condition, "want_type": want_type,

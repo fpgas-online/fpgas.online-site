@@ -98,7 +98,9 @@
     (function walk(node) {
       Array.prototype.forEach.call(node.childNodes || [], function (child) {
         if (child.nodeType === 3) { text += child.nodeValue; }
-        else if (!(child.classList && child.classList.contains("mgmt-sr"))) { walk(child); }
+        else if (!(child.classList && (child.classList.contains("mgmt-sr") || child.classList.contains("mgmt-doc")))) {
+          walk(child);
+        }
       });
     })(th);
     return text.replace(/\s+/g, " ").trim();
@@ -120,8 +122,15 @@
       var button = document.createElement("button");
       button.type = "button";
       button.className = "mgmt-sort";
-      while (th.firstChild) { button.appendChild(th.firstChild); }
+      /* the header's words go in the button; its docs link (.mgmt-doc, #140) stays beside it, a link of its own */
+      var kept = [];
+      var child;
+      while ((child = th.firstChild)) {
+        if (child.classList && child.classList.contains("mgmt-doc")) { th.removeChild(child); kept.push(child); }
+        else { button.appendChild(child); }
+      }
       th.appendChild(button);
+      kept.forEach(function (link) { th.appendChild(link); });
       th.setAttribute("aria-sort", "none");
       button.addEventListener("click", function () {
         var now = th.getAttribute("aria-sort");

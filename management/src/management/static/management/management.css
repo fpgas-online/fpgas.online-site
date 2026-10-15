@@ -306,3 +306,6 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-ev-check .mgmt-ev { background: #ede9fe; color: #4c1d95; }
 .mgmt-ev-test .mgmt-ev { background: #ccfbf1; color: #134e4a; }
 .mgmt-ev-other .mgmt-ev { background: #e5e5e5; color: #333; }
+
+/* a check's docs link beside its header (#140): a small "?" that opens the check's own section */
+.mgmt-doc { font-size: 0.75em; margin-left: 0.15em; text-decoration: none; vertical-align: super; }
