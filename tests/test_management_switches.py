@@ -201,9 +201,10 @@ def test_a_fleet_pis_lldp_name_links_to_its_page_and_other_names_do_not(reader):
     # the neighbour, then the port it reports in a column of its own (#130: one value a column)
     assert ('<td class="c-lldp" data-label="LLDP" title="the name it announces"><a href="/fleet/10000000aaaa0001/">'
             'pi-sw1-p1</a></td>\n        <td class="c-lldp-port" data-label="LLDP port">eth0</td>') in html
-    # a name the page may not show is withheld, its title says so (the review of #137: the one other form)
-    assert ('<td class="c-lldp" data-label="LLDP" title="its name is not shown: not a fleet Pi or a switch">device</td>'
-            in html) and "not-a-fleet-host" not in html
+    # any other neighbour by the name it announces, never "device" (Tim, 16 Oct 2026, #148: "Why is the device's LLDP
+    # information hidden for port 11 on switch 2?"); only a fleet Pi's links a page
+    assert '<td class="c-lldp" data-label="LLDP" title="the name it announces">not-a-fleet-host</td>' in html
+    assert ">device<" not in html
     assert '<td class="c-lldp-port" data-label="LLDP port">gi1</td>' in html
 
 
@@ -453,8 +454,8 @@ def test_a_host_with_no_name_of_its_own_is_refused(monkeypatch):
 @pytest.mark.parametrize("given, shown", [
     ("sw-netgear-s3300-1", "sw-netgear-s3300-1"),
     ("sw-netgear-s3300-1.example.org", "sw-netgear-s3300-1"),
-    ("gwhost", "gateway"),
-    ("core-router", "switch"),
+    ("gwhost", "gwhost"),
+    ("core-router", "core-router"),
 ])
 def test_a_switch_name_follows_the_same_rule(gateway_host, given, shown):
     assert page.switch_name(given) == shown
@@ -492,31 +493,42 @@ def test_the_house_uplinks_device_is_masked_wherever_a_label_names_it(gateway_ho
     ("pi-sw1-p10", "pi-sw1-p10"),
     ("pi-sw2-p7.example.org", "pi-sw2-p7"),
     ("sw-netgear-s3300-1", "sw-netgear-s3300-1"),
-    ("gwhost.example.org", "gateway"),
-    ("gwhost", "gateway"),
-    ("rpi5-new-13f59c", "device"),
-    ("upstreamhost.example.org", "device"),
+    ("gwhost.example.org", "gwhost"),  # the gateway too ("Stop hiding the lldp information")
+    ("gwhost", "gwhost"),
+    ("rpi5-new-13f59c", "rpi5-new-13f59c"),  # welland's switch 2 port 30 in the 9 Oct replay (#148)
+    ("some-laptop.example.org", "some-laptop"),
     ("", ""),
 ])
-def test_an_lldp_neighbour_is_a_pi_a_switch_the_gateway_or_a_device(gateway_host, given, shown):
+def test_every_lldp_neighbour_is_shown_by_its_name(gateway_host, given, shown):
     assert page.neighbour(given) == shown
 
 
+def test_a_neighbour_on_the_gateway_trunk_or_the_house_uplink_is_shown_by_its_name(gateway_host):
+    assert page.neighbour("upstreamhost.example.org") == "upstreamhost"
+    assert page.neighbour("gwhost.example.org") == "gwhost"
+
+
 @pytest.mark.django_db
-def test_no_host_name_reaches_the_page_or_the_json(gateway_host, monkeypatch):
+def test_lldp_is_shown_as_reported_and_the_switchs_own_labels_keep_their_rule(gateway_host, monkeypatch):
+    """Tim, 16 Oct 2026: "Stop hiding the lldp information." The gateway's and the house uplink's device's LLDP
+    names, and the switch's own name, are shown as reported; the switch's own port labels (its configuration, not
+    LLDP) keep their rule."""
     views = make_views()
     views[0].name = "gwhost.example.org"
     views[0].ports[0].label = "eth-uplink.gwhost"
     views[0].ports[1].lldp_name = "gwhost.example.org"
-    views[0].ports[2].port = 48  # the house uplink (spec()): its device is masked wherever a label names it
+    views[0].ports[2].port = 48  # the house uplink (spec())
     views[0].ports[2].label = "uplink.upstreamhost.example.org"
-    views[0].ports[1].label = "eth0.upstreamhost"
+    views[0].ports[2].lldp_name = "upstreamhost.example.org"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     c = Client(HTTP_HOST=HOSTS[0])
-    for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
-        assert "gwhost" not in body.lower() and "upstreamhost" not in body and "example.org" not in body
-        assert "the switch labels this port eth-uplink.gateway" in body  # the port number's title
+    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    assert (ports[1]["lldp_name"], ports[1]["lldp_title"]) == ("gwhost", "the name it announces: gwhost.example.org")
+    assert ports[2]["lldp_name"] == "upstreamhost"
+    body = c.get("/management/switches/").content.decode()
+    assert "Switch 1: gwhost (GSM7252PS)" in body
+    assert "the switch labels this port eth-uplink.gateway" in body  # a port label keeps its rule
 
 
 @pytest.mark.django_db
@@ -899,7 +911,7 @@ def test_no_inventory_means_no_gw(monkeypatch, netdevs):
 
 @pytest.mark.django_db
 def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, netdevs):
-    view = SwitchView(index=1, name="gwhost.example.org", model="X", reachable=True, error="", read_at=READ_AT,
+    view = SwitchView(index=1, name="sw-netgear-x-1", model="X", reachable=True, error="", read_at=READ_AT,
                       ports=[vlan_port()])
     view.vlans = [{"vlan_id": 2110, "name": "gwhost"}]
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: [view])
@@ -1008,9 +1020,9 @@ def test_the_explanations_are_one_collapsed_key_after_the_switches(reader):
 
 
 @pytest.mark.django_db
-def test_the_lldp_port_is_masked_as_a_label_is(gateway_host, monkeypatch):
-    """The neighbour's port id and description are free text it sends: the gateway's and the house device's names
-    in them are replaced as in a label (the review of #102)."""
+def test_the_lldp_port_is_shown_as_reported(gateway_host, monkeypatch):
+    """The neighbour's port id and description are shown as it sends them, names and all ("Stop hiding the lldp
+    information", Tim, 16 Oct 2026); a port id that is the MAC shows its description instead (the MACs are on hover)."""
     views = make_views()
     views[0].ports[2].port = 48  # the house uplink
     views[0].ports[2].label = "uplink.upstreamhost.example.org"
@@ -1019,11 +1031,8 @@ def test_the_lldp_port_is_masked_as_a_label_is(gateway_host, monkeypatch):
     views[0].ports[1].lldp_port = "to.upstreamhost"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
-    c = Client(HTTP_HOST=HOSTS[0])
-    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[0]["lldp_port"] == "eth0-gateway" and ports[1]["lldp_port"] == "to.house uplink"
-    for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
-        assert "gwhost" not in body.lower() and "upstreamhost" not in body
+    ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
+    assert ports[0]["lldp_port"] == "eth0-gwhost" and ports[1]["lldp_port"] == "to.upstreamhost"
 
 
 @pytest.mark.parametrize("given, shown", [
@@ -1377,3 +1386,32 @@ def test_on_and_off_buttons_differ_in_shape_not_only_colour():
     on = css.split(".mgmt-poe-button.mgmt-poe-to-on {", 1)[1].split("}", 1)[0]
     assert "background: #1b7a1b" in off and "color: #fff" in off
     assert "background: #fff" in on and "color: #b00020" in on
+
+
+@pytest.mark.django_db
+def test_an_lldp_neighbours_chassis_id_is_on_hover(monkeypatch):
+    """#148: the neighbour's name in the cell, its chassis id (a MAC for a Pi) on hover."""
+    views = make_views()
+    views[0].ports[2].lldp_name, views[0].ports[2].lldp_port = "rpi5-new-13f59c", "eth0"
+    views[0].ports[2].lldp_chassis = "98:fe:54:13:f5:9c"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    port = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"][2]
+    assert (port["lldp_name"], port["lldp_title"], port["lldp_port"]) == (
+        "rpi5-new-13f59c", "the name it announces; chassis 98:fe:54:13:f5:9c", "eth0")
+
+
+@pytest.mark.django_db
+def test_a_chassis_with_no_name_is_still_said_and_the_panel_box_says_what_the_row_does(monkeypatch):
+    """Nothing LLDP reports is hidden (#148): a neighbour that sends a chassis id and no system name has its chassis in
+    the cell's title; a port's box title carries the LLDP cell and its title."""
+    views = make_views()
+    views[0].ports[2].lldp_name, views[0].ports[2].lldp_chassis = None, "98:fe:54:13:f5:4e"
+    views[0].ports[1].lldp_name, views[0].ports[1].lldp_chassis = "tweed.welland.example", "00:11:22:33:44:55"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    data = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
+    ports = data["ports"]
+    assert (ports[2]["lldp_name"], ports[2]["lldp_title"]) == ("", "chassis 98:fe:54:13:f5:4e")
+    assert ports[1]["lldp_title"] == "the name it announces: tweed.welland.example; chassis 00:11:22:33:44:55"
+    from management import panel
+    assert ("LLDP: tweed; the name it announces: tweed.welland.example; chassis 00:11:22:33:44:55"
+            in panel.title(ports[1]))
