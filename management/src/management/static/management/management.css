@@ -36,57 +36,67 @@
    widening the page */
 .mgmt-scroll { overflow-x: auto; max-width: 100%; position: relative; }
 
-/* Switch port dashboard (#67) */
-/* its tables carry the full port labels (#89): the page may use the whole window, so no column scrolls out of view */
+/* Switch port dashboard (#67, #130): the /fleet/ table's rules; a column as wide as its values (mgmt-fit) */
 .mgmt:has(.mgmt-ports) { max-width: none; }
 .mgmt-switch { margin: 1.2rem 0; }
 .mgmt-switch h2 { margin-bottom: 0.2rem; }
+.mgmt-readline { margin: 0 0 0.4rem; font-size: 0.9em; color: #444; }
 .mgmt-dead .mgmt-status { color: #b00020; font-weight: bold; }
 .mgmt-problem { border: 1px solid #b00020; padding: 0.5rem 0.8rem; }
-.mgmt-ports td, .mgmt-ports th { font-size: 0.92em; }
+/* a switch-wide known issue: one line above the drawing (#130), not a mark on every port */
+.mgmt-known { list-style: none; padding: 0; margin: 0 0 0.3rem; font-size: 0.9em; color: #8a4b00; }
+.mgmt-known:empty { display: none; }
+.mgmt-table.mgmt-ports th, .mgmt-table.mgmt-ports td { padding: 0.3rem 0.4rem; font-size: 0.92em; }
 .mgmt-ports td, .mgmt-ports tbody th { white-space: nowrap; }
-/* a long label breaks after a dot (its <wbr>), and nowhere else, when the table needs the room (#89): each part is
-   a span that does not break, the cell may break between them */
-.mgmt-ports td.mgmt-label { white-space: normal; }
-.mgmt-ports td.mgmt-label span { white-space: nowrap; }
-/* a MACs cell may put its "+N" under the MAC when the table needs the room (a MAC itself never breaks) */
-.mgmt-ports td.mgmt-macs { white-space: normal; }
-/* On a phone each port is a block (as the index's rows are): the port, its label and its power button; its link,
-   VLAN and GW; its PoE and LLDP neighbour. The counters and MACs are left out (the key says so). */
-@media (max-width: 40rem) {
-  .mgmt-ports th:nth-child(n+9), .mgmt-ports td:nth-child(n+9) { display: none; }
-  .mgmt-ports thead { display: none; }
-  .mgmt-ports, .mgmt-ports tbody { display: block; }
-  .mgmt-ports tr { display: grid; grid-template-columns: auto auto 1fr auto; column-gap: 0.6rem;
-                   grid-template-areas: "port label label power" "port link vlan gw" "port poe lldp lldp";
-                   border: 1px solid #ccc; border-top: 0; padding: 0.3rem 0.5rem; }
-  .mgmt-ports tr:first-child { border-top: 1px solid #ccc; }
-  .mgmt-table.mgmt-ports td, .mgmt-table.mgmt-ports tbody th { border: 0; padding: 0.05rem 0; box-shadow: none;
-                                                              position: static; }
-  .mgmt-ports tbody th { grid-area: port; font-weight: 600; }
-  .mgmt-ports td:nth-child(2) { grid-area: label; font-weight: 600; }
-  .mgmt-ports td:nth-child(3) { grid-area: link; }
-  .mgmt-ports td:nth-child(4) { grid-area: vlan; }
-  .mgmt-ports td:nth-child(5) { grid-area: gw; text-align: right; }
-  .mgmt-ports td:nth-child(6) { grid-area: poe; }
-  .mgmt-ports td:nth-child(7) { grid-area: power; text-align: right; }
-  .mgmt-ports td:nth-child(8) { grid-area: lldp; }
-}
+/* the port number heads its row at the top, beside the first machine (the shared header rule sets bottom) */
+.mgmt-ports tbody th { vertical-align: top; }
+/* every value is one line, the label too (#130): a label that wraps lets the table stretch to the window and widen
+   every column; a narrow window scrolls the table sideways, the port number staying in view */
+/* one-character columns: a mark wide, centred, the words on hover */
+.mgmt-ports td.mgmt-mark { text-align: center; cursor: help; font-weight: 700; }
+.mgmt-table.mgmt-ports td.mgmt-mark, .mgmt-table.mgmt-ports th.mgmt-checkhead { padding-left: 0.15rem;
+                                                                              padding-right: 0.15rem; }
+.mgmt-ports td.c-serial { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.mgmt-state-unregistered { color: #5e35b1; }
+.mgmt-poe-on { color: #b36b00; }
+.mgmt-poe-idle, .mgmt-poe-off { color: #666; }
 /* #78: the port number stays in view while a narrow screen scrolls the table sideways. */
 .mgmt-ports tbody th { background: #fff; font-weight: normal; }
+.mgmt-ports.mgmt-striped tbody tr:nth-child(even) th { background: #f4f4f4; }
 .mgmt-ports tbody th, .mgmt-ports thead th:first-child { position: sticky; left: 0; z-index: 1; }
 /* the sticky cell's right border would scroll away with the table: draw it as a shadow, which stays */
 .mgmt-ports tbody th, .mgmt-ports thead th:first-child { box-shadow: 1px 0 0 #ccc; }
 .mgmt-up { color: #1b7a1b; }
-.mgmt-poe { text-align: center; }
 .mgmt-down { color: #666; }
-/* The PoE button on a board port (#67): small, beside the PoE symbol; the result of the press follows it. */
-.mgmt-poe-button { font-size: 0.85em; padding: 0 0.45rem; margin-left: 0.2rem; cursor: pointer; }
+/* The PoE button on a board port (#67): its words say what a press does. */
+.mgmt-poe-button { font-size: 0.85em; padding: 0 0.45rem; cursor: pointer; }
 .mgmt-poe-button:disabled { cursor: progress; }
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
 .mgmt-poe-msg:empty { display: none; }
-/* (screen-reader text in a one-symbol cell: .mgmt-sr, defined once above) */
-
+/* On a phone (#130) each port is a block: its number, then the hardware on it and its State, then its Net, link,
+   PoE, the button, the neighbour and an infrastructure port's role, each value after its column's name; the VLAN,
+   gateway, traffic and error columns are left out (a wider screen shows them), an empty value takes no room, and an
+   empty board port (nothing registered, no link, no power, as it should be) is left out: the switch's heading line
+   counts them (the review of #137). */
+.mgmt-empty-count { display: none; }
+@media (max-width: 40rem) {
+  .mgmt-ports thead { display: none; }
+  .mgmt-ports, .mgmt-ports tbody { display: block; }
+  .mgmt-ports tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.7rem;
+                   border: 1px solid #ccc; border-top: 0; padding: 0.3rem 0.5rem; }
+  .mgmt-ports tr:first-child { border-top: 1px solid #ccc; }
+  .mgmt-table.mgmt-ports td, .mgmt-table.mgmt-ports tbody th { border: 0; padding: 0; box-shadow: none;
+                                                              position: static; background: none; }
+  .mgmt-ports tbody th { font-weight: 700; min-width: 1.6rem; }
+  .mgmt-ports td.c-vlan, .mgmt-ports td.c-gw, .mgmt-ports td.c-lldp-port, .mgmt-ports td.c-rx,
+  .mgmt-ports td.c-tx, .mgmt-ports td.c-rx-errors, .mgmt-ports td.c-tx-errors,
+  .mgmt-ports td.c-serial, .mgmt-ports td:empty { display: none; }
+  .mgmt-ports tr.mgmt-empty-port { display: none; }
+  .mgmt-empty-count:not([hidden]) { display: inline; }
+  .mgmt-ports td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; font-weight: 400; }
+  .mgmt-ports td div { display: inline; }
+  .mgmt-ports td div + div::before { content: ", "; }
+}
 /* Table manners (Tim, 9 Oct 2026; RULES 22), shared by every management table that opts in with these classes.
    Zebra stripes: the served order is still readable, and a row stays one row on a phone. */
 .mgmt-table.mgmt-striped tbody tr:nth-child(even) { background: #f4f4f4; }
@@ -215,28 +225,42 @@ td.mgmt-c-state-word span { font-weight: 700; }
   .mgmt-summary td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; }
 }
 
-/* A switch's front panel (#90): a port's fill and glyph say its state (the key under the panel says each in words,
-   the port's title and accessible name say all of it); a port not as the inventory says has a red dashed edge. */
-.mgmt-panel { display: block; margin: 0.4rem 0; }
-.mgmt-port rect, .mgmt-swatch { stroke: #555; stroke-width: 1; }
-.mgmt-port text, .mgmt-glyph { font-size: 10px; fill: #222; pointer-events: none; }
-.mgmt-glyph { font-weight: 700; }
-.mgmt-panel-key .mgmt-glyph { font-size: 9px; }
-.mgmt-port-power { fill: #4caf50; }
-.mgmt-port-starting { fill: #c5e1a5; }
-.mgmt-port-up { fill: #90caf9; }
-.mgmt-port-searching { fill: #fff3c4; }
-.mgmt-port-off { fill: #cfcfcf; }
-.mgmt-port-down { fill: #f4f4f4; }
-.mgmt-port-fault { fill: #ef9a9a; }
-.mgmt-port-unknown { fill: #d1c4e9; }
-.mgmt-port-wrong rect, rect.mgmt-port-wrong { stroke: #b00020; stroke-width: 2.5; stroke-dasharray: 3 2; }
-.mgmt-port-known rect, rect.mgmt-port-known { stroke: #b36b00; stroke-width: 2.5; stroke-dasharray: 1.5 1.5; }
-/* hover and focus thicken the edge and keep its colour, so a red or amber mark stays visible */
-.mgmt-panel a:hover rect { stroke-width: 3; }
+/* A switch's front panel (#90, #130), drawn so it needs no key: a port's fill is its State (the /fleet/ badges'
+   colours), its mark the /fleet/ State mark, its edge solid while the link is up and dashed while down, ⚡ while PoE
+   delivers; the hardware on it in two short lines. An empty port is faint, so the used ports stand out. */
+/* the drawing scales to the width it has (viewBox), never wider than drawn; a phone gets the narrow drawing, the
+   same boxes in bands of seven columns, so its text stays readable */
+.mgmt-panel { display: block; margin: 0.4rem 0 0.6rem; width: 100%; height: auto; }
+.mgmt-panel-narrow { display: none; }
+@media (max-width: 40rem) {
+  .mgmt-panel-wide { display: none; }
+  .mgmt-panel-narrow { display: block; }
+}
+.mgmt-port rect { stroke: #333; stroke-width: 1.5; fill: #fff; }
+.mgmt-port.mgmt-edge-down rect { stroke: #888; stroke-dasharray: 4 3; }
+.mgmt-port text { pointer-events: none; }
+.mgmt-pnum { font-size: 11px; fill: #222; }
+.mgmt-bolt { font-size: 11px; fill: #b36b00; }
+.mgmt-more { font-size: 11px; fill: #222; }
+.mgmt-pmark { font-size: 13px; font-weight: 700; }
+.mgmt-net { font-size: 13px; font-weight: 700; fill: #b00020; }
+.mgmt-hw { font-size: 11px; fill: #222; }
+.mgmt-box-operational rect { fill: #c9f7c9; }
+.mgmt-box-attention rect { fill: #f7c9c9; }
+.mgmt-box-missing rect { fill: #ddd; }
+.mgmt-box-unknown rect { fill: #f7ecc9; }
+.mgmt-box-unregistered rect { fill: #e6dcf5; }
+.mgmt-box-infrastructure rect { fill: #dde6f3; }
+.mgmt-box-empty rect { fill: #fafafa; }
+.mgmt-box-empty .mgmt-pnum { fill: #999; }
+.mgmt-pmark.mgmt-state-operational { fill: #1b7a1b; }
+.mgmt-pmark.mgmt-state-attention { fill: #b00020; }
+.mgmt-pmark.mgmt-state-unknown { fill: #b36b00; }
+.mgmt-pmark.mgmt-state-missing { fill: #555; }
+.mgmt-pmark.mgmt-state-unregistered { fill: #5e35b1; }
+/* hover and focus thicken the edge */
+.mgmt-panel a:hover rect { stroke-width: 2.5; }
 .mgmt-panel a:focus-visible { outline: 2px solid #0b4f8a; outline-offset: 1px; }
-.mgmt-panel-key { list-style: none; padding: 0; margin: 0 0 0.6rem; display: flex; flex-wrap: wrap; gap: 0.2rem 1rem;
-                  font-size: 0.85em; color: #444; }
 /* the row a panel port links to */
 .mgmt-ports tr:target { outline: 2px solid #0b4f8a; }
 .mgmt-ports tr:target th, .mgmt-ports tr:target td { background: #e8f0fb; }

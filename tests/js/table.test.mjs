@@ -87,3 +87,29 @@ test("a row with fewer cells than the column sorts as empty, not an error", () =
   assert.equal(value(undefined), "");
   assert.equal(value({ getAttribute: () => "7", textContent: "x" }), "7");
 });
+
+test("a body rebuilt after the page loaded is sorted as the headers say (resort) and by a later click", () => {
+  const table = fakeTable([[cell("b")], [cell("a")], [cell("c")]]);
+  const buttons = [];
+  globalThis.document = {
+    createElement: () => {
+      const b = { listeners: {}, firstChild: null, appendChild(c) { b.child = c; }, addEventListener(e, f) { b.listeners[e] = f; } };
+      buttons.push(b);
+      return b;
+    },
+    querySelectorAll: () => [table],
+  };
+  const path = join(here, "..", "..", "management", "src", "management", "static", "management", "table.js");
+  delete require.cache[require.resolve(path)];
+  const { resort } = require(path);
+  buttons[0].listeners.click();  // ascending
+  // the refresh puts a new body in, in the served order, its rows not numbered yet
+  const fresh = fakeTable([[cell("z")], [cell("x")], [cell("y")]]);
+  table.tBodies[0] = fresh.body;
+  resort(table);
+  assert.equal(fresh.body.rows.map((r) => r.cells[0].textContent).join(""), "xyz");
+  buttons[0].listeners.click();  // descending, on the new body
+  assert.equal(fresh.body.rows.map((r) => r.cells[0].textContent).join(""), "zyx");
+  buttons[0].listeners.click();  // the served order of the new body
+  assert.equal(fresh.body.rows.map((r) => r.cells[0].textContent).join(""), "zxy");
+});

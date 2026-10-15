@@ -1,31 +1,58 @@
-"""A switch's front panel (#90): each port where it is on the switch, coloured by what it is doing now, marked where
-it is not as the inventory says, linked to its row in the table.
+"""A switch's front panel (#90, #130): each port where it is on the switch, drawn so that it needs no key (Tim, 15 Oct
+2026: "The key near the switch port indicators needing to exist is a smell").
+
+Every mark on a port means what the same mark means in the port table under the drawing (and on /fleet/), and the
+port shows the hardware on it, so the drawing reads like a labelled photo of the switch:
+
+* top left, the port's number; top right, the State column's mark in its colour: the /fleet/ State of the newest
+  machine the gateway saw on the port (● operational, ! needs attention, ○ missing, ⟳ checking), or "?" for a device
+  with a link or drawing power on a board port where no registered machine was seen; the box is filled in that
+  State's colour, an empty port faint;
+* in the middle, the hardware the gateway last saw on it, in the /fleet/ short forms: the Pi's model ("Pi 5", "OPi
+  PC") and its FPGA board's type ("Acorn"; "TT" over "FPGA" where it is too long for one line); an infrastructure
+  port's role as one short word ("gateway", "trunk", "uplink", "infra"); nothing on an empty port;
+* at the bottom: ⚡ while PoE is delivering power; "+3" where three more machines were last seen on the port; and the
+  Net column's ✗, in red, where the port's network reading is not as it should be (the review of #137: the State
+  mark is always the machine's own, and the Net verdict is its own mark, as the table's two columns are);
+* its edge: solid while the link is up, dashed while it is down.
+
+Each port's title (and accessible name) says everything about it in words; each links its row in the table.
 
 The layout comes from the switch's model in the switch registry (netgear_switch: `port_count`, `poe_port_count`), not
 from the reading: the Netgear switches here (GSM7252PS, S3300-52X) have their RJ45 ports in two rows, odd above even,
 then an uplink block at the right whose ports carry no PoE (the ports after `poe_port_count`). A port is placed by its
 number, so a port the reading lacks leaves its gap and moves no other port. A model with no PoE is all main block.
-
-Each port's state is one word (STATES): what the switch says of its link and its PoE. A port shows its state as a
-glyph as well as a colour, the key says each in words, and the port's title and accessible name say everything about
-it; a port that is not as the inventory says has a mark as well as a colour."""
+Each port also has a place in a narrow drawing for a phone: the same two rows, cut into bands of NARROW_COLUMNS
+columns, one under the other, the uplink block a band of its own."""
 
 from dataclasses import dataclass
 
-# (state, glyph, the key's words), in the key's order
-STATES = (
-    ("power", "P", "link up, PoE delivering"),
-    ("starting", "*", "link down, PoE delivering (the device is powered, its link not up yet)"),
-    ("up", "L", "link up, no PoE drawn"),
-    ("searching", "s", "link down, PoE on and searching"),
-    ("off", "o", "link down, PoE off"),
-    ("down", "–", "link down, no PoE on the port"),
-    ("fault", "F", "PoE fault"),
-    ("unknown", "?", "PoE state not known (the switch gave none it names, or it was not read)"),
+# a port's pitch, its box, a row's pitch, the gap before the uplink block, the gap between two bands of the narrow
+# drawing (px): 26 columns of a 52-port switch and the gap fit in about 1350 px
+PITCH, WIDTH, HEIGHT, ROW, GAP, BAND_GAP = 52, 50, 70, 74, 12, 12
+NARROW_COLUMNS = 6  # columns a band of the narrow drawing has: 6 boxes fit a phone's 390 px at full size
+TEXT_WIDTH = 48  # the room for a hardware line inside a box
+# an 11 px sans-serif character, on average, at most: measured in Chrome, "gateway" is 47 px, "TT FPGA" 46, "PCIe
+# card" 52 (so it wraps); a longer line is wrapped at a space, never squeezed
+CHAR_WIDTH = 6.8
+LINES = 2  # hardware lines under the model
+BOLT = "⚡"
+NET_FAILED = "✗"
+
+# The box's state (its fill and its mark's colour) and that state's words, in the order the panel's name counts them.
+# The first four are the /fleet/ conditions (management.states); a box with any of them shows that machine's mark.
+KINDS = (
+    ("attention", "needs attention"),
+    ("missing", "missing"),
+    ("unknown", "checking"),
+    ("unregistered", "not registered"),
+    ("operational", "operational"),
+    ("infrastructure", "infrastructure"),
+    ("empty", "empty"),
 )
-STATE_WORDS = {state: words for state, _, words in STATES}
-GLYPHS = {state: glyph for state, glyph, _ in STATES}
-PITCH, WIDTH, HEIGHT, ROW, GAP = 30, 26, 30, 36, 16  # a port's pitch, its box, a row's pitch, the uplink gap (px)
+# an infrastructure role (views.switches.port_role) as one short word for the box; the role in full is its title's
+ROLE_WORDS = {"gateway trunk": "gateway", "switch trunk": "trunk", "house uplink": "uplink",
+              "infrastructure": "infra"}
 
 
 class LayoutError(ValueError):
@@ -35,97 +62,141 @@ class LayoutError(ValueError):
 @dataclass
 class Port:
     port: int
-    x: int
+    x: int  # in the wide drawing
     y: int
-    state: str
-    glyph: str
-    mismatch: str  # what the inventory check says is wrong with this port, or ""
-    known: bool  # every failure of this port has a known cause (an open issue): marked apart from a new fault
+    nx: int  # in the narrow drawing
+    ny: int
+    kind: str  # KINDS: the box's fill and its State mark's colour
+    mark: str  # the State column's mark: the newest machine's /fleet/ mark, or "?"; "" for an empty or role port
+    net_ok: bool  # False: the Net column's ✗ in the box's corner
+    link_up: bool  # a solid edge; a dashed one when down
+    bolt: str  # BOLT while PoE delivers, else ""
+    more: str  # "+3" where three more machines were last seen on the port, else ""
+    lines: list  # the hardware (or role) on the box's three lines: the model, then the board's type over two
     title: str  # everything about the port, in words
     href: str
 
-
-def state(view_port, has_poe):
-    """The port's state word (STATES) from the switch's reading. `has_poe`: the model gives this port PoE, so a PoE
-    state of None is a reading that is missing, not a port without PoE. A PoE state this does not name raises."""
-    poe = view_port.poe_state
-    if poe is None:
-        if has_poe:
-            return "unknown"
-        return "up" if view_port.link_up else "down"
-    if poe == "other":
-        return "unknown"
-    if poe == "fault":
-        return "fault"
-    if poe == "delivering":
-        return "power" if view_port.link_up else "starting"
-    if poe in ("searching", "disabled"):
-        if view_port.link_up:
-            return "up"
-        return "searching" if poe == "searching" else "off"
-    raise ValueError(f"port {view_port.port}: PoE state {poe!r} is not one the panel knows")
+    @property
+    def net(self):
+        return "" if self.net_ok else NET_FAILED
 
 
-def _place(ports, port_count, poe_port_count):
+def fits(text):
+    """Whether `text` fits a box's line at 11 px."""
+    return len(text) * CHAR_WIDTH <= TEXT_WIDTH
+
+
+def wrap(text, lines=LINES):
+    """`text` on at most `lines` lines that each fit a box, broken at spaces; a word that does not fit on a line of its
+    own, or more words than the lines hold, end in "…" (the whole is in the box's title). Never squeezed."""
+    out, words = [], text.split()
+    while words and len(out) < lines:
+        line = words.pop(0)
+        while words and fits(f"{line} {words[0]}"):
+            line += " " + words.pop(0)
+        out.append(line)
+    if words or any(not fits(line) for line in out):
+        last = out[-1]
+        while last and not fits(last + "…"):
+            last = last[:-1]
+        out[-1] = last.rstrip() + "…"
+    return out + [""] * (lines - len(out))
+
+
+def _place(ports, port_count, poe_port_count, band=None):
     """{port: (x, y)} by port number: the main block (1..poe_port_count, or every port with no PoE), then the uplink
-    block after a gap; odd above even in each. A port number outside the model's raises LayoutError."""
+    block after a gap; odd above even in each. With `band`, the narrow drawing: each block cut into bands of `band`
+    columns, one under the other. A port number outside the model's raises LayoutError."""
     main = poe_port_count or port_count
+    main_columns = (main + 1) // 2
+    main_bands = -(-main_columns // band) if band else 1
     places = {}
-    for p in ports:
-        n = p.port
+    for n in ports:
         if not 1 <= n <= port_count:
             raise LayoutError(f"port {n} is not on this model (ports 1..{port_count})")
-        if n <= main:
-            x = ((n - 1) // 2) * PITCH
-        else:
-            x = ((main + 1) // 2) * PITCH + GAP + ((n - main - 1) // 2) * PITCH
-        places[n] = (x, ((n - 1) % 2) * ROW)
+        row = (n - 1) % 2
+        if band is None:
+            if n <= main:
+                x = ((n - 1) // 2) * PITCH
+            else:
+                x = main_columns * PITCH + GAP + ((n - main - 1) // 2) * PITCH
+            places[n] = (x, row * ROW)
+            continue
+        column = (n - 1) // 2 if n <= main else (n - main - 1) // 2
+        stripe = column // band + (0 if n <= main else main_bands)
+        places[n] = ((column % band) * PITCH, stripe * (2 * ROW + BAND_GAP) + row * ROW)
     return places
 
 
-def panel(view, rows, failures, anchor, port_count, poe_port_count, known=None):
-    """[Port] of one reachable switch. `rows` are the table's rows ({port: row}, for the label and the words the table
-    shows); `failures` the inventory check's ({port: [text]}); `known` the ports whose every failure has a known
-    cause ({port: "the issue"}); `anchor` the row anchor's prefix ("switch-1"); `port_count` and `poe_port_count` the
-    model's, from the switch registry."""
-    known = known or {}
-    places = _place(view.ports, port_count, poe_port_count)
+def box(row):
+    """(kind, mark, more, lines) of a port from its table row (views.switches._row): the newest machine the gateway saw
+    on it, else its role, else whether something is there unregistered. The mark is the table's State mark, always;
+    the Net verdict is a mark of its own (Port.net)."""
+    machines = row["machines"]
+    if machines:
+        newest = machines[0]
+        more = f"+{len(machines) - 1}" if len(machines) > 1 else ""
+        return newest["condition"], newest["mark"], more, wrap(newest["model"], 1) + wrap(newest["board"])
+    if row["role"]:
+        word = ROLE_WORDS.get(row["role"], row["role"])
+        return "infrastructure", "", "", wrap(word, 1) + [""] * LINES
+    if row["unregistered"]:
+        return "unregistered", row["unregistered"], "", [""] * (1 + LINES)
+    return "empty", "", "", [""] * (1 + LINES)
+
+
+def title(row):
+    """Everything about a port in words, for its box's title and accessible name."""
+    parts = [f"port {row['port']}"]
+    for m in row["machines"]:
+        parts.append(f"{m['label']}, {m['board']}, {m['state_title']}, leased an address here {m['lease_at']}")
+    if row["role"]:
+        parts.append(row["role"])
+    if row["unregistered"]:
+        parts.append(row["unregistered_title"])
+    parts.append(row["link_title"] + (f" {row['speed']}" if row["speed"] else ""))
+    parts.append(row["poe_title"] + (f" {row['watts']} W" if row["watts"] else ""))
+    if row["vlan"] and row["vlan"] != "–":
+        parts.append(f"VLAN {row['vlan']}")
+    if row["lldp_name"]:
+        parts.append(f"sees {row['lldp_name']}")
+    parts.append(row["net_title"])
+    return " · ".join(parts)
+
+
+def panel(rows, anchor, port_count, poe_port_count):
+    """[Port] of one reachable switch from its table rows (views.switches._row); `anchor` the row anchor's prefix
+    ("switch-1"); `port_count` and `poe_port_count` the model's, from the switch registry."""
+    numbers = [r["port"] for r in rows]
+    wide = _place(numbers, port_count, poe_port_count)
+    narrow = _place(numbers, port_count, poe_port_count, NARROW_COLUMNS)
     out = []
-    for p in sorted(view.ports, key=lambda p: p.port):
-        x, y = places[p.port]
-        row = rows.get(p.port, {})
-        word = state(p, p.port <= poe_port_count)
-        wrong = "; ".join(failures.get(p.port, ()))
-        parts = [f"port {p.port}", STATE_WORDS[word]]
-        if word == "unknown":
-            parts.append("link up" if p.link_up else "link down")
-        if row.get("label") and row.get("label") != "–":
-            parts.append(row["label"])
-        if row.get("label_title"):
-            parts.append(row["label_title"])
-        if row.get("vlan"):
-            parts.append(f"VLAN {row['vlan']}")
-        if row.get("lldp_name"):
-            parts.append(f"sees {row['lldp_name']}")
-        if wrong:
-            parts.append(f"not as the inventory says: {wrong}")
-            if p.port in known:
-                parts.append(f"known: {known[p.port]}")
-        out.append(Port(p.port, x, y, word, GLYPHS[word], wrong, bool(wrong) and p.port in known, " · ".join(parts),
-                        f"#{anchor}-port-{p.port}"))
+    for row in sorted(rows, key=lambda r: r["port"]):
+        kind, mark, more, lines = box(row)
+        (x, y), (nx, ny) = wide[row["port"]], narrow[row["port"]]
+        out.append(Port(row["port"], x, y, nx, ny, kind, mark, row["net_ok"], row["link_up"],
+                        BOLT if row["poe_state"] == "delivering" else "", more, lines, title(row),
+                        f"#{anchor}-port-{row['port']}"))
     return out
 
 
-def size(ports):
-    """(width, height) of the drawing."""
+def size(ports, narrow=False):
+    """(width, height) of the drawing, wide or narrow."""
     if not ports:
         return 0, 0
-    return max(p.x for p in ports) + WIDTH + 2, max(p.y for p in ports) + HEIGHT + 2
+    xs = [p.nx if narrow else p.x for p in ports]
+    ys = [p.ny if narrow else p.y for p in ports]
+    return max(xs) + WIDTH + 2, max(ys) + HEIGHT + 2
 
 
 def summary(ports):
-    """The panel's accessible name after the switch's title: how many ports are in each state, in the key's order."""
+    """The panel's accessible name after the switch's title: how many ports are in each state (KINDS' order), how
+    many are not as they should be, and how many deliver power or have a link."""
     counts = {}
     for p in ports:
-        counts[p.state] = counts.get(p.state, 0) + 1
-    return "; ".join(f"{counts[s]} {STATE_WORDS[s]}" for s, _, _ in STATES if s in counts)
+        counts[p.kind] = counts.get(p.kind, 0) + 1
+    parts = [f"{counts[k]} {words}" for k, words in KINDS if k in counts]
+    parts.append(f"{sum(not p.net_ok for p in ports)} not as it should be")
+    parts.append(f"{sum(p.link_up for p in ports)} with a link up")
+    parts.append(f"{sum(bool(p.bolt) for p in ports)} delivering PoE")
+    return "; ".join(parts)

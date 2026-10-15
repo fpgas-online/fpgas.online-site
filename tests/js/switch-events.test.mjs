@@ -10,105 +10,92 @@ import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { applyRecord, stateFor, listen } = require(
+const { applyRecord, listen } = require(
   join(here, "..", "..", "management", "src", "management", "static", "management", "switch-events.js"));
-
-// panel.STATES: [state, glyph, words]
-const STATES = [
-  ["power", "P", "link up, PoE delivering"],
-  ["starting", "*", "link down, PoE delivering (the device is powered, its link not up yet)"],
-  ["up", "L", "link up, no PoE drawn"],
-  ["searching", "s", "link down, PoE on and searching"],
-  ["off", "o", "link down, PoE off"],
-  ["down", "–", "link down, no PoE on the port"],
-  ["fault", "F", "PoE fault"],
-  ["unknown", "?", "PoE state not known (the switch gave none it names, or it was not read)"],
-];
 
 class Element {
   constructor(attrs = {}) {
-    Object.assign(this, { textContent: "", className: "", attrs: { ...attrs }, kids: {}, parentNode: null });
+    Object.assign(this, { textContent: "", className: "", title: "", attrs: { ...attrs }, kids: {}, parentNode: null });
   }
   getAttribute(name) { return this.attrs[name] ?? null; }
   setAttribute(name, value) { this.attrs[name] = value; }
   querySelector(selector) { return this.kids[selector]; }
 }
 
-// One row (port 9 of switch 2) and its panel mark, as the served page has them.
-function page({ link = "up 1G", poe = "8.6W", state = "power", title = "port 9 · link up, PoE delivering · VLAN 2109" }) {
+const TITLE_UP = "port 9 · Pi 5 2 GB 1234, Acorn, operational, leased an address here 2026-10-14 10:00:00 · link up 1G · PoE delivering power 8.6 W · VLAN 2209 · as it should be: PoE";
+
+// One row (port 9 of switch 2) and its panel box, as the served page has them: the Link cell (its mark and its words
+// for a screen reader), the Speed cell, the box's classes and title.
+function page({ up = true, speed = "1G", title = TITLE_UP }) {
   const row = new Element();
-  row.children = [new Element(), new Element(), Object.assign(new Element(), { textContent: link, className: "mgmt-up" })];
-  row.kids[".mgmt-poe"] = Object.assign(new Element(), { textContent: poe });
-  const mark = new Element({ class: `mgmt-port mgmt-port-${state} mgmt-port-known` });
-  mark.kids.title = Object.assign(new Element(), { textContent: title });
-  mark.kids[".mgmt-glyph"] = Object.assign(new Element(), { textContent: STATES.find((s) => s[0] === state)[1] });
-  mark.parentNode = new Element({ "aria-label": title });
-  const byId = { "switch-2-port-9": row, "switch-2-panel-9": mark };
-  return { row, mark, doc: { getElementById: (id) => byId[id] ?? null } };
+  const link = new Element();
+  link.className = `mgmt-mark c-link ${up ? "mgmt-up" : "mgmt-down"}`;
+  link.title = up ? "link up" : "link down";
+  link.kids[".mgmt-glyph"] = Object.assign(new Element(), { textContent: up ? "↑" : "↓" });
+  link.kids[".mgmt-sr"] = Object.assign(new Element(), { textContent: up ? " link up" : " link down" });
+  const speedCell = new Element({ "data-sort": up ? "1000" : "0" });
+  speedCell.textContent = speed;
+  row.kids[".c-link"] = link;
+  row.kids[".c-speed"] = speedCell;
+  const box = new Element({ class: `mgmt-port mgmt-box-operational mgmt-edge-${up ? "up" : "down"}` });
+  box.kids.title = Object.assign(new Element(), { textContent: title });
+  box.parentNode = new Element({ "aria-label": title });
+  const byId = { "switch-2-port-9": row, "switch-2-panel-9": box };
+  return { row, link, speed: speedCell, box, doc: { getElementById: (id) => byId[id] ?? null } };
 }
 
 const record = (link, over = {}) => ({ schema: 1, switch: 2, port: 9, hostname: "pi-sw2-p9", link, at: "2026-10-14T01:02:03+00:00", ...over });
 
-test("a link-down record changes the row's link cell and the port's panel mark", () => {
+test("a link-down record changes the row's Link mark, clears its Speed, and dashes the box's edge", () => {
   const p = page({});
-  assert.equal(applyRecord(p.doc, STATES, record("down")), true);
-  const cell = p.row.children[2];
-  assert.equal(cell.textContent, "down");
-  assert.equal(cell.className, "mgmt-down");
-  // link down with PoE still delivering is panel.py's "starting"; other classes (the inventory mark) are kept
-  assert.equal(p.mark.attrs.class, "mgmt-port mgmt-port-known mgmt-port-starting");
-  assert.equal(p.mark.kids[".mgmt-glyph"].textContent, "*");
-  assert.equal(p.mark.kids.title.textContent, `port 9 · ${STATES[1][2]} · VLAN 2109`);
-  assert.equal(p.mark.parentNode.attrs["aria-label"], p.mark.kids.title.textContent);
+  assert.equal(applyRecord(p.doc, record("down")), true);
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↓");
+  assert.equal(p.link.kids[".mgmt-sr"].textContent, " link down");
+  assert.equal(p.link.title, "link down");
+  assert.equal(p.link.className, "mgmt-mark c-link mgmt-down");
+  assert.equal(p.speed.textContent, "");
+  assert.equal(p.speed.attrs["data-sort"], "0");
+  // the box keeps its State fill; only its edge changes
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-down");
+  assert.equal(p.box.kids.title.textContent, TITLE_UP.replace("link up 1G", "link down"));
+  assert.equal(p.box.parentNode.attrs["aria-label"], p.box.kids.title.textContent);
 });
 
-test("a link-up record gives the state the PoE part says, and keeps a speed the cell already shows", () => {
-  const p = page({ link: "down", poe: "searching", state: "searching", title: "port 9 · link down, PoE on and searching" });
-  p.row.children[2].className = "mgmt-down";
-  applyRecord(p.doc, STATES, record("up"));
-  assert.equal(p.row.children[2].textContent, "up");
-  assert.equal(p.row.children[2].className, "mgmt-up");
-  assert.match(p.mark.attrs.class, /mgmt-port-up/);
-  assert.equal(p.mark.kids[".mgmt-glyph"].textContent, "L");
-
-  const again = page({ link: "up 1G" });
-  applyRecord(again.doc, STATES, record("up"));
-  assert.equal(again.row.children[2].textContent, "up 1G");
+test("a link-up record gives a solid edge and keeps the speed the cell shows until a reading says", () => {
+  const down = TITLE_UP.replace("link up 1G", "link down");
+  const p = page({ up: false, speed: "", title: down });
+  applyRecord(p.doc, record("up"));
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
+  assert.equal(p.link.className, "mgmt-mark c-link mgmt-up");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
+  assert.equal(p.box.kids.title.textContent, down.replace("link down", "link up"));
+  const again = page({});
+  applyRecord(again.doc, record("up"));
+  assert.equal(again.speed.textContent, "1G");
 });
 
-test("a state that is unknown carries the link in its title", () => {
-  const p = page({ poe: "not known", state: "unknown", title: "port 9 · PoE state not known (x) · link up · VLAN 2109" });
-  applyRecord(p.doc, STATES, record("down"));
-  assert.equal(p.mark.attrs.class.includes("mgmt-port-unknown"), true);
-  assert.equal(p.mark.kids.title.textContent, "port 9 · PoE state not known (the switch gave none it names, or it was not read) · link down · VLAN 2109");
-});
-
-test("stateFor is panel.py's state() for each PoE the row can show", () => {
-  const cases = [
-    ["8.6W", true, "power"], ["on", false, "starting"], ["searching", true, "up"], ["searching", false, "searching"],
-    ["off", true, "up"], ["off", false, "off"], ["fault", true, "fault"], ["not known", false, "unknown"],
-  ];
-  for (const [text, up, want] of cases) assert.equal(stateFor(text, up, "up"), want, `${text} ${up}`);
-  // no PoE: a port without it, or a PoE port whose reading is missing
-  assert.equal(stateFor("no PoE", false, "up"), "down");
-  assert.equal(stateFor("no PoE", true, "down"), "up");
-  assert.equal(stateFor("no PoE", true, "unknown"), "unknown");
+test("a title's other words are left alone, a machine's words that say 'link' too", () => {
+  const title = "port 9 · link up 1G · PoE off · not as it should be: link down under Pi 5 2 GB 1 (operational)";
+  const p = page({ title });
+  applyRecord(p.doc, record("down"));
+  assert.equal(p.box.kids.title.textContent,
+    "port 9 · link down · PoE off · not as it should be: link down under Pi 5 2 GB 1 (operational)");
 });
 
 test("a bounced record, another port, or garbage draws nothing", () => {
   const p = page({});
-  assert.equal(applyRecord(p.doc, STATES, record("bounced")), false);
-  assert.equal(applyRecord(p.doc, STATES, record("down", { port: 10 })), false);
-  assert.equal(applyRecord(p.doc, STATES, null), false);
-  assert.equal(p.row.children[2].textContent, "up 1G");
-  assert.equal(p.mark.attrs.class, "mgmt-port mgmt-port-power mgmt-port-known");
+  assert.equal(applyRecord(p.doc, record("bounced")), false);
+  assert.equal(applyRecord(p.doc, record("down", { port: 10 })), false);
+  assert.equal(applyRecord(p.doc, null), false);
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
 });
 
-test("a row without a panel mark still gets its link cell", () => {
+test("a row without a panel box still gets its link cell", () => {
   const p = page({});
   const doc = { getElementById: (id) => (id === "switch-2-panel-9" ? null : p.doc.getElementById(id)) };
-  assert.equal(applyRecord(doc, STATES, record("down")), true);
-  assert.equal(p.row.children[2].textContent, "down");
+  assert.equal(applyRecord(doc, record("down")), true);
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↓");
 });
 
 class Socket {
@@ -155,48 +142,49 @@ test("it reconnects with a doubling backoff that resets only after a stable conn
 const { createKeeper } = require(
   join(here, "..", "..", "management", "src", "management", "static", "management", "switch-events.js"));
 
-// What tick() does: rebuild the row and the mark from a reading (the port is up and delivering), then reapply.
+// What tick() does: rebuild the row and the box from a reading (the port is up), then reapply.
 function rebuild(p) {
-  p.row.children[2].textContent = "up 1G"; p.row.children[2].className = "mgmt-up";
-  p.mark.attrs.class = "mgmt-port mgmt-port-power mgmt-port-known";
+  p.link.kids[".mgmt-glyph"].textContent = "↑"; p.link.className = "mgmt-mark c-link mgmt-up";
+  p.speed.textContent = "1G";
+  p.box.attrs.class = "mgmt-port mgmt-box-operational mgmt-edge-up";
 }
 const reading = (goodAt) => [{ index: 2, good_at_iso: goodAt }];
 
 test("a record, then a tick with an older reading, keeps the pushed state", () => {
   const p = page({});
-  const keeper = createKeeper(STATES);
+  const keeper = createKeeper();
   assert.equal(keeper.apply(p.doc, record("down", { at: "2026-10-14T01:02:03+00:00" })), true);
   rebuild(p);  // the cached reading, taken before the change
   keeper.reapply(p.doc, reading("2026-10-14T01:02:00+00:00"));
-  assert.equal(p.row.children[2].textContent, "down");
-  assert.match(p.mark.attrs.class, /mgmt-port-starting/);
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↓");
+  assert.match(p.box.attrs.class, /mgmt-edge-down/);
   // and again on the next older reading: still kept
   rebuild(p);
   keeper.reapply(p.doc, reading("2026-10-14T01:02:02+00:00"));
-  assert.equal(p.row.children[2].textContent, "down");
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↓");
   assert.equal(keeper.size(), 1);
 });
 
 test("a tick with a newer reading replaces the pushed state and drops the record", () => {
   const p = page({});
-  const keeper = createKeeper(STATES);
+  const keeper = createKeeper();
   keeper.apply(p.doc, record("down", { at: "2026-10-14T01:02:03+00:00" }));
   rebuild(p);  // the reading says up (the port came back, or the change was wrong)
   keeper.reapply(p.doc, reading("2026-10-14T01:02:04+00:00"));
-  assert.equal(p.row.children[2].textContent, "up 1G");
-  assert.equal(p.mark.attrs.class, "mgmt-port mgmt-port-power mgmt-port-known");
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
   assert.equal(keeper.size(), 0);
   // a reading exactly as old as the record has caught up with it too
   keeper.apply(p.doc, record("down", { at: "2026-10-14T01:03:00+00:00" }));
   rebuild(p);
   keeper.reapply(p.doc, reading("2026-10-14T01:03:00+00:00"));
-  assert.equal(p.row.children[2].textContent, "up 1G");
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
   assert.equal(keeper.size(), 0);
 });
 
 test("the keeper keeps the newest record per port, ignores records the page cannot draw, and compares per switch", () => {
   const p = page({});
-  const keeper = createKeeper(STATES);
+  const keeper = createKeeper();
   keeper.apply(p.doc, record("down", { at: "2026-10-14T01:05:00+00:00" }));
   assert.equal(keeper.apply(p.doc, record("up", { at: "2026-10-14T01:04:00+00:00" })), false);  // older: ignored
   assert.equal(keeper.apply(p.doc, record("bounced")), false);
@@ -205,6 +193,19 @@ test("the keeper keeps the newest record per port, ignores records the page cann
   rebuild(p);
   // another switch's fresh reading says nothing about switch 2; no reading for switch 2 at all: forget it
   keeper.reapply(p.doc, [{ index: 1, good_at_iso: "2026-10-14T02:00:00+00:00" }]);
-  assert.equal(p.row.children[2].textContent, "up 1G");
+  assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
   assert.equal(keeper.size(), 0);
+});
+
+test("a record redraws the box in the narrow drawing too, and keeps the MACs in the link mark's title", () => {
+  const p = page({});
+  p.link.title = "link up; MACs seen: aa:00:00:00:00:01";
+  const twin = new Element({ class: "mgmt-port mgmt-box-operational mgmt-edge-up" });
+  twin.kids.title = Object.assign(new Element(), { textContent: TITLE_UP });
+  twin.parentNode = new Element({ "aria-label": TITLE_UP });
+  const doc = { getElementById: (id) => (id === "switch-2-panel-9-n" ? twin : p.doc.getElementById(id)) };
+  applyRecord(doc, record("down"));
+  assert.equal(p.link.title, "link down; MACs seen: aa:00:00:00:00:01");
+  assert.equal(twin.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-down");
+  assert.equal(twin.kids.title.textContent, TITLE_UP.replace("link up 1G", "link down"));
 });
