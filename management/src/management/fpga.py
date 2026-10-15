@@ -359,6 +359,31 @@ class Host:
         return said + (f": {reasons}" if reasons else "")
 
 
+def report_boards(detail):
+    """[{board}] of one boot check's report (its fpga-verified detail), in the check's own order: a board's type,
+    label, result and each test's result, as /fleet/, the device page and its history show them."""
+    boards = []
+    for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
+        # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
+        variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
+        name, ident = board_parts(b)
+        boards.append({"kind": _text(b["board"], 40), "title": board_title(b), "label": board_label(b),
+                       "name": name, "label_id": ident,
+                       "variant": variant, "id": board_id(b),
+                       "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
+                       "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
+                       "failing": failing_tests(detail, i), "tests": board_tests(detail, i),
+                       # as the Pi sent them, old names and all: /fleet/registry.json's contract
+                       "reported_tests": board_tests(detail, i, alias=False),
+                       "not_run": not_run_tests(detail, i), "not_run_parts": not_run_parts(detail, i),
+                       "planned": planned_tests(detail, i),
+                       "not_run_reasons": keyed_reasons(detail, i, "not_run"),
+                       "not_applicable": keyed_reasons(detail, i, "not_applicable"),
+                       # the type as a visitor reads it, its variant with it (#127): "Acorn CLE-215+", "TT FPGA"
+                       "type": f"{board_title(b)} {variant.upper()}" if variant else board_title(b)})
+    return boards
+
+
 def hosts(now=None):
     """Every registered machine, by switch and port, with its check of the boot it is running."""
     now = now or timezone.now()
@@ -376,25 +401,7 @@ def hosts(now=None):
     rows = []
     for m in Machine.objects.select_related("latest_snapshot").order_by("hostname", "serial"):
         state, detail, ts = checks.get(m.serial, ("", {}, None))
-        boards = []
-        for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
-            # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
-            variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
-            name, ident = board_parts(b)
-            boards.append({"kind": _text(b["board"], 40), "title": board_title(b), "label": board_label(b),
-                           "name": name, "label_id": ident,
-                           "variant": variant, "id": board_id(b),
-                           "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
-                           "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
-                           "failing": failing_tests(detail, i), "tests": board_tests(detail, i),
-                           # as the Pi sent them, old names and all: /fleet/registry.json's contract
-                           "reported_tests": board_tests(detail, i, alias=False),
-                           "not_run": not_run_tests(detail, i), "not_run_parts": not_run_parts(detail, i),
-                           "planned": planned_tests(detail, i),
-                           "not_run_reasons": keyed_reasons(detail, i, "not_run"),
-                           "not_applicable": keyed_reasons(detail, i, "not_applicable"),
-                           # the type as a visitor reads it, its variant with it (#127): "Acorn CLE-215+", "TT FPGA"
-                           "type": f"{board_title(b)} {variant.upper()}" if variant else board_title(b)})
+        boards = report_boards(detail)
         kinds = []
         if boards:
             board_type = " + ".join(dict.fromkeys(b["title"] for b in boards))

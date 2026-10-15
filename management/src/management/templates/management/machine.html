@@ -21,8 +21,8 @@
     <tr><th scope="row" title="the host name it booted with">Host name</th><td>{{ machine.hostname|default:"–" }}</td></tr>
     {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered); its form changes with fpgas.online-infra#297 #}
     <tr><th scope="row" title="whether its last status said it is online">Online</th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
-    <tr><th scope="row" title="when it first registered">Registered</th><td>{{ first_seen }}</td></tr>
-    <tr><th scope="row" title="the id of the boot it is running">Boot</th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
+    <tr><th scope="row" title="{{ registration_title }}">First registered</th><td>{{ first_seen }}</td></tr>
+    <tr><th scope="row" title="{{ boot_title }}">Boot</th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
   </tbody>
 </table>
 
@@ -51,9 +51,13 @@
 {% endif %}
 
 <h2>Boot checks</h2>
+{# one row a boot (a power-on), a column per check as on /fleet/: the marks of that boot's tests, a mark per board in the Boards cell's order (#141) #}
 {% if history %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-history">
-  <thead><tr><th scope="col" title="the boot the check ran in">Boot</th><th scope="col" class="mgmt-checkhead" title="the boot it is running now">This boot</th><th scope="col" title="when the check reported">Check ran</th><th scope="col" class="mgmt-checkhead" title="the check's result">Result</th><th scope="col" title="each board's type and result">Boards</th></tr></thead>
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-history">
+  <thead>
+  {% if history_groups %}<tr class="mgmt-groups"><td colspan="5"></td>{% for group, n in history_groups %}<th scope="colgroup" colspan="{{ n }}" class="mgmt-group" title="{{ group }}: checks of this kind, as on /fleet/">{{ group }}</th>{% endfor %}</tr>{% endif %}
+  <tr><th scope="col" title="{{ boot_title }}">Boot</th><th scope="col" class="mgmt-checkhead" title="● the boot it is running now; – an earlier boot">This boot</th><th scope="col" title="when the check of that boot reported">Check ran</th><th scope="col" class="mgmt-checkhead" title="the check's result in that boot">Result</th><th scope="col" title="each board that boot's check found, its type and result">Boards</th>{% for name in history_columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}</th>{% endfor %}</tr>
+  </thead>
   <tbody>
   {% for c in history %}
     <tr>
@@ -62,6 +66,7 @@
       <td data-sort="{{ c.sort }}">{{ c.when }}</td>
       <td class="mgmt-mark" title="{{ c.mark.title }}"><span class="{{ c.mark.cls }}">{{ c.mark.mark }}</span><span class="mgmt-sr"> {{ c.mark.title }}</span></td>
       <td>{% for type, mark in c.boards %}<div title="{{ mark.title }}">{{ type }} <span class="{{ mark.cls }}">{{ mark.mark }}</span></div>{% empty %}–{% endfor %}</td>
+      {% for name, marks, sort in c.cells %}<td class="mgmt-mark" data-label="{{ name }}" data-sort="{{ sort }}" title="{% for m in marks %}{{ m.title }}{% if not forloop.last %}; {% endif %}{% endfor %}">{% for m in marks %}<div class="{{ m.cls }}">{{ m.mark }}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
     </tr>
   {% endfor %}
   </tbody>
@@ -125,7 +130,9 @@
 {% endif %}
 
 <h2>Labels</h2>
-{% if labels or notes %}
+{# the labels rpi-hwid makes from what the Pi sent, as it prints them; each links its PDF (#141) #}
+{% if label_images %}<div class="mgmt-labels">{% for title, png, pdf in label_images %}<figure><a href="{{ pdf }}"><img src="{{ png }}" width="240" height="144" alt="the label {{ title }}"></a><figcaption>{{ title }}</figcaption></figure>{% endfor %}</div>{% endif %}
+{% if labels or notes or label_refusals %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col" class="mgmt-checkhead" title="✗: rpi-hwid cannot make this label yet">State</th><th scope="col" title="the label rpi-hwid makes">Label</th><th scope="col" title="the field or event rpi-hwid still needs for it">Still needs</th><th scope="col" title="what sends it">Sent by</th></tr></thead>
   <tbody>
@@ -135,6 +142,9 @@
   {% for label_name, field, owner, owner_title in labels %}
     <tr><td class="mgmt-mark" title="rpi-hwid still needs {{ field }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> rpi-hwid still needs {{ field }}</span></td><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
   {% endfor %}
+  {% for kind, why in label_refusals %}
+    <tr><td class="mgmt-mark" title="{{ why }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ why }}</span></td><td>{{ kind }}</td><td title="{{ why }}">{{ why|truncatechars:60 }}</td><td title="rpi-hwid refuses to print a label with this gap">rpi-hwid</td></tr>
+  {% endfor %}
   </tbody>
 </table></div>
 {% else %}
@@ -142,21 +152,26 @@
 {% endif %}
 {% if label_input %}<p><a href="{{ label_input }}">rpi-hwid's label input (.json)</a></p>{% endif %}
 
-<h2>Registration</h2>
-{% if record %}<details class="mgmt-key-box"><summary>Newest registration (JSON)</summary><pre class="mgmt-json">{{ record }}</pre></details>{% else %}<p>No registration.</p>{% endif %}
-{% for snap, doc in older %}
-<details class="mgmt-key-box"><summary>Earlier: {{ snap.fingerprint|slice:":12" }}…, last confirmed {{ snap.last_confirmed|date:"Y-m-d H:i" }}</summary>
-  <pre class="mgmt-json">{{ doc }}</pre>
-</details>
-{% endfor %}
+<h2 title="{{ registration_title }}">Registrations</h2>
+{# a registration is what the Pi says it is; a boot is one power-on: not the same thing (Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot checks Boot value?", #141) #}
+{% if registrations %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-registrations">
+  <thead><tr><th scope="col" title="{{ registration_title }}">Registration</th><th scope="col" class="mgmt-checkhead" title="● the one it sent this boot and since; – an earlier one">Now</th><th scope="col" title="when the Pi first sent this registration">First sent</th><th scope="col" title="when the Pi last sent it: every boot sends its registration again, and a boot that sends the same one only moves this time">Last sent</th><th scope="col" title="what it says, as JSON">Document</th></tr></thead>
+  <tbody>
+  {% for fingerprint, newest, first, first_sort, last, last_sort, doc in registrations %}
+    <tr><td class="mgmt-mono" title="{{ fingerprint }}">{{ fingerprint|slice:":8" }}</td><td class="mgmt-mark" title="{% if newest %}the one it sends now{% else %}an earlier one{% endif %}">{% if newest %}●{% else %}–{% endif %}</td><td data-sort="{{ first_sort }}">{{ first }}</td><td data-sort="{{ last_sort }}">{{ last }}</td><td><details><summary>JSON</summary><pre class="mgmt-json">{{ doc }}</pre></details></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p>No registration.</p>{% endif %}
 
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
 {% if events %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events">
-  <thead><tr><th scope="col" title="when the Pi sent it">Time</th><th scope="col" title="the stage of the boot it reports">Stage</th><th scope="col" title="what it said, collapsed">Detail</th></tr></thead>
+  <thead><tr><th scope="col" title="when the Pi sent it">Time</th><th scope="col" title="the kind of event, by colour and by name: network, service, identify, check, test, other">Kind</th><th scope="col" title="the stage of the boot it reports, as sent">Stage</th><th scope="col" title="the test it is about">Test</th><th scope="col" class="mgmt-checkhead" title="✓ passed, ✗ did not pass (why on hover); – the event has no result">Result</th><th scope="col" title="what it said, collapsed">Detail</th></tr></thead>
   <tbody>
-  {% for event, detail in events %}
-    <tr><td>{{ event.ts|date:"H:i:s" }}</td><td>{{ event.stage }}</td><td>{% if detail and detail != "{}" %}<details><summary>detail</summary><code>{{ detail }}</code></details>{% else %}–{% endif %}</td></tr>
+  {% for e in events %}
+    <tr class="mgmt-ev-{{ e.kind }}"><td>{{ e.ts|date:"H:i:s" }}</td><td title="{% for k, t in event_kind_titles.items %}{% if k == e.kind %}{{ t }}{% endif %}{% endfor %}"><span class="mgmt-ev">{{ e.kind }}</span></td><td>{{ e.stage }}</td><td>{{ e.test|default:"–" }}</td><td class="mgmt-mark"{% if e.result %} title="{{ e.result.title }}"{% endif %}>{% if e.result %}<span class="{{ e.result.cls }}">{{ e.result.mark }}</span><span class="mgmt-sr"> {{ e.result.title }}</span>{% else %}<span class="mgmt-test-none">–</span>{% endif %}</td><td>{% if e.detail and e.detail != "{}" %}<details><summary>detail</summary><code>{{ e.detail }}</code></details>{% else %}–{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table></div>

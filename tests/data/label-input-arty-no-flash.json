@@ -1,0 +1,72 @@
+{
+ "host": "pi-sw2-p13",
+ "schema": "rpi-hwid/label-input",
+ "sources": {
+  "collected_by": "fpgas.online-site",
+  "fpga-board-identified": "ab22729f-d725-48fd-941e-7fd41fb66743",
+  "registration": "4166a6b6b1bf867eea40865bc1af831445b520accabb8bf8d3d21d8100c482bc"
+ },
+ "summary": {
+  "cameras": null,
+  "compatible": "",
+  "cpu": null,
+  "dmi": null,
+  "ext5v_v": null,
+  "fan": null,
+  "fpga": [
+   {
+    "dna": "0x0004e4897221085c",
+    "dna_agree": null,
+    "dna_conflict": null,
+    "dna_sources": [
+     "fpgas-verify"
+    ],
+    "flash": null,
+    "flash_error": null,
+    "flash_extended_id": null,
+    "flash_jedec": null,
+    "flash_sfdp": null,
+    "flash_source": null,
+    "flash_uid": null,
+    "flash_uid_bits": null,
+    "flash_uid_note": null,
+    "flash_uid_state": null,
+    "gateware": null,
+    "gateware_id": null,
+    "hw_rev": null,
+    "idcode": "0x0362d093",
+    "kind": "arty",
+    "mode": null,
+    "serial": "210319A28DC8",
+    "soc_model": null,
+    "trace_id": null
+   }
+  ],
+  "hat_uuid": null,
+  "header": null,
+  "macs": [
+   {
+    "kind": "eth",
+    "mac": "00:e0:4c:68:00:84",
+    "signal": null
+   },
+   {
+    "kind": "eth",
+    "mac": "b8:27:eb:86:39:63",
+    "signal": null
+   }
+  ],
+  "max_current_ma": null,
+  "memory": "1 GB",
+  "model": "Raspberry Pi 3 Model B Plus Rev 1.3",
+  "power_class": null,
+  "revision": "a020d3",
+  "riscv": null,
+  "rtc_battery": null,
+  "sdr": [],
+  "serial": "0000000080863963",
+  "tinytapeout": [],
+  "usb_net": []
+ },
+ "version": 1
+}
