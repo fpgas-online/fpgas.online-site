@@ -360,7 +360,7 @@ def test_a_malformed_record_is_said_in_the_section_and_the_page_stands():
     net_event(m, {"operational_state": "<b>"})
     html = page(m.serial)
     assert "The newest network-state record cannot be shown: network-state event" in html
-    assert "<h2>Boards</h2>" in html
+    assert "<h2 id=\"boards\">Boards</h2>" in html
 
 
 @pytest.mark.django_db

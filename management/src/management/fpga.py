@@ -2,11 +2,12 @@
 by board type. Everything comes from the fleet registry (each Pi's registration and boot events); nothing here
 is a remembered table of which board is on which port."""
 
+import re
 from dataclasses import dataclass, field
 
-from django.db.models import F
+from django.db.models import F, Max
 from django.utils import timezone
-from fleet.models import BootEvent, Machine
+from fleet.models import BootEvent, GatewayRecord, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
 from rpi_hwid import names
@@ -72,6 +73,14 @@ def registered_model(machine):
     return _text(model, MAX_TEXT) if isinstance(model, str) else ""
 
 
+def short_model(model):
+    """"Pi 3 Model B+" -> "Pi 3B+", "Pi 4 Model B" -> "Pi 4B", "Pi Compute Module 4" -> "Pi CM4", "Orange Pi PC" ->
+    "OPi PC"; any other model as it is ("Pi 5", "Pi Zero 2 W")."""
+    short = re.sub(r"(\d) Model ", r"\1", model)
+    short = short.replace("Compute Module ", "CM")
+    return re.sub(r"^Orange Pi\b", "OPi", short)
+
+
 @dataclass(frozen=True)
 class PiFields:
     """A host's label as its values, each its own column on the Pi dashboard (Tim, 15 Oct 2026: "Model names in the
@@ -83,6 +92,13 @@ class PiFields:
     serial: str
     why: str = ""
     note: str = ""
+
+    @property
+    def short(self):
+        """The model in a few characters for a dashboard column (Tim, 9 Oct 2026: "Pi 3B+", "Pi 5", "OPi PC"): the
+        label's "Model " and "Compute Module " folded ("Pi 3 Model B+" -> "Pi 3B+", "Pi Compute Module 4" -> "Pi
+        CM4"), "Orange Pi" as "OPi". The label's own words stay in the cell's title."""
+        return short_model(self.model)
 
     @property
     def label(self):
@@ -319,3 +335,25 @@ def summary(rows):
     table = [(t, counts, sum(counts.values())) for t, counts in sorted(types.items())]
     total = {c: sum(counts[c] for _, counts, _ in table) for c in CONDITIONS}
     return table, total, sum(total.values())
+
+
+@dataclass(frozen=True)
+class SeenPort:
+    """The port the gateway last saw a machine on: its newest lease record that names a port (fleet.GatewayRecord,
+    from dnsmasq on the gateway), and when. An observation with its time, never a remembered table."""
+    switch: int
+    port: int
+    at: object  # datetime
+
+    @property
+    def text(self):
+        return f"sw{self.switch} p{self.port}"
+
+
+def seen_ports():
+    """{machine id: SeenPort} for every machine the gateway has leased an address to on a port, in two queries."""
+    newest = GatewayRecord.objects.filter(kind="lease", machine__isnull=False, switch__isnull=False,
+                                          port__isnull=False).values("machine_id").annotate(last=Max("id")) \
+        .values_list("last", flat=True)
+    return {r.machine_id: SeenPort(r.switch, r.port, r.at)
+            for r in GatewayRecord.objects.filter(id__in=list(newest))}
