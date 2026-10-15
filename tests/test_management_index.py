@@ -241,7 +241,7 @@ def test_the_pis_are_a_count_per_condition_each_linking_the_pi_table_filtered_to
         "operational", "2 Pis", "/fleet/?condition=operational")
     assert sum(int(r["value"].split()[0]) for r in boards) == Machine.objects.count()
     # which Pis and why is the count's title; the Pi table has each as a row
-    assert "pi-sw2-p33 (no model registered): pin-id, spiflash" in by["needs attention"]["title"]
+    assert "pi-sw2-p33 (no model registered): wiring, flash" in by["needs attention"]["title"]
     assert "10000000f77b8415 (no model registered): stopped checking in" in by["needs attention"]["title"]
     assert by["missing"]["title"] == "10000000f536c51f (no model registered): missing 7 h"
     # no row names a single Pi when nothing is wrong with the page's data

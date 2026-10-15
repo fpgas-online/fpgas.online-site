@@ -9,9 +9,10 @@ from management import check_groups
 
 
 def test_jtag_comes_first_and_groups_keep_their_order():
-    names = ["pcie-link", "ddr", "uart", "jtag", "flash", "pin-id"]
-    assert check_groups.grouped(names) == [("basic", ["jtag"]), ("memory", ["flash", "ddr"]), ("peripherals", ["uart"]),
-                                           ("board specific", ["pcie-link", "pin-id"])]
+    names = ["pcie-link", "ddr", "uart", "jtag", "flash", "wiring"]
+    assert check_groups.grouped(names) == [("basic", ["jtag", "wiring"]), ("memory", ["flash", "ddr"]),
+                                           ("peripherals", ["uart"]),
+                                           ("board specific", ["pcie-link"])]
 
 
 def test_a_check_no_group_names_is_shown_last_under_not_grouped_never_hidden():
@@ -24,7 +25,7 @@ def test_every_check_fpgas_verify_runs_at_welland_has_a_group():
     seen = ["pcie-link", "pcie-bar0", "rp1-pio", "jtag", "flash", "ddr", "p2-uart", "p2-serial", "scratch", "p2-gpio",
             "uart", "spiflash", "ethernet", "pin-id", "header", "foboot", "foboot-after", "sdk", "dip-switches",
             "wiring"]
-    assert all(name in check_groups.GROUP_OF for name in seen)
+    assert all(check_groups.name(name) in check_groups.GROUP_OF for name in seen)
 
 
 def _css():
@@ -39,3 +40,17 @@ def test_serial_and_id_are_in_a_fixed_width_font():
 
 def test_the_sort_arrow_sits_under_a_header_word_so_it_widens_no_column():
     assert ".mgmt-table th:not(.mgmt-checkhead) .mgmt-sort::after { display: block; }" in _css()
+
+
+def test_every_board_type_gets_each_common_check_or_says_why_it_does_not_apply():
+    """Tim, 15 Oct 2026 (site #129): "*Anything* which has an FPGA should be getting jtag, anything which has wires
+    should be getting wiring, etc." Every type in the site's copy of verify's lists gets jtag, wiring, flash, ddr, uart
+    and ethernet, or carries verify's reason why one does not apply. A TT board whose variant is not settled is judged
+    on jtag, flash, ddr and ethernet only: whether it gets wiring and uart depends on the variant verify could not
+    settle."""
+    for title, (checks, not_applicable, unwritten) in check_groups.PLANNED.items():
+        common = ("jtag", "flash", "ddr", "ethernet") if title == "TT board, not identified" else check_groups.COMMON
+        for check in common:
+            assert (check in checks) != (check in not_applicable), (title, check)
+        assert set(unwritten) <= set(checks), title  # a test not written yet is still planned
+        assert all(not_applicable.values()), title  # every "not applicable" has its reason
