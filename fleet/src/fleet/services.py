@@ -31,19 +31,22 @@ def fingerprint(doc):
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def register_document(doc):
+def register_document(doc, retained=False):
     """Ingest a registration document. Returns (machine, changed) where
     changed means the machine's latest snapshot moved to a different
-    fingerprint (a flap back to a previously seen document reuses its row)."""
+    fingerprint (a flap back to a previously seen document reuses its row).
+
+    `retained`: the broker's stored copy, handed to the consumer when it
+    subscribes (the Pi publishes its registration retained), not something
+    the Pi said now: it sets last_seen only for a machine new to the site
+    (the field is required), never moves it for a known one (site #119)."""
     now = timezone.now()
     connection = doc.get("connection", {})
+    defaults = {"site": connection.get("site", ""), "hostname": connection.get("hostname", "")}
     machine, _ = Machine.objects.update_or_create(
         serial=doc["machine"]["serial"],
-        defaults={
-            "site": connection.get("site", ""),
-            "hostname": connection.get("hostname", ""),
-            "last_seen": now,
-        })
+        defaults=defaults if retained else defaults | {"last_seen": now},
+        create_defaults=defaults | {"last_seen": now})
     snapshot, created = machine.snapshots.get_or_create(
         fingerprint=fingerprint(doc), defaults={"document": doc})
     if not created:
@@ -56,20 +59,28 @@ def register_document(doc):
     return machine, changed
 
 
-def status(serial, payload):
-    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice)."""
+def status(serial, payload, retained=False):
+    """Apply a status-topic payload (60 s beat, LWT, or shutdown notice).
+
+    `retained`: the broker's stored copy, replayed to the consumer when it
+    subscribes (the Pi publishes its status and its will retained), so it
+    says nothing about when the Pi last spoke: the state is applied, last_seen
+    is left as it was (site #119: every consumer restart used to stamp every
+    machine, the long-missing ones too, as seen at the restart)."""
     machine = Machine.objects.filter(serial=serial).first()
     if machine is None:
         log.warning("status for unknown machine %s dropped", serial)
         return None
     machine.online = bool(payload.get("online"))
-    machine.last_seen = timezone.now()
+    fields = ["online", "last_boot_id", "last_uptime_s"]
+    if not retained:
+        machine.last_seen = timezone.now()
+        fields.append("last_seen")
     if "boot_id" in payload:
         machine.last_boot_id = payload["boot_id"]
     if "uptime_s" in payload:
         machine.last_uptime_s = payload["uptime_s"]
-    machine.save(update_fields=["online", "last_seen", "last_boot_id",
-                                "last_uptime_s"])
+    machine.save(update_fields=fields)
     return machine
 
 
