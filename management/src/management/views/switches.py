@@ -564,8 +564,8 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         # what LLDP says of the neighbour, on hover: whose name it is and its chassis id (#148); its port has a column
         "lldp_title": "; ".join(t for t in (
             (f"the name it announces: {name}" if name != neighbour_name else "the name it announces") if name else "",
-            f"chassis {getattr(port, 'lldp_chassis', None) or ''}"
-            if name and getattr(port, "lldp_chassis", None) else "") if t),
+            # a neighbour that announces a chassis and no name still has its chassis said (nothing hidden, #148)
+            f"chassis {port.lldp_chassis}" if getattr(port, "lldp_chassis", None) else "") if t),
         "lldp_url": _fleet_url(request, serial) if serial else "",
         "lldp_port": lldp_port(port),
         "rx": rate(port.rx_bps),
@@ -613,7 +613,7 @@ def gateway_vlan_netdevs():
 
 def _vlan_names(views):
     """{VLAN id: name} for the names the page may show (SHOWN_NAME: a board's or a switch's name); every other
-    VLAN name is left out, as every other host name is masked."""
+    VLAN name is left out (VLAN names are the switch's configuration, not LLDP: #148 shows every LLDP name)."""
     names = {}
     for view in views:
         for vlan in getattr(view, "vlans", None) or []:

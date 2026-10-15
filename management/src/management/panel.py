@@ -179,8 +179,8 @@ def title(row):
     parts.append(row["poe_title"] + (f" {row['watts']} W" if row["watts"] else ""))
     if row["vlan"] and row["vlan"] != "–":
         parts.append(f"VLAN {row['vlan']}")
-    if row["lldp_name"]:
-        parts.append(f"sees {row['lldp_name']}")
+    if row["lldp_name"] or row.get("lldp_title"):  # what LLDP says, as the row's LLDP cell and its title say it (#148)
+        parts.append("LLDP: " + "; ".join(t for t in (row["lldp_name"], row.get("lldp_title", "")) if t))
     parts.append(row["net_title"])
     return " · ".join(parts)
 

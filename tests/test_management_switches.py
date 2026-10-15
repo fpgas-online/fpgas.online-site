@@ -1398,3 +1398,20 @@ def test_an_lldp_neighbours_chassis_id_is_on_hover(monkeypatch):
     port = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"][2]
     assert (port["lldp_name"], port["lldp_title"], port["lldp_port"]) == (
         "rpi5-new-13f59c", "the name it announces; chassis 98:fe:54:13:f5:9c", "eth0")
+
+
+@pytest.mark.django_db
+def test_a_chassis_with_no_name_is_still_said_and_the_panel_box_says_what_the_row_does(monkeypatch):
+    """Nothing LLDP reports is hidden (#148): a neighbour that sends a chassis id and no system name has its chassis in
+    the cell's title; a port's box title carries the LLDP cell and its title."""
+    views = make_views()
+    views[0].ports[2].lldp_name, views[0].ports[2].lldp_chassis = None, "98:fe:54:13:f5:4e"
+    views[0].ports[1].lldp_name, views[0].ports[1].lldp_chassis = "tweed.welland.example", "00:11:22:33:44:55"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    data = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
+    ports = data["ports"]
+    assert (ports[2]["lldp_name"], ports[2]["lldp_title"]) == ("", "chassis 98:fe:54:13:f5:4e")
+    assert ports[1]["lldp_title"] == "the name it announces: tweed.welland.example; chassis 00:11:22:33:44:55"
+    from management import panel
+    assert ("LLDP: tweed; the name it announces: tweed.welland.example; chassis 00:11:22:33:44:55"
+            in panel.title(ports[1]))
