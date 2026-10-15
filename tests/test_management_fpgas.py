@@ -107,7 +107,23 @@ def test_the_page_answers_without_a_login_on_every_host(fleet, host):
     html = r.content.decode()
     assert "<title>Raspberry Pis &mdash; Management &mdash; fpgas.online</title>" in html
     assert "<h1>Raspberry Pis</h1>" in html and ">sw2 p46</td>" in html
-    assert '<meta http-equiv="refresh" content="60">' in html
+    # the tables refresh in place (site #138); only a browser without JavaScript reloads the page
+    assert '<noscript><meta http-equiv="refresh" content="60"></noscript>' in html
+    assert html.count('<meta http-equiv="refresh"') == 1
+    assert '<div data-mgmt-refresh="60">' in html and 'id="mgmt-live" role="status" hidden' in html
+
+
+@pytest.mark.django_db
+def test_the_refreshed_part_holds_every_table_and_the_filter_line_and_nothing_else(fleet):
+    """table.js swaps the data-mgmt-refresh part for the same part of a fresh copy of the page (site #138): the
+    summary, the filter line and the Pi tables are inside it; the navigation and the key (with its stop link) are not,
+    so an open key stays open."""
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/?condition=attention").content.decode()
+    start = html.index('<div data-mgmt-refresh="60">')
+    part = html[start:html.index('<details class="mgmt-key-box">')]
+    assert part.count("<table") == html.count("<table") >= 2
+    assert "show all" in part
+    assert "mgmt-nav" not in part and "mgmt-nav" in html[:start]
 
 
 @pytest.mark.django_db
@@ -242,7 +258,8 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
 @pytest.mark.django_db
 def test_the_page_can_stop_reloading_and_ignores_a_filter_it_has_not(fleet):
     c = Client(HTTP_HOST="welland.fpgas.online")
-    assert '<meta http-equiv="refresh"' not in c.get("/management/fpgas/?reload=off", follow=True).content.decode()
+    stopped = c.get("/management/fpgas/?reload=off", follow=True).content.decode()
+    assert '<meta http-equiv="refresh"' not in stopped and "data-mgmt-refresh" not in stopped
     odd = c.get("/management/fpgas/?condition=bogus", follow=True).content.decode()
     assert "pi-sw2-p46" in odd and "show all" not in odd
 
@@ -600,7 +617,7 @@ def test_the_reload_switch_keeps_the_filter_and_the_redirect_keeps_every_paramet
     html = c.get("/fleet/?type=TT+board%2C+not+identified&condition=attention").content.decode()
     assert 'href="?type=TT+board%2C+not+identified&amp;condition=attention&amp;reload=off">stop</a>' in html
     off = c.get("/fleet/?condition=attention&reload=off").content.decode()
-    assert 'href="?condition=attention">reload every minute</a>' in off
+    assert 'href="?condition=attention">refresh every minute</a>' in off
     r = c.get("/management/fpgas/?type=TT+board%2C+not+identified&condition=attention&reload=off")
     assert r["Location"] == "/fleet/?type=TT+board%2C+not+identified&condition=attention&reload=off"
 
