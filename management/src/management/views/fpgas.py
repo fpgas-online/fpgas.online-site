@@ -74,6 +74,25 @@ STATE_MARKS = states.MARKS
 
 
 @dataclass
+class BootMark:
+    """The Boot check cell: its mark and its sort key (failures first, as the check columns)."""
+    mark_: Mark
+    sort: int
+
+    @property
+    def mark(self):
+        return self.mark_.mark
+
+    @property
+    def cls(self):
+        return self.mark_.cls
+
+    @property
+    def title(self):
+        return self.mark_.title
+
+
+@dataclass
 class CheckCell:
     """A Pi's cell in a check's column: a mark per board, in the order of the Board cell's lines."""
     name: str  # the check, for the cell's label on a phone
@@ -100,8 +119,7 @@ class Line:
     port: str  # "sw1 p10": the port the gateway last leased it an address on; "" when it has no lease record
     port_title: str  # where the port comes from, and when
     sort_port: str  # switch and port as numbers, zero-padded: sw2 p4 before sw2 p33
-    check: str  # the boot check's verdict, one word or phrase: "passed", "failed", "found no board"
-    check_title: str  # why it is not offered, in the check's words, "" when it is
+    boot: Mark  # the boot check of the boot it is running, one character like every check (#129), words on hover
     boards: list  # [(type, id, label)] of each board ("Acorn CLE-215+", "0x0020...", "acorn-holly 0x0020..."), or
                   # the kinds its registration names: one per line in the Board and ID cells
     checks: list  # a CheckCell per check column
@@ -116,6 +134,40 @@ class Line:
     offered_title: str  # "offered" or "not offered: <why>" (#127: "the 'why not' being a popup / shown on hover")
     notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page an offered Pi's ✓ links to
+
+
+# The column headers' titles: what each column is, said once (#129: "What is the differences between Checked and
+# operational?"). "operational" is a State; "Check ran" is a time.
+HEAD_TITLES = {
+    "state": "operational: offered to visitors (it checks in, and the boot check of the boot it is running passed); "
+             "needs attention: that check did not pass, or it stopped checking in; missing: not heard from for 6 h; "
+             "checking: that check has not finished",
+    "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
+    "serial": "the Pi's serial number; links its own page",
+    "port": "the switch port the gateway last leased it an address on", "board": "the FPGA board's type",
+    "id": "the id on the board's label (its DNA or USB serial); its name on hover",
+    "offered": "offered to visitors: ✓ links its visitor page, ✗ says why not",
+    "up": "how long the Pi has been up", "seen": "its last status beat",
+    "boot_check": "the boot check of the boot it is running: ✓ passed, ✗ did not pass, ⟳ running, ⊘ not started",
+    "check_ran": "when the boot check of the boot it is running reported",
+    "check": "✓ ran and passed, ✗ ran and failed, ⊘ should have run but did not, – not applicable",
+    "notes": "what the page could not read",
+}
+
+
+def boot_mark(host, checked_text=""):
+    """The boot check of this boot as one character (#129: "Boot check is still random text"): ✓ passed, ✗ did not
+    pass (failed, could not finish, found no board, unreadable, or a result the page does not know), ⟳ running,
+    ⊘ not started; its words, and why the Pi is not offered, in the title."""
+    word = _check_word(host)
+    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why else "")
+    if host.state == "pass":
+        return Mark(PASSED[0], PASSED[1], title), PASSED[2]
+    if host.state == "verifying":
+        return Mark("⟳", "mgmt-test-running", title), NOT_RUN[2]
+    if host.state == "":
+        return Mark(NOT_RUN[0], NOT_RUN[1], title), NOT_RUN[2]
+    return Mark(FAILED[0], FAILED[1], title), FAILED[2]
 
 
 def _check_word(host):
@@ -293,10 +345,11 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
         checked = ""
         notes.append(f"check {duration(host.checked - now)} ahead" if host.checked > now else str(exc))
     offered, why, page = _offer(host, now, pages)
+    _boot = BootMark(*boot_mark(host, timezone.localtime(host.checked).strftime("%-d %b %H:%M") if host.checked else ""))
     seconds = host.machine.last_uptime_s if host.uptime else 0
     link = f"{detail}{host.machine.serial}/#boards" if detail else ""
     return Line(host, STATE_MARKS[host.condition], fields.short, model_title, fields.memory, memory_mb, fields.serial,
-                port, port_title, sort_port, _check_word(host), host.why,
+                port, port_title, sort_port, _boot,
                 [(b["type"], b["label_id"], b["label"]) for b in host.boards]
                 or [(kind, "", "") for kind in host.registered_kinds or [host.board_type]],
                 [check_cell(host, name, link, planned or {}) for name in columns],
@@ -341,6 +394,7 @@ def _page(request):
         "want_condition": want_condition, "want_type": want_type,
         "filtered": bool(want_condition or want_type),
         "fleet": fleet,
+        "head_titles": HEAD_TITLES,
         "zone": localtime.zone_name(),
         "reload": request.GET.get("reload", "") != "off",
     })
