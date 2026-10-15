@@ -453,9 +453,9 @@ POWER_URL = "/snmp/power"
 
 
 def _can_power(request, view, spec):
-    """{port numbers of `view` that get a PoE button}: the board ports, as the site's PoE policy (the one /snmp/power
-    enforces, pibfpgas.poe.board_port) says. ONE pass over the registry per switch, not one per port. A port the
-    inventory names as an uplink, trunk or other infrastructure is not asked at all."""
+    """{port numbers of `view` that get a PoE button}: every access port, as the site's PoE policy (the one /snmp/power
+    enforces, pibfpgas.poe.board_port) says; on a flat site, the registered ones, from ONE pass over the registry. A
+    port the inventory names as an uplink, trunk or other infrastructure is not asked at all."""
     from pibfpgas.poe import board_ports
 
     if spec is NO_INVENTORY:
@@ -836,7 +836,7 @@ def head_titles():
         "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) "
+        "power": "Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) "
                  "turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), "
                  "the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",

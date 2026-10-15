@@ -1,6 +1,6 @@
-"""The PoE endpoints (/snmp/status, /snmp/toggle; the snmp_switch app from
-the fpgas-online-poe package) act on a board's own port and nothing beyond
-(pibfpgas/poe.py), once per port per interval.
+"""The PoE endpoints (/snmp/status, /snmp/toggle, /snmp/power; the snmp_switch
+app from the fpgas-online-poe package) act on an access port and nothing
+beyond (pibfpgas/poe.py), once per port per interval.
 
 Visitors use the boards and press Reset, with no login: every board keeps
 its Reset, above all one that has hung, is restarting or is failing its
@@ -195,7 +195,7 @@ def test_the_deploy_check_fails_beside_a_package_that_does_not(monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, "snmp_switch.policy", None)  # as if the module did not exist
     errors = poe_package_enforces_the_port_policy(None)
-    assert [e.id for e in errors] == ["pibfpgas.E001"] and "not a board's" in errors[0].msg
+    assert [e.id for e in errors] == ["pibfpgas.E001"] and "would accept a trunk or an uplink" in errors[0].msg
 
 
 def test_the_deploy_check_fails_beside_a_package_with_the_policy_but_no_access_port_bound(monkeypatch):
@@ -222,7 +222,7 @@ def test_the_package_refuses_everything_when_no_policy_is_named(switch_calls, se
     assert switch_calls == []
 
 
-# --- the welland site: a port a board is registered on ----------------------
+# --- the welland site: a board's port (every access port is, too) -----------
 
 
 @pytest.mark.django_db
@@ -615,7 +615,7 @@ def test_a_tt_boards_pi_is_a_registered_board_on_the_welland_site_too(switch_cal
     assert switch_calls == cycled(WELLAND, 1, 6)
 
 
-def test_tt_button_and_policy_use_the_same_answer(tt_boards):
+def test_tt_button_and_policy_use_the_same_answer(switch_calls, tt_boards):
     from pibfpgas.poe import board_port
 
     from ttsite import boards
@@ -660,3 +660,44 @@ def test_a_tt_board_whose_pi_has_stopped_reporting_can_still_be_reset(switch_cal
     assert "has stopped reporting" in html
     assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "6", "switch": 1}).status_code == 200
     assert switch_calls == cycled(TINYTAPEOUT, 1, 6)
+
+
+# --- /snmp/power, the switch page's button, and the cross-site guard (#147) ----------------------------------------
+
+
+@pytest.mark.parametrize("host", [WELLAND, TINYTAPEOUT])
+def test_power_switches_an_access_port_no_board_registered_on(switch_calls, host):
+    """Tim, 16 Oct 2026: "All access ports should *always* be switchable": /snmp/power, as the switch page sends it,
+    on an empty access port, on both hosts."""
+    r = post(host, "/snmp/power", {"port": 30, "switch": 1, "on": True})
+    assert r.status_code == 200, r.content
+    assert ("192.0.2.1", "set", 30, True) in switch_calls
+
+
+@pytest.mark.parametrize("host", [WELLAND, TINYTAPEOUT])
+@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS)
+def test_power_refuses_a_trunk_an_uplink_or_a_port_outside_the_access_ports(switch_calls, host, switch, port):
+    forge(f"pi-sw{switch}-p{port}")  # whatever is registered there
+    r = post(host, "/snmp/power", {"port": port, "switch": switch, "on": False})
+    assert r.status_code in (400, 403), (switch, port)
+    assert switch_calls == []
+
+
+def test_power_from_another_site_is_refused_before_anything_is_read(switch_calls):
+    r = Client(HTTP_HOST=WELLAND).post("/snmp/power", data=json.dumps({"port": 30, "switch": 1, "on": False}),
+                                       content_type="application/json", HTTP_SEC_FETCH_SITE="cross-site")
+    assert r.status_code == 403 and "cross-site" in r.json()["error"]
+    assert switch_calls == []
+
+
+def test_the_policy_rechecks_the_access_port_bound_itself(switch_calls):
+    """pibfpgas.poe re-checks the switches file's bound, so it holds even if a package asked the policy first."""
+    from django.test import RequestFactory
+    from pibfpgas.poe import board_port, board_ports
+
+    request = RequestFactory().get("/", HTTP_HOST=WELLAND)
+    for switch, port in NOT_FOR_BOARDS:
+        assert not board_port(request, switch, port), (switch, port)
+    assert board_port(request, 1, 30) and board_port(request, 2, 48)
+    assert board_ports(request, 1, [30, 41, 47, 48, 50]) == {30}
+    assert not board_port(request, 3, 5)  # a switch the file does not describe

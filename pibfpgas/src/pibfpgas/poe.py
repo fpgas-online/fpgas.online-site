@@ -46,10 +46,23 @@ any port, as no switches file bounds it.
 """
 
 from fleet.models import Machine
+from snmp_switch.switches import configured_specs, is_access_port
 from ttsite.boards import reported_port, reported_ports
 from ttsite.middleware import serves_ttsite
 
 from .pis import Pi
+
+
+def _spec(switch):
+    """The switches file's description of switch `switch`, or None for a switch it does not describe."""
+    return next((spec for spec in configured_specs() if spec.index == switch), None)
+
+
+def _is_access_port(switch, port):
+    """Whether (switch, port) is an access port by the switches file. The package refuses every other port before it
+    asks this policy; the policy checks the same bound again, so it holds even if a later package asked first."""
+    spec = _spec(switch)
+    return spec is not None and is_access_port(spec, port)
 
 
 def registered_on(switch, port):
@@ -69,8 +82,8 @@ def board_port(request, switch, port):
     """Whether (switch, port) is a board's port on the site answering
     `request`. `switch` is the switch's index, or None at a flat site (one
     switch, Pis registered as pi<port>); `port` is an int."""
-    if switch is not None:
-        return True  # an access port: the package has refused every other port already (Tim, 16 Oct 2026)
+    if switch is not None:  # every access port (Tim, 16 Oct 2026)
+        return _is_access_port(switch, port)
     if serves_ttsite(request):
         return reported_port(switch, port)
     return registered_on(switch, port)
@@ -91,7 +104,8 @@ def board_ports(request, switch, ports):
     """{port for port in ports if board_port(request, switch, port)}, answered from one pass over the registry
     instead of one per port: the switch dashboard asks for every port of every switch on each refresh."""
     if switch is not None:
-        return set(ports)  # the caller passes the access ports alone (management.views.switches._can_power)
+        spec = _spec(switch)
+        return {port for port in ports if spec is not None and is_access_port(spec, port)}
     if serves_ttsite(request):
         reported = reported_ports()
         return {port for port in ports if (switch, port) in reported}

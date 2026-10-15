@@ -21,9 +21,10 @@
     parent.appendChild(document.createTextNode(text));
     var sr = cell("span", " " + words); sr.className = "mgmt-sr"; parent.appendChild(sr);
   }
-  /* The PoE button (#67). There is no login (#66): the guard is the server, which answers /snmp/power only for a board
-     port (403 for any other) and at most once per interval per port. The confirm() below is a courtesy so that nobody
-     switches a board off by a stray click; it is not a check, and nothing here decides which ports may be switched. */
+  /* The PoE button (#67). There is no login (#66): the guard is the server, which answers /snmp/power for an access port
+     only (403 for a trunk, an uplink or a port outside the access range) and at most once per interval per port. The
+     confirm() below is a courtesy so that nobody switches a board off by a stray click; it is not a check, and nothing
+     here decides which ports may be switched. */
   var powerUrl = "{{ power_url }}";
   var results = {};  /* "switch/port" -> {text, at}: what the last press said, kept across the table refresh */
   var RESULT_SECONDS = 60;

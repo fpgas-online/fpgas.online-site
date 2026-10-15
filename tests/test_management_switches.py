@@ -90,6 +90,8 @@ def welland_inventory(monkeypatch):
     switch_1 = SimpleNamespace(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,),
                                house_uplink_port=48)
     monkeypatch.setattr(page, "_inventory", lambda: {1: switch_1})
+    # the PoE policy reads the same switches file as the page (pibfpgas.poe re-checks the access-port bound, #147)
+    monkeypatch.setattr("pibfpgas.poe._spec", lambda switch: (page._inventory() or {}).get(switch))
 
 
 @pytest.fixture
@@ -630,8 +632,8 @@ def test_board_ports_agrees_with_board_port_and_asks_the_registry_once(host, swi
     with django_assert_num_queries(0 if switch is not None else 1):
         batch = board_ports(request, switch, ports)
     assert batch == {p for p in ports if board_port(request, switch, p)} and batch
-    if switch is not None:
-        assert batch == set(ports)
+    if switch is not None:  # welland_inventory's switch 1: ports 1-40 but its trunk and uplink, none past 40
+        assert batch == set(range(1, 41))
 
 
 def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch):
@@ -648,7 +650,7 @@ def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch)
     # every access port on a site with a switches file (Tim, 16 Oct 2026); a flat site's Tiny Tapeout host still
     # switches only the ports a Pi reported a Tiny Tapeout board on (no file says which ports are access ports)
     batch = board_ports(request, 1, range(0, 20))
-    assert batch == set(range(0, 20)) == {p for p in range(0, 20) if board_port(request, 1, p)}
+    assert batch == set(range(1, 20)) == {p for p in range(0, 20) if board_port(request, 1, p)}  # port 0 is none
     named[:] = [(None, Pi(port=p), None, None) for p in (3, 9)]
     assert board_ports(request, None, range(0, 20)) == {3, 9} == {p for p in range(0, 20) if board_port(request, None, p)}
 
@@ -736,7 +738,7 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert ('title="Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) '
+    assert ('title="Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) '
             'turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), '
             'the reason on hover"') in html
 
@@ -1364,7 +1366,7 @@ def test_the_tinytapeout_sites_greyed_symbol_names_its_own_policy():
 def test_the_poe_and_power_headers_name_the_marks_the_cells_use():
     titles = page.head_titles()
     assert "🔍 PoE on and searching" in titles["poe"] and "○" not in titles["poe"]
-    assert "a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off)" in titles["power"]
+    assert "a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off)" in titles["power"]
 
 
 def test_on_and_off_buttons_differ_in_shape_not_only_colour():
