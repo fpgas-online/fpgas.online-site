@@ -732,8 +732,9 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert ('title="Power: ⏻ green turns the port&#x27;s PoE off, ⏻ red turns it on; greyed where the site does not '
-            'switch the port (only a board&#x27;s own port is switched), the reason on hover"') in html
+    assert ('title="Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) '
+            'turns it on; greyed where the site does not switch the port (only a board&#x27;s own port is switched), '
+            'the reason on hover"') in html
 
 
 @pytest.mark.django_db
@@ -1359,4 +1360,14 @@ def test_the_tinytapeout_sites_greyed_symbol_names_its_own_policy():
 def test_the_poe_and_power_headers_name_the_marks_the_cells_use():
     titles = page.head_titles()
     assert "🔍 PoE on and searching" in titles["poe"] and "○" not in titles["poe"]
-    assert "⏻ green turns the port's PoE off, ⏻ red turns it on" in titles["power"]
+    assert "a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off)" in titles["power"]
+
+
+def test_on_and_off_buttons_differ_in_shape_not_only_colour():
+    """The coordinator's hold on #143: a filled button for a powered port, a hollow one for a port that is off."""
+    import pathlib
+    css = (pathlib.Path(page.__file__).parents[1] / "static" / "management" / "management.css").read_text()
+    off = css.split(".mgmt-poe-button.mgmt-poe-to-off {", 1)[1].split("}", 1)[0]
+    on = css.split(".mgmt-poe-button.mgmt-poe-to-on {", 1)[1].split("}", 1)[0]
+    assert "background: #1b7a1b" in off and "color: #fff" in off
+    assert "background: #fff" in on and "color: #b00020" in on

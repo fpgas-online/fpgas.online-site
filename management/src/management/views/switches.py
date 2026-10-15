@@ -836,8 +836,9 @@ def head_titles():
         "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: ⏻ green turns the port's PoE off, ⏻ red turns it on; greyed where the site does not switch "
-                 "the port (only a board's own port is switched), the reason on hover",
+        "power": "Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) "
+                 "turns it on; greyed where the site does not switch the port (only a board's own port is switched), "
+                 "the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",
         "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",
         "lldp": "the name the LLDP neighbour announces (its domain dropped); where the page may not show it, its role "
