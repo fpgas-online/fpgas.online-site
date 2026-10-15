@@ -287,7 +287,7 @@ def test_a_label_rpi_hwid_can_make_is_on_the_page_as_an_image_linking_its_pdf(mo
         png.content[20:24])) == (720, 432)  # 63.5 x 38.1 mm at 4 px a point
     pdf = c.get(f"/fleet/{m.serial}/label.pdf?{ident}")
     assert pdf.status_code == 200 and pdf["Content-Type"] == "application/pdf" and pdf.content.startswith(b"%PDF")
-    assert pdf["Content-Disposition"] == 'inline; filename="rpi-hwid.pdf"'  # a title with a space is not a file name
+    assert pdf["Content-Disposition"] == 'inline; filename="acorn-linden-0x0044a48664b0485c.pdf"'
 
 
 @pytest.mark.django_db
@@ -345,6 +345,8 @@ def test_registrations_and_boots_are_named_apart_with_what_each_is():
                for r in rows)
     assert any('title="' + "a" * 64 + '">aaaaaaaa</td><td class="mgmt-mark" title="an earlier one">–' in r for r in rows)
     assert "<summary>JSON</summary>" in section
+    # both times sort as times, not as their "x ago" words (the review of #146)
+    assert all(len(re.findall(r'<td data-sort="\d+">', r)) == 2 for r in rows)
 
 
 @pytest.mark.django_db

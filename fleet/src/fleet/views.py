@@ -40,10 +40,10 @@ def _label(request, serial):
     document = hwid.build(machine).document
     label_id = request.GET.get("id", "")
     try:
-        made, _ = labelart.made(document)
+        ids = labelart.made_ids(document)
     except hwid.label_input.InputError:  # the last guard (contract §35): the page says why
         raise Http404("rpi-hwid refuses this Pi's label input") from None
-    if label_id not in {m.id for m in made}:
+    if label_id not in ids:
         raise Http404("rpi-hwid makes no label of that id for this Pi")
     return document, label_id
 
@@ -58,6 +58,6 @@ def label_pdf(request, serial):
     """One of the Pi's labels as rpi-hwid prints it: a one-page PDF the label's size."""
     document, label_id = _label(request, serial)
     response = HttpResponse(labelart.pdf(document, label_id), content_type="application/pdf")
-    name = label_id.rsplit("/", 1)[-1]
+    name = label_id.rsplit("/", 1)[-1].replace(" ", "-")  # "acorn-linden 0x0044..." -> acorn-linden-0x0044...
     response["Content-Disposition"] = f'inline; filename="{name if SAFE_NAME.fullmatch(name) else FALLBACK_NAME}.pdf"'
     return response

@@ -78,6 +78,16 @@ def _one_board_each(document):
         yield {**document, "summary": {**summary, "fpga": [], "tinytapeout": [], key: [board]}}
 
 
+def made_ids(document):
+    """The ids of the labels made() lists, cached as the labels are: an image request does not list them again."""
+    key = _key(document, "", "ids")
+    ids = cache.get(key)
+    if ids is None:
+        ids = [m.id for m in made(document)[0]]
+        cache.set(key, ids, CACHE_SECONDS)
+    return set(ids)
+
+
 def _key(document, label_id, form):
     digest = hashlib.sha256((_text(document) + "\0" + label_id + "\0" + form).encode()).hexdigest()
     return f"fleet-label:{digest}"

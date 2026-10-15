@@ -156,10 +156,10 @@
 {# a registration is what the Pi says it is; a boot is one power-on: not the same thing (Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot checks Boot value?", #141) #}
 {% if registrations %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-registrations">
-  <thead><tr><th scope="col" title="{{ registration_title }}">Registration</th><th scope="col" class="mgmt-checkhead" title="● the one it sent this boot and since; – an earlier one">Now</th><th scope="col" title="the first boot it was sent in">First sent</th><th scope="col" title="the last boot it was sent in (each boot sends it again)">Last sent</th><th scope="col" title="what it says, as JSON">Document</th></tr></thead>
+  <thead><tr><th scope="col" title="{{ registration_title }}">Registration</th><th scope="col" class="mgmt-checkhead" title="● the one it sent this boot and since; – an earlier one">Now</th><th scope="col" title="when the Pi first sent this registration">First sent</th><th scope="col" title="when the Pi last sent it: every boot sends its registration again, and a boot that sends the same one only moves this time">Last sent</th><th scope="col" title="what it says, as JSON">Document</th></tr></thead>
   <tbody>
-  {% for fingerprint, newest, first, last, last_sort, doc in registrations %}
-    <tr><td class="mgmt-mono" title="{{ fingerprint }}">{{ fingerprint|slice:":8" }}</td><td class="mgmt-mark" title="{% if newest %}the one it sends now{% else %}an earlier one{% endif %}">{% if newest %}●{% else %}–{% endif %}</td><td>{{ first }}</td><td data-sort="{{ last_sort }}">{{ last }}</td><td><details><summary>JSON</summary><pre class="mgmt-json">{{ doc }}</pre></details></td></tr>
+  {% for fingerprint, newest, first, first_sort, last, last_sort, doc in registrations %}
+    <tr><td class="mgmt-mono" title="{{ fingerprint }}">{{ fingerprint|slice:":8" }}</td><td class="mgmt-mark" title="{% if newest %}the one it sends now{% else %}an earlier one{% endif %}">{% if newest %}●{% else %}–{% endif %}</td><td data-sort="{{ first_sort }}">{{ first }}</td><td data-sort="{{ last_sort }}">{{ last }}</td><td><details><summary>JSON</summary><pre class="mgmt-json">{{ doc }}</pre></details></td></tr>
   {% endfor %}
   </tbody>
 </table></div>

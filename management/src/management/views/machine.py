@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404
 from django.shortcuts import render
 from django.utils import timezone
@@ -241,6 +242,14 @@ def _history_cell(check, name):
     return name, list(marks), min(sorts)
 
 
+def _label_images(made, png, pdf):
+    """[(title, image url, PDF url)] of the labels rpi-hwid made. The device page is served only where the fleet app's
+    label URLs are (pib/urls.py): a label with nowhere to be shown is a fault, said, never a missing picture."""
+    if made and not (png and pdf):
+        raise ImproperlyConfigured("the device page is served where the label URLs (fleet.urls) are not")
+    return [(m.title, f"{png}?{urlencode({'id': m.id})}", f"{pdf}?{urlencode({'id': m.id})}") for m in made]
+
+
 def _t(value):
     return value if isinstance(value, str) else ""
 
@@ -320,12 +329,12 @@ def _page(request, entry):
         "notes": [(m[1] if (m := NO_EVENT.fullmatch(note)) else note, note) for note in built.notes],
         "label_input": _url(request, "fleet-label-input", entry.serial),
         # the labels rpi-hwid makes from what the Pi sent, as images linking the PDF it prints (#141)
-        "label_images": [(m.title, f"{png}?{urlencode({'id': m.id})}", f"{pdf}?{urlencode({'id': m.id})}")
-                         for m in made] if png and pdf else [],
+        "label_images": _label_images(made, png, pdf),
         # a refusal other than a missing field (the fields are the rows above): rpi-hwid's own words
         "label_refusals": [(kind, str(exc)) for kind, exc in refused
                            if not isinstance(exc, labelart.labels.MissingFieldsError)],
         "registrations": [(snap.fingerprint, snap.pk == entry.latest_snapshot_id, _when(snap.first_seen),
+                           int(snap.first_seen.timestamp()),
                            _when(snap.last_confirmed), int(snap.last_confirmed.timestamp()),
                            jsonview.render(snap.document)) for snap in snapshots],
         "registration_title": REGISTRATION_TITLE, "boot_title": BOOT_TITLE,
