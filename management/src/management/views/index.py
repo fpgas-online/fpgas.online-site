@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 OK, FAILING, MISSING_WORD, WAITING = "ok", "failing", "missing", "waiting"
 # Severity: the order of the failures at the top; the ok rows follow all of them.
 ERROR, SWITCH_DOWN, BOARD_MISSING, BOARD_FAILING, SWITCH_PORTS, CHECK_FAILED, E2E_FAILED, BOARD_WAITING, FINE = range(9)
-AREAS = ("Boards", "Switches", "Boot checks", "Browser test")
+AREAS = ("Raspberry Pis", "Switches", "Boot checks", "Browser test")
 # The names of a board's tests ("sdk", "dip-switches", "pin-id", "uart"): a word the code can show as it is.
 CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,39}")
 # Results of a boot check (fpga-verified detail["result"]) that mean the Pi is not offered and why.
@@ -171,7 +171,7 @@ def _boards(request, now):
             why = "" if host.condition == OPERATIONAL else _board_reason(host, now)
         except ValueError as exc:
             item = f"{fpga.pi_label(host.machine)} on {fpga.port_text(host.machine)}"
-            rows.append(_row(ERROR, FAILING, "Boards", item, str(exc), _url(request, "fleet-detail", host.machine.serial),
+            rows.append(_row(ERROR, FAILING, "Raspberry Pis", item, str(exc), _url(request, "fleet-detail", host.machine.serial),
                              str(exc), host.machine.last_seen))
             continue
         counted[host.condition].append(f"{fpga.pi_label(host.machine)}" + (f": {why}" if why else ""))
@@ -182,10 +182,12 @@ def _boards(request, now):
         elif condition == OPERATIONAL:
             severity, state = BOARD_FAILING, FAILING  # no Pi offered
         else:
-            severity, state = FINE, OK
+            # no Pi in this condition: no row (the review of #133: "missing: 0 Pis" beside a green "operational" mark
+            # read as two answers); the operational count is always shown, a row of none is a failure
+            continue
         title = "; ".join(pis[:TITLE_PIS]) + (f"; and {len(pis) - TITLE_PIS} more" if len(pis) > TITLE_PIS else "")
         link = f"{table}?condition={condition}" if table and pis else ""
-        rows.append(_row(severity, state, "Boards", fpga.CONDITION_TITLES[condition], _pis(len(pis)), link, title))
+        rows.append(_row(severity, state, "Raspberry Pis", fpga.CONDITION_TITLES[condition], _pis(len(pis)), link, title))
     return rows
 
 
@@ -208,7 +210,7 @@ def _switches(request, now):
     try:
         views = sorted(switch_page._read(), key=lambda v: (v.index is None, v.index or 0))
     except switch_page._Unavailable as exc:
-        return [_row(SWITCH_DOWN, FAILING, "Switches", "all switches", exc.message, page, exc.message)]
+        return [_row(SWITCH_DOWN, FAILING, "Switches", "all switches", states.FAILED, page, exc.message)]
     inventory = switch_page._inventory()
     rows = []
     for view in views:
@@ -315,7 +317,7 @@ def _browser_test(request, now):
 
 # --- The page -------------------------------------------------------------------------------------------------
 
-BUILDERS = (("Boards", _boards), ("Switches", _switches), ("Boot checks", _boot_checks),
+BUILDERS = (("Raspberry Pis", _boards), ("Switches", _switches), ("Boot checks", _boot_checks),
             ("Browser test", _browser_test))
 
 
