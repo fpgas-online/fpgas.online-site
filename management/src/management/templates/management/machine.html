@@ -5,55 +5,63 @@
 {% block body %}
 <h1>{{ label }}</h1>
 
+{# the same names, order and marks as the Pi's row on /fleet/ (site #132) #}
 <table class="mgmt-table mgmt-facts mgmt-fit">
   <tbody>
-    {# the same mark and word as every management page (management.states, #131) #}
-    <tr><th scope="row">State</th><td class="mgmt-c-state-word" title="{{ host.condition_title }}{% if host.why %}: {{ host.why }}{% endif %}"><span class="mgmt-state-{{ host.condition }}">{{ state_mark }}</span> {{ host.condition_title }}</td></tr>
-    <tr><th scope="row">Offered</th><td>{% if page %}<a href="{{ page }}">{{ offered }}</a>{% else %}{{ offered }}{% endif %}</td></tr>
-    <tr><th scope="row">Boot check</th><td{% if check_title %} title="{{ check_title }}"{% endif %}>{{ check }}{% if checked %} &middot; {{ checked }}{% endif %}</td></tr>
-    <tr><th scope="row">Port</th><td title="the port its host name says it booted on">{{ port }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.state }}">State</th><td class="mgmt-c-state-word" title="{{ host.condition_title }}{% if host.why %}: {{ host.why }}{% endif %}"><span class="mgmt-state-{{ host.condition }}">{{ state_mark }}</span> {{ host.condition_title }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.model }}">Model</th><td{% if model_title %} title="{{ model_title }}"{% endif %}>{{ model|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.ram }}">RAM</th><td>{{ memory|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.serial }}">Serial</th><td class="mgmt-mono">{{ machine.serial }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.port }}">Port</th><td{% if port_title %} title="{{ port_title }}"{% endif %}>{{ port|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.offered }}">Offered</th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% elif host.no_board_expected %}<span class="mgmt-test-none">–</span>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.up }}">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.seen }}">Seen</th><td>{{ seen }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.boot_check }}">Boot check</th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.check_ran }}">Check ran</th><td>{{ checked|default:"–" }}</td></tr>
     <tr><th scope="row">Host name</th><td>{{ machine.hostname|default:"–" }}</td></tr>
-    <tr><th scope="row">Model</th><td>{{ model|default:"–" }}</td></tr>
-    {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered) #}
+    {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered); its form changes with fpgas.online-infra#297 #}
     <tr><th scope="row">Online</th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
-    <tr><th scope="row">Seen</th><td>{{ seen }}</td></tr>
     <tr><th scope="row">Registered</th><td>{{ first_seen }}</td></tr>
-    <tr><th scope="row">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>
     <tr><th scope="row">Boot</th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
   </tbody>
 </table>
 
 <h2 id="boards">Boards</h2>
 {% if boards %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-boards">
-  <thead><tr><th scope="col">Board</th><th scope="col">Type</th><th scope="col">Result</th><th scope="col">Tests</th><th scope="col">Docs</th></tr></thead>
+{# a row a board, a column per check its types get, grouped and marked as on /fleet/; a mark links the check's docs page #}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-boards">
+  <thead>
+  <tr class="mgmt-groups"><td colspan="3"></td>{% for group, n in groups %}<th scope="colgroup" colspan="{{ n }}" class="mgmt-group">{{ group }}</th>{% endfor %}<td></td></tr>
+  <tr><th scope="col" title="{{ head_titles.board }}">Board</th><th scope="col" title="{{ head_titles.id }}">ID</th><th scope="col" class="mgmt-checkhead" title="this board's result in the boot check of this boot">Result</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}</th>{% endfor %}<th scope="col">Docs</th></tr>
+  </thead>
   <tbody>
   {% for b in boards %}
     <tr>
-      <td>{{ b.label }}</td>
-      <td>{{ b.type }}</td>
-      <td{% if b.reason %} title="{{ b.reason }}"{% endif %}>{{ b.result }}</td>
-      <td>{% for name, result, docs in b.tests %}<span class="mgmt-test mgmt-test-{% if result == "pass" %}pass{% else %}fail{% endif %}">{% if docs %}<a href="{{ docs }}">{{ name }}</a>{% else %}{{ name }}{% endif %}: {{ result }}</span>{% if not forloop.last %} {% endif %}{% empty %}–{% endfor %}</td>
+      <td class="mgmt-c-board"{% if b.full != b.type %} title="{{ b.full }}"{% endif %}>{{ b.type }}</td>
+      <td class="mgmt-c-id"{% if b.label %} title="{{ b.label }}"{% endif %}>{{ b.ident|default:"–" }}</td>
+      <td class="mgmt-mark" data-sort="{{ b.result_sort }}" title="{{ b.result.title }}"><span class="{{ b.result.cls }}">{{ b.result.mark }}</span><span class="mgmt-sr"> {{ b.result.title }}</span></td>
+      {% for mark, sort, docs in b.cells %}<td class="mgmt-mark" data-sort="{{ sort }}" title="{{ mark.title }}"><span class="{{ mark.cls }}">{% if docs %}<a href="{{ docs }}">{{ mark.mark }}</a>{% else %}{{ mark.mark }}{% endif %}</span><span class="mgmt-sr"> {{ mark.title }}</span></td>{% endfor %}
       <td>{% if b.page %}<a href="{{ b.page }}">board</a>{% if b.checks_page %} &middot; <a href="{{ b.checks_page }}">checks</a>{% endif %}{% else %}–{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table></div>
 {% else %}
-<p>No board named by the check of this boot{% if host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
+<p>No board named by the check of this boot{% if host.no_board_expected %}: this host carries none{% elif host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
 {% endif %}
 
 <h2>Boot checks</h2>
 {% if history %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">When</th><th scope="col">Boot</th><th scope="col">Result</th><th scope="col">Boards</th></tr></thead>
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-history">
+  <thead><tr><th scope="col" title="the boot the check ran in">Boot</th><th scope="col" class="mgmt-checkhead" title="the boot it is running now">This boot</th><th scope="col" title="when the check reported">Check ran</th><th scope="col" class="mgmt-checkhead" title="the check's result">Result</th><th scope="col" title="each board's type and result">Boards</th></tr></thead>
   <tbody>
-  {% for event, when, word, summary in history %}
-    <tr{% if event.boot_id == machine.last_boot_id %} class="mgmt-this-boot"{% endif %}>
-      <td data-sort="{{ event.id }}">{{ when }}</td>
-      <td><code>{{ event.boot_id }}</code>{% if event.boot_id == machine.last_boot_id %} (this boot){% endif %}</td>
-      <td>{{ word }}</td>
-      <td>{{ summary|default:"–" }}</td>
+  {% for c in history %}
+    <tr>
+      <td class="mgmt-mono" title="{{ c.boot }}">{{ c.boot|slice:":8" }}</td>
+      <td class="mgmt-mark" title="{% if c.this_boot %}the boot it is running{% else %}an earlier boot{% endif %}">{% if c.this_boot %}●{% else %}–{% endif %}</td>
+      <td data-sort="{{ c.sort }}">{{ c.when }}</td>
+      <td class="mgmt-mark" title="{{ c.mark.title }}"><span class="{{ c.mark.cls }}">{{ c.mark.mark }}</span><span class="mgmt-sr"> {{ c.mark.title }}</span></td>
+      <td>{% for type, mark in c.boards %}<div title="{{ mark.title }}">{{ type }} <span class="{{ mark.cls }}">{{ mark.mark }}</span></div>{% empty %}–{% endfor %}</td>
     </tr>
   {% endfor %}
   </tbody>
@@ -77,7 +85,7 @@
 </table>
 <h3>Addresses</h3>
 {% if net_addresses %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-addresses">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-addresses">
   <thead><tr><th scope="col">Family</th><th scope="col">Address</th><th scope="col">Scope</th><th scope="col">Valid</th><th scope="col">Preferred</th></tr></thead>
   <tbody>
   {% for a, valid, preferred in net_addresses %}
@@ -90,7 +98,7 @@
 {% endif %}
 <h3>Default routes</h3>
 {% if net.default_routes %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-routes">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-routes">
   <thead><tr><th scope="col">Family</th><th scope="col">Gateway</th><th scope="col">Metric</th><th scope="col">Protocol</th></tr></thead>
   <tbody>
   {% for r in net.default_routes %}
@@ -117,23 +125,25 @@
 {% endif %}
 
 <h2>Labels</h2>
-{% if labels %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">Label</th><th scope="col">Still needs</th><th scope="col">Sent by</th></tr></thead>
+{% if labels or notes %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable">
+  <thead><tr><th scope="col" class="mgmt-checkhead" title="✗: rpi-hwid cannot make this label yet">State</th><th scope="col">Label</th><th scope="col">Still needs</th><th scope="col">Sent by</th></tr></thead>
   <tbody>
+  {% for note in notes %}
+    <tr><td class="mgmt-mark" title="{{ note }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ note }}</span></td><td>all</td><td>{{ note }}</td><td>–</td></tr>
+  {% endfor %}
   {% for label_name, field, owner, owner_title in labels %}
-    <tr><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
+    <tr><td class="mgmt-mark" title="rpi-hwid still needs {{ field }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> rpi-hwid still needs {{ field }}</span></td><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
 {% else %}
 <p>rpi-hwid has everything it needs for this host's labels.</p>
 {% endif %}
-{% if notes %}<ul class="mgmt-notes">{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
 {% if label_input %}<p><a href="{{ label_input }}">rpi-hwid's label input (.json)</a></p>{% endif %}
 
 <h2>Registration</h2>
-{% if record %}<pre class="mgmt-json">{{ record }}</pre>{% else %}<p>No registration.</p>{% endif %}
+{% if record %}<details class="mgmt-key-box"><summary>Newest registration (JSON)</summary><pre class="mgmt-json">{{ record }}</pre></details>{% else %}<p>No registration.</p>{% endif %}
 {% for snap, doc in older %}
 <details class="mgmt-key-box"><summary>Earlier: {{ snap.fingerprint|slice:":12" }}…, last confirmed {{ snap.last_confirmed|date:"Y-m-d H:i" }}</summary>
   <pre class="mgmt-json">{{ doc }}</pre>
@@ -142,11 +152,11 @@
 
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
 {% if events %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-events">
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events">
   <thead><tr><th scope="col">Time</th><th scope="col">Stage</th><th scope="col">Detail</th></tr></thead>
   <tbody>
   {% for event, detail in events %}
-    <tr><td>{{ event.ts|date:"H:i:s" }}</td><td>{{ event.stage }}</td><td><code>{{ detail }}</code></td></tr>
+    <tr><td>{{ event.ts|date:"H:i:s" }}</td><td>{{ event.stage }}</td><td>{% if detail and detail != "{}" %}<details><summary>detail</summary><code>{{ detail }}</code></details>{% else %}–{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table></div>

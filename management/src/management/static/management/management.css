@@ -170,6 +170,9 @@
 /* the Offered mark: the ✓ links the visitor page, the ✗ says why not on hover */
 .mgmt-hosts td.mgmt-c-offered a { text-decoration: none; }
 /* #127: Serial and ID in a fixed-width font, so their digits line up */
+/* a serial or an id, in a facts table too (the Pi's own page, #132) */
+.mgmt-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
                                                                       "Liberation Mono", monospace; }
 /* #127: the groups of the check columns, named once above them */
