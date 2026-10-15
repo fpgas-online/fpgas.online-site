@@ -93,7 +93,7 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     # (Tim, 15 Oct 2026: "Make the error message be the popup when mousing over the x") and the ✗ links the Pi's page
     failing = _by_serial(html)["pi-sw2-p33"]
     assert (failing["pin-id"], failing["spiflash"], failing["uart"]) == ("✗", "✗", "✓")
-    assert ('<div class="mgmt-test-fail" title="pin-id fail: the test exited 1">'
+    assert ('data-label="pin-id" title="pin-id fail: the test exited 1"><div class="mgmt-test-fail">'
             '<a href="/fleet/pi-sw2-p33/#boards">✗</a>') in html
     assert 'title="spiflash fail: the test exited 1"' in html
     assert "Reason" not in _header(html)
@@ -308,9 +308,8 @@ def _cells(table_html):
             for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
 
 
-FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Checked", "Offered", "Why not", "Up",
-         "Seen"]
-AFTER = ["Notes"]
+FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "ID", "Boot check", "Checked", "Offered", "Why not",
+         "Up", "Seen", "Notes"]
 
 
 def _hosts_table(html):
@@ -349,7 +348,7 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     header = _header(html)
     # a value per column (Tim, 15 Oct 2026): the label's model, memory and serial apart, the checks between
-    assert header[:len(FIXED)] == FIXED and header[-len(AFTER):] == AFTER
+    assert header[:len(FIXED)] == FIXED  # the checks follow, a column each
     rows = _rows(html)
     by_port = _by_port(html)
     # the Boot check cell holds the verdict word and nothing else: no test, no mark
@@ -363,12 +362,19 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
         assert "(" not in row["Serial"] and " " not in row["Serial"]  # the serial alone, never a sentence beside it
     assert by_port["sw2 p46"]["Serial"] == "pi-sw2-p46" and by_port["sw2 p46"]["Board"].startswith("acorn-")
     assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in html  # the serial links the Pi's page
-    assert by_port["sw2 p33"]["Board"] == "TT board, not identified 4df39a7a6856f86f"
-    # Offered is yes or no; Why not is the reason as a value, empty for a Pi that is offered
+    # a board's name and the id on its label are two columns (#123)
+    assert (by_port["sw2 p33"]["Board"], by_port["sw2 p33"]["ID"]) == ("TT board, not identified", "4df39a7a6856f86f")
+    assert by_port["sw2 p46"]["ID"] == "0x0054b48664b04854"
+    # Offered is yes or no; Why not says only what State and Boot check do not (#123): a failed check is the Boot
+    # check's "failed" and its ✗ marks, missing is the State's, a running check the Boot check's "running"
     assert by_port["sw2 p46"]["Offered"] == "yes" and by_port["sw2 p46"]["Why not"] == ""
-    assert (by_port["sw2 p33"]["Offered"], by_port["sw2 p33"]["Why not"]) == ("no", "pin-id, spiflash")
+    assert (by_port["sw2 p33"]["Offered"], by_port["sw2 p33"]["Boot check"], by_port["sw2 p33"]["Why not"]) == (
+        "no", "failed", "")
     assert by_port["sw2 p10"]["Why not"] == "stopped checking in"
-    assert by_port["sw2 p4"]["Why not"] == "missing 7 h" and by_port["sw2 p7"]["Why not"] == "boot check running"
+    assert (by_port["sw2 p4"]["State"], by_port["sw2 p4"]["Why not"]) == ("missing", "")
+    assert (by_port["sw2 p7"]["Boot check"], by_port["sw2 p7"]["Why not"]) == ("running", "")
+    for row in rows:  # never the Boot check's word again
+        assert "boot check" not in row["Why not"]
     # Seen is the time only
     assert by_port["sw2 p4"]["Seen"] == "7 h ago" and by_port["sw2 p46"]["Seen"].endswith("ago")
     # these Pis registered no model: Model and Memory are empty, Notes says why in a short value
@@ -386,7 +392,7 @@ def test_every_check_is_a_column_of_the_one_table_pass_fail_or_not_applicable(fl
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     # no table per board type: one table, its check columns grouped by type, each type's in its check's order
     assert " tests</h2>" not in html and "mgmt-testgrid" not in html and html.count("<table") == 2
-    checks = _header(html)[len(FIXED):-len(AFTER)]
+    checks = _header(html)[len(FIXED):]
     assert checks[:4] == ["pcie-link", "pcie-bar0", "rp1-pio", "jtag"]  # the Acorn's, first by type
     assert checks[-3:] == ["pin-id", "uart", "spiflash"]  # then the TT board's
     assert len(set(checks)) == len(checks)
@@ -398,14 +404,14 @@ def test_every_check_is_a_column_of_the_one_table_pass_fail_or_not_applicable(fl
     assert (rows["pi-sw2-p33"]["pin-id"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
     assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
     # the result is in the mark's title, and said to a screen reader; a – says why it is not applicable
-    assert ('<div class="mgmt-test-pass" title="jtag pass">✓<span class="mgmt-sr"> jtag pass</span></div>'
+    assert ('data-label="jtag" title="jtag pass"><div class="mgmt-test-pass">✓<span class="mgmt-sr"> jtag pass</span></div>'
             in html)
     assert 'title="pin-id not run on acorn-' in html
     assert 'title="jtag not run: no board checked this boot"' in html
     # a cell sorts failures first, then passes, then the Pis it does not apply to
-    assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="pin-id"><div class="mgmt-test-fail"', html)
-    assert re.search(r'<td class="mgmt-mark" data-sort="1" data-label="jtag"><div class="mgmt-test-pass"', html)
-    assert re.search(r'<td class="mgmt-mark" data-sort="2" data-label="jtag"><div class="mgmt-test-none"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="pin-id" title="[^"]*"><div class="mgmt-test-fail"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="1" data-label="jtag" title="[^"]*"><div class="mgmt-test-pass"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="2" data-label="jtag" title="[^"]*"><div class="mgmt-test-none"', html)
     # a passing or not applicable mark is not a link: only a ✗ leads to the reason's page
     assert html.count('#boards">✗</a>') == 2 and '#boards">✓' not in html
 
@@ -514,7 +520,9 @@ def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fl
     row = _by_port(html)["sw2 p20"]
     assert (row["Offered"], row["Why not"]) == ("no", "no visitor page")
     for row in _rows(html):  # every yes has a page, every no a reason
-        assert (row["Offered"] == "yes") == (row["Why not"] == "")
+        # every no has its reason: in Why not, or as the Boot check's verdict, or as the State
+        assert (row["Offered"] == "yes") == (row["Why not"] == "" and row["Boot check"] == "passed"
+                                             and row["State"] == "operational")
 
 
 @pytest.mark.django_db
@@ -650,14 +658,15 @@ def test_with_two_boards_each_test_names_its_board(fleet):
     assert _header(html).count("pin-id") == 1
     rows = _by_serial(html)
     assert rows["pi-sw2-p30"]["Board"].split("\n") == ["Acorn", "TT FPGA"]
+    assert rows["pi-sw2-p30"]["ID"].split("\n") == ["–", "–"]  # neither check read an id
     assert rows["pi-sw2-p30"]["pin-id"] == "✓\n✓" and rows["pi-sw2-p30"]["jtag"] == "–\n–"
     assert rows["pi-sw2-p32"]["pin-id"] == "✓\n✗" and rows["pi-sw2-p32"]["jtag"] == "✓\n–"
     # the cell sorts as its worst mark, and its ✗ says which check failed and why
-    assert re.search(r'data-sort="0" data-label="pin-id"><div class="mgmt-test-pass" title="pin-id pass">✓'
-                     r'<span class="mgmt-sr"> pin-id pass</span></div><div class="mgmt-test-fail" '
-                     r'title="pin-id fail: pin 3 stuck low"><a href="/fleet/pi-sw2-p32/#boards">✗</a>',
-                     html)
-    assert 'title="jtag not run on TT FPGA"' in html
+    # the cell's title says each board's result a line, in the Board cell's order (#123: on the cell, not the mark)
+    assert re.search(r'data-sort="0" data-label="pin-id" title="pin-id pass\npin-id fail: pin 3 stuck low">'
+                     r'<div class="mgmt-test-pass">✓<span class="mgmt-sr"> pin-id pass</span></div>'
+                     r'<div class="mgmt-test-fail"><a href="/fleet/pi-sw2-p32/#boards">✗</a>', html)
+    assert 'title="jtag pass\njtag not run on TT FPGA"' in html
 
 
 @pytest.mark.django_db
@@ -685,7 +694,8 @@ def test_two_boards_of_one_type_are_one_row_with_a_mark_per_board_label(fleet):
     assert _header(html).count("jtag") == 1
     row = _by_serial(html)["pi-sw2-p31"]
     boards = row["Board"].split("\n")
-    assert len(boards) == 2 and boards[0].endswith("0x00200c8664b04854") and boards[1].endswith("0x0054b48664b04854")
+    assert len(boards) == 2 and all(b.startswith("acorn-") for b in boards)
+    assert row["ID"].split("\n") == ["0x00200c8664b04854", "0x0054b48664b04854"]
     assert row["jtag"] == "✓\n✗"  # the first board's mark, then the second's
     # a Pi with one board has one mark
     assert _by_serial(html)["pi-sw2-p46"]["jtag"] == "✓"
@@ -696,8 +706,9 @@ def test_the_board_cell_lists_a_label_a_line(fleet):
     pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board1": "acorn - pass",
                       "board0_identity_dna": "0x00200c8664b04854", "board1_identity_dna": "0x0054b48664b04854"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert re.search(r'<td class="mgmt-c-board mgmt-boardlist" data-label="Board"><div>acorn-\w+ 0x00200c8664b04854</div>'
-                     r'<div>acorn-\w+ 0x0054b48664b04854</div></td>', html)
+    assert re.search(r'<td class="mgmt-c-board" data-label="Board"><div>acorn-\w+</div><div>acorn-\w+</div></td>'
+                     r'\s*<td class="mgmt-c-id" data-label="ID"><div>0x00200c8664b04854</div>'
+                     r'<div>0x0054b48664b04854</div></td>', html)
 
 
 @pytest.mark.parametrize("model, short", [

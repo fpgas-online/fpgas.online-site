@@ -27,7 +27,7 @@
 {% if rows %}
 {# one table of the Pis (Tim, 15 Oct 2026): a value per column, and a column per check across the fleet #}
 <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Raspberry Pis"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">State</th><th scope="col">Model</th><th scope="col">Memory</th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Up</th><th scope="col">Seen</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}<th scope="col">Notes</th></tr></thead>
+  <thead><tr><th scope="col">State</th><th scope="col">Model</th><th scope="col">Memory</th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">ID</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Up</th><th scope="col">Seen</th><th scope="col">Notes</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}</tr></thead>
   <tbody>
   {% for line in rows %}{% with h=line.host %}
     <tr>
@@ -36,15 +36,16 @@
       <td class="mgmt-c-memory" data-label="Memory" data-sort="{{ line.memory_mb }}">{{ line.memory }}</td>
       <td class="mgmt-c-serial">{% if fleet %}<a href="{{ fleet }}{{ line.serial }}/">{{ line.serial }}</a>{% else %}{{ line.serial }}{% endif %}</td>
       <td class="mgmt-c-port" data-label="Port" data-sort="{{ line.sort_port }}" title="{{ line.port_title }}">{{ line.port }}</td>
-      <td class="mgmt-c-board mgmt-boardlist" data-label="Board">{% for label in line.boards %}<div>{{ label }}</div>{% endfor %}</td>
+      <td class="mgmt-c-board" data-label="Board">{% for name, ident in line.boards %}<div>{{ name }}</div>{% endfor %}</td>
+      <td class="mgmt-c-id" data-label="ID">{% for name, ident in line.boards %}<div>{{ ident|default:"–" }}</div>{% endfor %}</td>
       <td class="mgmt-c-check" data-label="Boot check"{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
       <td class="mgmt-c-checked" data-label="Checked" data-sort="{{ line.sort_checked }}">{{ line.checked }}</td>
       <td class="mgmt-c-offered" data-label="Offered">{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
       <td class="mgmt-c-why" data-label="Why not">{{ line.why_not }}</td>
       <td class="mgmt-c-up" data-label="Up" data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
       <td class="mgmt-c-seen" data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
-      {% for cell in line.checks %}<td class="mgmt-mark" data-sort="{{ cell.sort }}" data-label="{{ cell.name }}">{% for m in cell.marks %}<div class="{{ m.cls }}" title="{{ m.title }}">{% if cell.link and m.mark == "✗" %}<a href="{{ cell.link }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
       <td class="mgmt-c-notes mgmt-note" data-label="Notes">{% for note in line.notes %}<div>{{ note }}</div>{% endfor %}</td>
+      {% for cell in line.checks %}<td class="mgmt-mark" data-sort="{{ cell.sort }}" data-label="{{ cell.name }}" title="{{ cell.title }}">{% for m in cell.marks %}<div class="{{ m.cls }}">{% if cell.link and m.mark == "✗" %}<a href="{{ cell.link }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
     </tr>
   {% endwith %}{% endfor %}
   </tbody>
