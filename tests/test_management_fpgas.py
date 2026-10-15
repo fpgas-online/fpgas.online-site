@@ -997,3 +997,18 @@ def test_a_report_of_the_new_fpgas_verify_is_read_as_it_comes(fleet):
     assert [row[c] for c in ("jtag", "flash", "ddr")] == ["–", "–", "–"]
     assert 'title="spram did not run: no boot-check test yet: fpgas.online-test-designs #343"' in html
     assert 'title="jtag not applicable to TT FPGA: the iCE40UP5K has no JTAG port: it is loaded through the demo board' in html
+
+
+@pytest.mark.django_db
+def test_a_pi_whose_revision_cannot_be_read_is_never_taken_for_a_host_without_a_board():
+    """The review of #134 (finding 9): carries_no_board is only for a host rpi-hwid identifies as another board; a Pi
+    whose label cannot be made is still a Pi, and finding no board still needs attention."""
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p21", {"result": "missing"}, serial="10000000bbbb0021")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="z", document={
+        "machine": {"serial": m.serial, "revision_code": "zz"}})
+    m.save()
+    assert fpga.carries_no_board(m) is False
+    assert _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[
+        "10000000bbbb0021"]["State"] == "!"
