@@ -189,30 +189,42 @@ def test_failures_come_first_by_severity_then_area_and_the_ok_rows_last(fleet, s
 
 
 @pytest.mark.django_db
-def test_a_pi_that_is_not_offered_is_a_row_with_its_board_and_the_reason_and_the_offered_ones_are_one_row(
-        fleet, switches, browser):
+def test_the_pis_are_a_count_per_condition_each_linking_the_pi_table_filtered_to_it(fleet, switches, browser):
+    """Tim, 15 Oct 2026: "Why do both exist?": the Pis are rows on /fleet/ only; here they are counts per condition,
+    and the counts add up to every registered Pi."""
     switches([as_inventory_says(1)])
-    rows = table()
-    boards = [r for r in rows if r["area"] == "Boards"]
-    assert len(boards) == 5  # four Pis that are not offered, and one row for the rest
-    serial = {m.hostname: m.serial for m in Machine.objects.all()}
-    bad = find(boards, item="pi-sw2-p33 (no model registered) on sw2 p33: TT board, not identified 4df39a7a6856f86f")
-    assert (bad["state"], bad["value"], bad["href"]) == ("failing", "pin-id, spiflash", f"/fleet/{serial['pi-sw2-p33']}/")
-    missing = find(boards, item="10000000f536c51f (no model registered) on sw2 p4: acorn-willow 0x0054b48664b04854")
-    assert (missing["state"], missing["value"]) == ("missing", "missing 7 h")
-    assert find(boards, item="10000000f77b8415 (no model registered) on sw2 p10: acorn-holly 0x00200c8664b04854")["value"] == "stopped checking in"
-    waiting = find(boards, item="pi-sw2-p7 (no model registered) on sw2 p7: no board")
-    assert (waiting["state"], waiting["value"]) == ("waiting", "boot check running")
-    offered = find(boards, item="offered")
-    assert (offered["state"], offered["value"], offered["href"]) == ("ok", "2 boards offered", "/fleet/")
-    assert "p46" not in str([r for r in boards if r["state"] == "ok"])
+    boards = [r for r in table() if r["area"] == "Boards"]
+    assert sorted(r["item"] for r in boards) == ["checking", "missing", "needs attention", "operational"]
+    by = {r["item"]: r for r in boards}
+    assert (by["needs attention"]["state"], by["needs attention"]["value"]) == ("failing", "2 Pis")
+    assert by["needs attention"]["href"] == "/fleet/?condition=attention"
+    assert (by["missing"]["state"], by["missing"]["value"], by["missing"]["href"]) == (
+        "missing", "1 Pi", "/fleet/?condition=missing")
+    assert (by["checking"]["state"], by["checking"]["value"]) == ("waiting", "1 Pi")
+    assert (by["operational"]["state"], by["operational"]["value"], by["operational"]["href"]) == (
+        "ok", "2 Pis", "/fleet/?condition=operational")
+    assert sum(int(r["value"].split()[0]) for r in boards) == Machine.objects.count()
+    # which Pis and why is the count's title; the Pi table has each as a row
+    assert "pi-sw2-p33 (no model registered): pin-id, spiflash" in by["needs attention"]["title"]
+    assert "10000000f77b8415 (no model registered): stopped checking in" in by["needs attention"]["title"]
+    assert by["missing"]["title"] == "10000000f536c51f (no model registered): missing 7 h"
+    # no row names a single Pi when nothing is wrong with the page's data
+    assert not [r for r in boards if r["item"] not in fpga.CONDITION_TITLES.values()]
+
+
+@pytest.mark.django_db
+def test_a_condition_with_no_pi_is_fine_and_has_no_link(switches, browser):
+    switches([as_inventory_says(1)])
+    pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    by = {r["item"]: r for r in table() if r["area"] == "Boards"}
+    assert (by["missing"]["state"], by["missing"]["value"], by["missing"]["href"]) == ("ok", "0 Pis", None)
 
 
 @pytest.mark.django_db
 def test_no_board_offered_is_a_failure(switches, browser):
     switches([as_inventory_says(1)])
-    row = find(table(), area="Boards", item="offered")
-    assert (row["state"], row["value"]) == ("failing", "0 boards offered")
+    row = find(table(), area="Boards", item="operational")
+    assert (row["state"], row["value"]) == ("failing", "0 Pis")
 
 
 @pytest.mark.django_db
@@ -301,10 +313,12 @@ def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, brows
     switches([as_inventory_says(1)])
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
-    assert newest["value"].startswith("10000000f77b8415 (no model registered) on sw2 p10: pass") and newest["state"] == "ok"
-    # the Pi whose check failed is its own Boards row; it is not counted again under Boot checks
+    # the value is the result alone; which Pi it was is the title, its page the link
+    assert (newest["value"], newest["state"]) == ("pass", "ok")
+    assert newest["title"] == "10000000f77b8415 (no model registered) on sw2 p10"
+    assert newest["href"] == "/fleet/10000000f77b8415/"
+    # the Pi whose check failed is counted under Boards; it is not counted again under Boot checks
     assert [r["item"] for r in rows if r["area"] == "Boot checks"] == ["newest check"]
-    assert find(rows, area="Boards", item="pi-sw2-p33 (no model registered) on sw2 p33: TT board, not identified 4df39a7a6856f86f")["state"] == "failing"
 
 
 @pytest.mark.django_db
@@ -315,7 +329,7 @@ def test_a_boot_check_from_the_future_fails_its_row_only(fleet, switches, browse
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
     assert newest["state"] == "failing" and "future" in newest["value"]
-    assert find(rows, area="Boards", item="offered")["state"] == "ok"  # the other areas stand
+    assert find(rows, area="Boards", item="operational")["state"] == "ok"  # the other areas stand
 
 
 @pytest.mark.django_db
@@ -367,8 +381,6 @@ def test_the_github_answer_is_cached_between_page_views(switches, browser):
 def test_freshness_is_x_ago_with_the_exact_local_time_in_a_title(fleet, switches, browser):
     switches([as_inventory_says(1)])
     rows = table()
-    missing = find(rows, item="10000000f536c51f (no model registered) on sw2 p4: acorn-willow 0x0054b48664b04854")
-    assert missing["seen"] == "7 h ago"
     event = BootEvent.objects.filter(stage="fpga-verified").latest("id")
     local = event.ts.astimezone(zoneinfo.ZoneInfo("Australia/Adelaide"))
     newest = find(rows, area="Boot checks", item="newest check")
@@ -442,8 +454,9 @@ def test_a_condition_the_page_does_not_know_is_a_failure_row_naming_it(switches,
         return hosts
 
     monkeypatch.setattr(fpga, "hosts", odd)
-    row = find(table(), item="pi-sw2-p5 (no model registered) on sw2 p5: acorn-willow 0x0054b48664b04854")
+    row = find(table(), area="Boards", item="pi-sw2-p5 (no model registered) on sw2 p5")
     assert (row["state"], row["value"]) == ("failing", "unknown condition 'sulking'")
+    assert row["href"] == "/fleet/pi-sw2-p5/"
 
 
 @pytest.mark.django_db
@@ -451,10 +464,10 @@ def test_a_check_name_or_result_the_page_does_not_know_is_a_failure_row_naming_i
     switches([as_inventory_says(1)])
     detail = {**REAL["pi-sw2-p33"], "board0_tests": "Bad_Name!=fail"}
     pi("pi-sw2-p5", detail)
-    row = find(table(), item="pi-sw2-p5 (no model registered) on sw2 p5: TT board, not identified 4df39a7a6856f86f")
+    row = find(table(), item="pi-sw2-p5 (no model registered) on sw2 p5")
     assert row["state"] == "failing" and "check name 'Bad_Name!'" in row["value"]
     pi("pi-sw2-p6", {"result": "sulking"})
-    row = find(table(), item="pi-sw2-p6 (no model registered) on sw2 p6: no board")
+    row = find(table(), item="pi-sw2-p6 (no model registered) on sw2 p6")
     assert row["state"] == "failing" and "boot check result 'sulking'" in row["value"]
 
 
@@ -480,20 +493,20 @@ def test_a_boot_check_time_in_the_future_is_loud(switches, browser):
 
 
 @pytest.mark.django_db
-def test_two_pis_last_seen_on_one_port_are_two_rows_each_named_by_its_label(switches, browser):
-    """The label station's port cycles boards: two registrations last seen on one port were two identical rows
-    ("pi-sw2-p48: Arty A7"). Rows are the Pis, named by their labels, the port an observation beside them."""
+def test_two_pis_last_seen_on_one_port_are_both_counted_each_named_by_its_label(switches, browser):
+    """The label station's port cycles boards: two registrations last seen on one port are two Pis, each named by
+    its label in the count's title (the port is an observation on /fleet/)."""
     switches([as_inventory_says(1)])
-    pi("pi-sw2-p48", REAL["pi-sw2-p46"], seen_ago=60 * 2, serial="10000000aaaa0048")
-    pi("pi-sw2-p48", REAL["pi-sw2-p47"], seen_ago=60 * 3, serial="10000000bbbb0048")
-    items = sorted(r["item"] for r in table() if r["area"] == "Boards" and "p48" in r["item"])
-    assert items == ["10000000aaaa0048 (no model registered) on sw2 p48: acorn-willow 0x0054b48664b04854",
-                     "10000000bbbb0048 (no model registered) on sw2 p48: acorn-holly 0x00200c8664b04854"]
+    pi("pi-sw2-p48", REAL["pi-sw2-p46"], seen_ago=60 * 7, serial="10000000aaaa0048")
+    pi("pi-sw2-p48", REAL["pi-sw2-p47"], seen_ago=60 * 8, serial="10000000bbbb0048")
+    row = find(table(), area="Boards", item="missing")
+    assert row["value"] == "2 Pis"
+    assert "10000000aaaa0048 (no model registered): missing 7 h" in row["title"]
+    assert "10000000bbbb0048 (no model registered): missing 8 h" in row["title"]
 
 
 @pytest.mark.django_db
-def test_a_pi_with_no_report_this_boot_is_named_with_the_board_its_registration_names(switches, browser):
-    """Not "other": the kind as its registration names it, as on /fleet/ (#101)."""
+def test_a_pi_with_no_report_this_boot_is_counted_as_needing_attention(switches, browser):
     from fleet.models import HardwareSnapshot
 
     switches([as_inventory_says(1)])
@@ -501,4 +514,6 @@ def test_a_pi_with_no_report_this_boot_is_named_with_the_board_its_registration_
     m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
         "fpga": {"boards": [{"kind": "acorn-cle-215+"}]}})
     m.save()
-    assert find(table(), area="Boards", item="10000000cccc0038 (no model registered) on sw1 p38: acorn-cle-215+")["state"] == "failing"
+    row = find(table(), area="Boards", item="needs attention")
+    assert (row["state"], row["value"]) == ("failing", "1 Pi")
+    assert row["title"] == "10000000cccc0038 (no model registered): stopped checking in"
