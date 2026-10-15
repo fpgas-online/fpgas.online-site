@@ -29,15 +29,19 @@
     if (!row) { return false; }
     var cell = row.querySelector(".c-link");
     cell.className = "mgmt-mark c-link " + (up ? "mgmt-up" : "mgmt-down");
-    cell.title = WORDS[record.link];
+    /* the cell's title is its words, then the MACs the switch saw: only the words change */
+    cell.title = /^link (up|down)/.test(cell.title || "") ? cell.title.replace(/^link (up|down)/, WORDS[record.link])
+                                                          : WORDS[record.link];
     cell.querySelector(".mgmt-glyph").textContent = MARKS[record.link];
     cell.querySelector(".mgmt-sr").textContent = " " + WORDS[record.link];
     if (!up) {
       var speed = row.querySelector(".c-speed");
       speed.textContent = ""; speed.setAttribute("data-sort", "0");
     }
-    var g = doc.getElementById("switch-" + record.switch + "-panel-" + record.port);
-    if (g) {
+    /* the port's box in the wide drawing and its twin in the narrow one (a phone's) */
+    ["", "-n"].forEach(function (suffix) {
+      var g = doc.getElementById("switch-" + record.switch + "-panel-" + record.port + suffix);
+      if (!g) { return; }
       var kept = (g.getAttribute("class") || "").split(/\s+/).filter(function (c) {
         return c && c !== "mgmt-edge-up" && c !== "mgmt-edge-down";
       });
@@ -48,7 +52,7 @@
       /* a link that comes up keeps no speed in the title: the next reading says it */
       g.querySelector("title").textContent = now;
       g.parentNode.setAttribute("aria-label", now);
-    }
+    });
     return true;
   }
 

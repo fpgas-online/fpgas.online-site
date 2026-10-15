@@ -44,9 +44,16 @@
   }
   /* one row, the same cells as the served table (#130) */
   function fill(tr, p, sw) {
-    var th = cell("th", p.port); th.scope = "row"; th.className = "c-port"; tr.appendChild(th);
-    var model = td("c-model", "Model"), board = td("c-board", "Board"), state = td("mgmt-mark c-state", "State", "", p.state_sort);
-    var serial = td("c-serial", "Serial"), lease = td("c-lease", "Lease", "", p.machines.length ? p.machines[0].lease_sort : 0);
+    var th = cell("th", p.port); th.scope = "row"; th.className = "c-port"; if (p.port_title) { th.title = p.port_title; }
+    tr.appendChild(th);
+    if (p.empty) { tr.className = "mgmt-empty-port"; }
+    /* the hardware columns sort the ports with a machine before the empty ones */
+    var first = p.machines[0];
+    var model = td("c-model", "Model", "", p.hw_sort + (first ? " " + first.model : ""));
+    var board = td("c-board", "Board", "", p.hw_sort + (first ? " " + first.board : ""));
+    var state = td("mgmt-mark c-state", "State", "", p.state_sort);
+    var serial = td("c-serial", "Serial", "", p.hw_sort + (first ? " " + first.serial : ""));
+    var lease = td("c-lease", "Lease", "", p.lease_sort);
     p.machines.forEach(function (m) {
       var d = cell("div", m.model); d.title = m.model_title; model.appendChild(d);
       d = cell("div", m.board); d.title = m.board_title; board.appendChild(d);
@@ -65,7 +72,7 @@
     var net = td("mgmt-mark c-net", "Net", p.net_title, p.net_ok ? 1 : 0), ns = cell("span", p.net);
     ns.className = p.net_cls; net.appendChild(ns);
     var nsr = cell("span", " " + p.net_title); nsr.className = "mgmt-sr"; net.appendChild(nsr); tr.appendChild(net);
-    var link = td("mgmt-mark c-link " + (p.link_up ? "mgmt-up" : "mgmt-down"), "Link", p.link_title);
+    var link = td("mgmt-mark c-link " + (p.link_up ? "mgmt-up" : "mgmt-down"), "Link", p.link_cell_title);
     var lg = cell("span", p.link); lg.className = "mgmt-glyph"; link.appendChild(lg);
     var lsr = cell("span", " " + p.link_title); lsr.className = "mgmt-sr"; link.appendChild(lsr); tr.appendChild(link);
     var speed = td("c-speed", "Speed", "", p.speed_sort); speed.textContent = p.speed; tr.appendChild(speed);
@@ -80,19 +87,18 @@
       power.appendChild(msg);
     }
     tr.appendChild(power);
-    var vlan = td("c-vlan", "VLAN", p.vlan_title); vlan.textContent = p.vlan; tr.appendChild(vlan);
+    var vlan = td("mgmt-n c-vlan", "VLAN", p.vlan_title, p.vlan_sort); vlan.textContent = p.vlan; tr.appendChild(vlan);
     var gw = td("c-gw", "GW", p.gw_title); gw.textContent = p.gw; tr.appendChild(gw);
     var l = td("c-lldp", "LLDP", p.lldp_title);
     if (p.lldp_url) { var la = cell("a", p.lldp_name); la.href = p.lldp_url; l.appendChild(la); }
     else { l.textContent = p.lldp_name; }
     tr.appendChild(l);
     var lp = td("c-lldp-port", "LLDP port"); lp.textContent = p.lldp_port; tr.appendChild(lp);
-    var macs = td("c-macs", "MACs", p.macs_title); macs.textContent = p.macs; tr.appendChild(macs);
     [["c-rx", "In", p.rx], ["c-tx", "Out", p.tx], ["c-rx-errors", "Rx err", p.rx_errors],
      ["c-tx-errors", "Tx err", p.tx_errors]].forEach(function (n) {
       var c = td("mgmt-n " + n[0], n[1]); c.textContent = n[2]; tr.appendChild(c);
     });
-    var lab = td("mgmt-label c-label" + (p.role ? " mgmt-role" : ""), "Label", p.label_title); lab.textContent = p.label; tr.appendChild(lab);
+    var role = td("c-role", "Role"); role.textContent = p.role; tr.appendChild(role);
   }
   function say(text) {
     var p = document.getElementById("mgmt-live");
@@ -121,6 +127,8 @@
       var readat = box.querySelector(".mgmt-readat"); readat.textContent = s.read_ago; readat.title = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
       known(box, s.known_issues);
+      box.querySelector(".mgmt-empty-n").textContent = s.empty_ports;
+      box.querySelector(".mgmt-empty-count").hidden = !s.empty_ports;
       var table = box.querySelector("table"), body = table.tBodies[0], fresh = document.createElement("tbody");
       s.ports.forEach(function (p) {
         var tr = document.createElement("tr"); tr.id = anchor + "-port-" + p.port; fill(tr, p, s.index); fresh.appendChild(tr);
@@ -132,20 +140,23 @@
         location.reload();  /* the panel's ports changed: draw the page afresh rather than keep a stale layout */
         return;
       }
-      if (svg) { svg.setAttribute("aria-label", s.panel_label + ". A port links to its row."); }
+      [svg, document.getElementById(anchor + "-panel-n")].forEach(function (drawing) {
+        if (drawing) { drawing.setAttribute("aria-label", s.panel_label + ". A port links to its row."); }
+      });
       panel.forEach(function (p) {
-        var g = document.getElementById(anchor + "-panel-" + p.port);
-        g.setAttribute("class", "mgmt-port mgmt-box-" + p.kind + " mgmt-edge-" + (p.link_up ? "up" : "down"));
-        g.querySelector("title").textContent = p.title;
-        g.querySelector(".mgmt-bolt").textContent = p.bolt;
-        var pm = g.querySelector(".mgmt-pmark"); pm.textContent = p.mark; pm.setAttribute("class", "mgmt-pmark mgmt-state-" + p.kind);
-        g.querySelectorAll(".mgmt-hw").forEach(function (t, i) {
-          var line = p.lines[i] || {text: "", fit: 0};
-          t.textContent = line.text;
-          if (line.fit) { t.setAttribute("textLength", String(line.fit)); t.setAttribute("lengthAdjust", "spacingAndGlyphs"); }
-          else { t.removeAttribute("textLength"); t.removeAttribute("lengthAdjust"); }
+        /* the box in the wide drawing and its twin in the narrow one */
+        [anchor + "-panel-" + p.port, anchor + "-panel-" + p.port + "-n"].forEach(function (id) {
+          var g = document.getElementById(id);
+          if (!g) { return; }
+          g.setAttribute("class", "mgmt-port mgmt-box-" + p.kind + " mgmt-edge-" + (p.link_up ? "up" : "down"));
+          g.querySelector("title").textContent = p.title;
+          var pm = g.querySelector(".mgmt-pmark"); pm.textContent = p.mark; pm.setAttribute("class", "mgmt-pmark mgmt-state-" + p.kind);
+          g.querySelectorAll(".mgmt-hw").forEach(function (t, i) { t.textContent = p.lines[i] || ""; });
+          g.querySelector(".mgmt-bolt").textContent = p.bolt;
+          g.querySelector(".mgmt-more").textContent = p.more;
+          g.querySelector(".mgmt-net").textContent = p.net;
+          g.parentNode.setAttribute("aria-label", p.title);
         });
-        g.parentNode.setAttribute("aria-label", p.title);
       });
       body.replaceWith(fresh);
       if (window.MgmtTable) { MgmtTable.resort(table); }  /* keep the order the reader chose */
@@ -217,15 +228,20 @@
 {% with anchor=s.index|default_if_none:forloop.counter0|stringformat:"s" %}
 <section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ anchor }}">
   <h2>{{ s.title }}</h2>
-  <p class="mgmt-readline"><span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span></p>
+  <p class="mgmt-readline"><span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span><span class="mgmt-empty-count"{% if not s.empty_ports %} hidden{% endif %}> &middot; <span class="mgmt-empty-n">{{ s.empty_ports }}</span> empty board ports not listed</span></p>
   {% if s.panel_problem %}<p class="mgmt-problem">{{ s.panel_problem }}</p>{% endif %}
   {# a switch-wide known issue: one line above the drawing, not a mark on every port (#130) #}
   <ul class="mgmt-known">{% for k in s.known_issues %}<li>{{ k.text }}: <a href="{{ k.url }}">{{ k.issue }}</a></li>{% endfor %}</ul>
   {% if s.panel %}
-  {# the drawing needs no key (#130): each port shows its number, the hardware on it, its /fleet/ State mark in the State's colour, a solid edge while the link is up (dashed when down) and ⚡ while PoE delivers; its title says all of it in words #}
-  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Front panel of {{ s.title }}"><svg class="mgmt-panel" id="switch-{{ anchor }}-panel" viewBox="0 0 {{ s.panel_width }} {{ s.panel_height }}" width="{{ s.panel_width }}" height="{{ s.panel_height }}" role="group" aria-label="{{ s.panel_label }}. A port links to its row.">
-  {% for p in s.panel %}<a href="{{ p.href }}" aria-label="{{ p.title }}"><g id="switch-{{ anchor }}-panel-{{ p.port }}" class="mgmt-port mgmt-box-{{ p.kind }} mgmt-edge-{% if p.link_up %}up{% else %}down{% endif %}"><title>{{ p.title }}</title><rect x="{{ p.x|add:1 }}" y="{{ p.y|add:1 }}" width="44" height="46" rx="3"/><text class="mgmt-pnum" x="{{ p.x|add:4 }}" y="{{ p.y|add:12 }}">{{ p.port }}</text><text class="mgmt-bolt" x="{{ p.x|add:27 }}" y="{{ p.y|add:12 }}" text-anchor="middle" aria-hidden="true">{{ p.bolt }}</text><text class="mgmt-pmark mgmt-state-{{ p.kind }}" x="{{ p.x|add:42 }}" y="{{ p.y|add:13 }}" text-anchor="end" aria-hidden="true">{{ p.mark }}</text>{% for line in p.lines %}<text class="mgmt-hw" x="{{ p.x|add:23 }}" y="{% if forloop.first %}{{ p.y|add:28 }}{% else %}{{ p.y|add:40 }}{% endif %}" text-anchor="middle" aria-hidden="true"{% if line.fit %} textLength="{{ line.fit }}" lengthAdjust="spacingAndGlyphs"{% endif %}>{{ line.text }}</text>{% endfor %}</g></a>{% endfor %}
-  </svg></div>
+  {# the drawing needs no key (#130): each box shows its number, its State mark in the State's colour, the hardware on it, ⚡ while PoE delivers, the Net ✗ where the port is not as it should be, a solid edge while the link is up (dashed when down); its title says all of it in words. The wide drawing is the switch as it is; a phone gets the same boxes in bands of seven columns, scaled to its width. #}
+  <div class="mgmt-panel-box" role="region" aria-label="Front panel of {{ s.title }}">
+  <svg class="mgmt-panel mgmt-panel-wide" id="switch-{{ anchor }}-panel" viewBox="0 0 {{ s.panel_width }} {{ s.panel_height }}" style="max-width: {{ s.panel_width }}px" role="group" aria-label="{{ s.panel_label }}. A port links to its row.">
+  {% for p in s.panel %}{% include "management/switch_box.html" with x=p.x y=p.y suffix="" %}{% endfor %}
+  </svg>
+  <svg class="mgmt-panel mgmt-panel-narrow" id="switch-{{ anchor }}-panel-n" viewBox="0 0 {{ s.narrow_width }} {{ s.narrow_height }}" style="max-width: {{ s.narrow_width }}px" role="group" aria-label="{{ s.panel_label }}. A port links to its row.">
+  {% for p in s.panel %}{% include "management/switch_box.html" with x=p.nx y=p.ny suffix="-n" %}{% endfor %}
+  </svg>
+  </div>
   {% endif %}
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports mgmt-fit mgmt-striped mgmt-sortable">
@@ -246,41 +262,39 @@
       <th scope="col" class="c-gw" title="{{ head_titles.gw }}">GW</th>
       <th scope="col" class="c-lldp" title="{{ head_titles.lldp }}">LLDP</th>
       <th scope="col" class="c-lldp-port" title="{{ head_titles.lldp_port }}">LLDP port</th>
-      <th scope="col" class="c-macs" title="{{ head_titles.macs }}">MACs</th>
       <th scope="col" class="c-rx" title="{{ head_titles.rx }}">In</th>
       <th scope="col" class="c-tx" title="{{ head_titles.tx }}">Out</th>
       <th scope="col" class="c-rx-errors" title="{{ head_titles.rx_errors }}">Rx err</th>
       <th scope="col" class="c-tx-errors" title="{{ head_titles.tx_errors }}">Tx err</th>
-      <th scope="col" class="c-label" title="{{ head_titles.label }}">Label</th>
+      <th scope="col" class="c-role" title="{{ head_titles.role }}">Role</th>
     </tr></thead>
     <tbody>
     {% for p in s.ports %}
-      <tr id="switch-{{ anchor }}-port-{{ p.port }}">
-        <th scope="row" class="c-port">{{ p.port }}</th>
-        <td class="c-model" data-label="Model">{% for m in p.machines %}<div title="{{ m.model_title }}">{{ m.model }}</div>{% endfor %}</td>
-        <td class="c-board" data-label="Board">{% for m in p.machines %}<div title="{{ m.board_title }}">{{ m.board }}</div>{% endfor %}</td>
+      <tr id="switch-{{ anchor }}-port-{{ p.port }}"{% if p.empty %} class="mgmt-empty-port"{% endif %}>
+        <th scope="row" class="c-port"{% if p.port_title %} title="{{ p.port_title }}"{% endif %}>{{ p.port }}</th>
+        <td class="c-model" data-label="Model" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.model }}{% endif %}">{% for m in p.machines %}<div title="{{ m.model_title }}">{{ m.model }}</div>{% endfor %}</td>
+        <td class="c-board" data-label="Board" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.board }}{% endif %}">{% for m in p.machines %}<div title="{{ m.board_title }}">{{ m.board }}</div>{% endfor %}</td>
         <td class="mgmt-mark c-state" data-label="State" data-sort="{{ p.state_sort }}">{% for m in p.machines %}<div class="mgmt-state-{{ m.condition }}" title="{{ m.state_title }}">{{ m.mark }}<span class="mgmt-sr"> {{ m.state_title }}</span></div>{% endfor %}{% if p.unregistered %}<div class="mgmt-state-unregistered" title="{{ p.unregistered_title }}">{{ p.unregistered }}<span class="mgmt-sr"> {{ p.unregistered_title }}</span></div>{% endif %}</td>
-        <td class="c-serial" data-label="Serial">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
-        <td class="c-lease" data-label="Lease" data-sort="{% if p.machines %}{{ p.machines.0.lease_sort }}{% else %}0{% endif %}">{% for m in p.machines %}<div title="{{ m.lease_at }}">{{ m.lease_ago }}</div>{% endfor %}</td>
+        <td class="c-serial" data-label="Serial" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.serial }}{% endif %}">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
+        <td class="c-lease" data-label="Lease" data-sort="{{ p.lease_sort }}">{% for m in p.machines %}<div title="{{ m.lease_at }}">{{ m.lease_ago }}</div>{% endfor %}</td>
         <td class="mgmt-mark c-net" data-label="Net" data-sort="{{ p.net_ok|yesno:'1,0' }}" title="{{ p.net_title }}"><span class="{{ p.net_cls }}">{{ p.net }}</span><span class="mgmt-sr"> {{ p.net_title }}</span></td>
-        <td class="mgmt-mark c-link {% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}" data-label="Link" title="{{ p.link_title }}"><span class="mgmt-glyph">{{ p.link }}</span><span class="mgmt-sr"> {{ p.link_title }}</span></td>
+        <td class="mgmt-mark c-link {% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}" data-label="Link" title="{{ p.link_cell_title }}"><span class="mgmt-glyph">{{ p.link }}</span><span class="mgmt-sr"> {{ p.link_title }}</span></td>
         <td class="c-speed" data-label="Speed" data-sort="{{ p.speed_sort }}">{{ p.speed }}</td>
         <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
         <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
         <td class="c-power">{% if p.can_power %}{% if p.poe_action %}<button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}">{{ p.poe_button }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
-        <td class="c-vlan" data-label="VLAN" title="{{ p.vlan_title }}">{{ p.vlan }}</td>
+        <td class="mgmt-n c-vlan" data-label="VLAN" data-sort="{{ p.vlan_sort }}" title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td class="c-gw" data-label="GW" title="{{ p.gw_title }}">{{ p.gw }}</td>
         <td class="c-lldp" data-label="LLDP"{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}</td>
         <td class="c-lldp-port" data-label="LLDP port">{{ p.lldp_port }}</td>
-        <td class="c-macs" data-label="MACs"{% if p.macs_title %} title="{{ p.macs_title }}"{% endif %}>{{ p.macs }}</td>
         <td class="mgmt-n c-rx" data-label="In">{{ p.rx }}</td>
         <td class="mgmt-n c-tx" data-label="Out">{{ p.tx }}</td>
         <td class="mgmt-n c-rx-errors" data-label="Rx err">{{ p.rx_errors }}</td>
         <td class="mgmt-n c-tx-errors" data-label="Tx err">{{ p.tx_errors }}</td>
-        <td class="mgmt-label c-label{% if p.role %} mgmt-role{% endif %}" data-label="Label" title="{{ p.label_title }}">{{ p.label }}</td>
+        <td class="c-role" data-label="Role">{{ p.role }}</td>
       </tr>
     {% empty %}
-      <tr><td colspan="22">No ports were read from this switch.</td></tr>
+      <tr><td colspan="21">No ports were read from this switch.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -290,10 +304,8 @@
 {% endfor %}
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
-  <li>Front panel: each port shows its number, the hardware on it (the Pi's model, then its FPGA board's type; an infrastructure port's role), its State mark as on the Raspberry Pis page (● operational, ! needs attention, ○ missing, ⟳ checking; ? a device the gateway has registered nothing for; ! too where the port's network reading is not as it should be), a solid edge while its link is up and a dashed one while it is down, and ⚡ while PoE delivers power. Everything about the port is in its title; it links its row.</li>
-  <li>The hardware on a port is each machine the gateway last leased an address on it, newest first (Lease, the exact time on hover): an observation, never a remembered table.</li>
-  <li>Net: ✓ the port is as it should be, ✗ it is not (why on hover). A switch-wide known issue is the line above the panel.</li>
-  <li>Every column sorts: a click on its header, again to reverse, a third time for the served order. Each header's title says what the column is.</li>
+  <li>Each column's header says what it is; each mark says its words on hover. Every column sorts: a click on its header, again to reverse, a third time for the served order.</li>
+  <li>The hardware on a port is each machine the gateway last leased an address on it, newest first: an observation, never a remembered table.</li>
   <li>Read from the switches by the gateway at most every {{ refresh_seconds }} seconds; the page refreshes itself (without JavaScript, reload it), and a port's link change is shown the moment the gateway sees it. Times are {{ zone }}.</li>
 </ul>
 </details>

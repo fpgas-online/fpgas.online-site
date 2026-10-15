@@ -165,7 +165,7 @@ def test_the_names_reverse_on_both_urlconfs():
 @pytest.mark.django_db
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    row = html.split('<th scope="row" class="c-port">3</th>')[1].split("</tr>")[0]
+    row = row_of(html, 3)
     assert '<span class="mgmt-glyph">↓</span><span class="mgmt-sr"> link down</span>' in row
     assert 'title="PoE on, nothing drawing power">○<span class="mgmt-sr"> PoE on, nothing drawing power</span>' in row
     # no machine on it: the hardware cells, the speed and the watts are empty, not a dash or a word
@@ -181,8 +181,12 @@ def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     assert (d[2]["rx"], d[2]["tx"]) == ("–", "–")
     # receive and transmit errors, a column each
     assert (d[0]["rx_errors"], d[0]["tx_errors"]) == ("0", "2") and (d[2]["rx_errors"], d[2]["tx_errors"]) == ("–", "–")
-    # one MAC and how many more (#89: the column as wide as one value); every MAC in the title
-    assert d[0]["macs"] == "aa:00:00:00:00:01 +3" and d[0]["macs_title"].count("aa:") == 4
+    # the MACs the switch saw are in the Link mark's title (the review of #137: the machine is named by the hardware
+    # columns, so the MACs have no column of their own)
+    assert d[0]["macs"] == ["aa:00:00:00:00:01", "aa:00:00:00:00:02", "aa:00:00:00:00:03", "aa:00:00:00:00:04"]
+    assert d[0]["link_cell_title"] == ("link up; MACs seen: aa:00:00:00:00:01, aa:00:00:00:00:02, aa:00:00:00:00:03, "
+                                       "aa:00:00:00:00:04")
+    assert d[2]["link_cell_title"] == "link down; no MAC seen"
     # the link state and its speed, a column each (#130)
     assert (d[0]["link"], d[0]["link_title"], d[0]["speed"]) == ("↑", "link up", "1G")
     assert (d[2]["link"], d[2]["link_title"], d[2]["speed"]) == ("↓", "link down", "")
@@ -193,9 +197,11 @@ def test_a_fleet_pis_lldp_name_links_to_its_page_and_other_names_do_not(reader):
     machine("10000000aaaa0001", "pi-sw1-p1.welland.example")
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     # the neighbour, then the port it reports in a column of its own (#130: one value a column)
-    assert ('<td class="c-lldp" data-label="LLDP"><a href="/fleet/10000000aaaa0001/">pi-sw1-p1</a></td>\n'
-            '        <td class="c-lldp-port" data-label="LLDP port">eth0</td>') in html
-    assert '<td class="c-lldp" data-label="LLDP">device</td>' in html and "not-a-fleet-host" not in html  # masked
+    assert ('<td class="c-lldp" data-label="LLDP" title="the name it announces"><a href="/fleet/10000000aaaa0001/">'
+            'pi-sw1-p1</a></td>\n        <td class="c-lldp-port" data-label="LLDP port">eth0</td>') in html
+    # a name the page may not show is withheld, its title says so (the review of #137: the one other form)
+    assert ('<td class="c-lldp" data-label="LLDP" title="its name is not shown: not a fleet Pi or a switch">device</td>'
+            in html) and "not-a-fleet-host" not in html
     assert '<td class="c-lldp-port" data-label="LLDP port">gi1</td>' in html
 
 
@@ -211,7 +217,8 @@ def test_the_newest_machine_on_a_hostname_is_the_one_linked(reader):
 def test_no_fleet_pages_on_tinytapeout_means_no_link(reader):
     machine("10000000aaaa0001", "pi-sw1-p1")
     html = Client(HTTP_HOST=TT).get("/management/switches/").content.decode()
-    assert '<td class="c-lldp" data-label="LLDP">pi-sw1-p1</td>' in html and "/fleet/" not in html
+    assert '<td class="c-lldp" data-label="LLDP" title="the name it announces">pi-sw1-p1</td>' in html
+    assert "/fleet/" not in html
 
 
 @pytest.mark.django_db
@@ -244,7 +251,7 @@ def test_an_unreachable_switch_shows_its_error_and_last_ports(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert "not answering since 09:59:45" in html and "mgmt-dead" in html
-    assert 'th scope="row" class="c-port">1</th>' in html
+    assert re.search(r'<th scope="row" class="c-port"[^>]*>1</th>', html)
 
 
 @pytest.mark.django_db
@@ -295,7 +302,7 @@ def test_device_text_is_escaped_in_the_page_and_plain_in_the_json(monkeypatch):
     html = c.get("/management/switches/").content.decode()
     assert evil not in html and "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[0]["label"] == evil and ports[1]["lldp_port"] == evil
+    assert ports[0]["port_title"] == f"the switch labels this port {evil}" and ports[1]["lldp_port"] == evil
 
 
 @pytest.mark.django_db
@@ -378,7 +385,7 @@ def test_link_speeds_are_short():
 
 
 COLUMNS = ["Port", "Model", "Board", "State", "Serial", "Lease", "Net", "Link", "Speed", "PoE", "W", "⏻", "VLAN", "GW",
-           "LLDP", "LLDP port", "MACs", "In", "Out", "Rx err", "Tx err", "Label"]
+           "LLDP", "LLDP port", "In", "Out", "Rx err", "Tx err", "Role"]
 
 
 @pytest.mark.django_db
@@ -507,7 +514,7 @@ def test_no_host_name_reaches_the_page_or_the_json(gateway_host, monkeypatch):
     c = Client(HTTP_HOST=HOSTS[0])
     for body in (c.get("/management/switches/").content.decode(), c.get("/management/switches.json").content.decode()):
         assert "gwhost" not in body.lower() and "upstreamhost" not in body and "example.org" not in body
-        assert "eth-uplink.gateway" in re.sub(r"<[^>]+>", "", body)  # the text a reader sees
+        assert "the switch labels this port eth-uplink.gateway" in body  # the port number's title
 
 
 @pytest.mark.django_db
@@ -546,8 +553,9 @@ def test_the_house_uplink_reads_house_uplink_and_other_ports_their_full_label(mo
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[2]["label"] == "house uplink" and ports[0]["label"] == "uplink"  # port 1 keeps its own label
-    assert ports[2]["label_title"] == "house uplink: its role in the inventory"
+    # the house uplink by its role; its own label (which names a private device) is not on the page at all
+    assert (ports[2]["role"], ports[2]["port_title"]) == ("house uplink", "")
+    assert (ports[0]["role"], ports[0]["port_title"]) == ("", "the switch labels this port uplink")
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
@@ -567,7 +575,7 @@ def test_no_button_on_a_trunk_inside_the_board_range_even_when_registered(monkey
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec(gateway_trunk_port=3)})
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert (ports[2]["label"], ports[2]["can_power"]) == ("gateway trunk", False)
+    assert (ports[2]["role"], ports[2]["can_power"]) == ("gateway trunk", False)
     assert ports[2]["machines"] == []  # a registration names no port: only the gateway's lease records do
 
 
@@ -581,8 +589,7 @@ def test_a_switch_the_inventory_cannot_describe_fails_closed(monkeypatch, invent
     monkeypatch.setattr(page, "_inventory", lambda: inventory)
     c = Client(HTTP_HOST=HOSTS[0])
     sw = json.loads(c.get("/management/switches.json").content)["switches"][0]
-    assert all(p["label"] == "–" and not p["can_power"] for p in sw["ports"])
-    assert all(p["label_title"] == "labels hidden: the switch inventory could not be read" for p in sw["ports"])
+    assert all(p["port_title"] == "" and p["role"] == "" and not p["can_power"] for p in sw["ports"])
     assert page.NO_INVENTORY_NOTE in sw["status"]
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
@@ -638,8 +645,10 @@ def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch)
     assert batch == {3, 9} == {p for p in range(0, 20) if board_port(request, 1, p)}
 
 
-def row_of(html, port):
-    return html.split(f'<th scope="row" class="c-port">{port}</th>')[1].split("</tr>")[0]
+def row_of(html, port, switch=1):
+    """The served row of a port, from its <th> to its end."""
+    return re.search(rf'<tr id="switch-{switch}-port-{port}"[^>]*>\s*<th scope="row" class="c-port"[^>]*>{port}</th>'
+                     r"(.*?)</tr>", html, re.S).group(1)
 
 
 @pytest.mark.django_db
@@ -777,16 +786,16 @@ def test_vlan_cell_of_a_board_port():
 
 def test_vlan_cell_shows_an_extra_untagged_vlan():
     text, title = page.vlan_cell(vlan_port(untagged=(21, 2110)))
-    assert text == "2110 +21" and title == "PVID 2110; untagged 21, 2110; tagged none"
+    assert text == "2110" and title == "PVID 2110; untagged 21, 2110; tagged none"  # the PVID alone (#137)
 
 
 def test_vlan_cell_of_a_trunk_counts_the_tagged_vlans_and_cuts_the_title():
     tagged = list(range(2101, 2141)) + list(range(2201, 2249))
     text, title = page.vlan_cell(vlan_port(port=47, pvid=21, untagged=(21,), tagged=tagged))
-    assert text == "21 +88t"
+    assert text == "21"
     assert title.startswith("PVID 21; untagged 21; tagged 2101, 2102, ")
     assert title.endswith("2112, … (+76)") and "2201" not in title
-    assert page.vlan_cell(vlan_port(pvid=None, untagged=(), tagged=tagged))[0] == "+88t"
+    assert page.vlan_cell(vlan_port(pvid=None, untagged=(), tagged=tagged))[0] == "–"  # no PVID: no VLAN of its own
 
 
 def test_vlan_cell_names_only_names_the_page_may_show():
@@ -817,7 +826,7 @@ def test_columns_in_the_json(monkeypatch, netdevs):
     ports = vlan_json(monkeypatch, [vlan_port(10), vlan_port(11, 2111, (2111,)), vlan_port(12, 2112, (2112,)),
                                     vlan_port(13, None, ()), vlan_port(47, 21, (21,), [2110, 2111])])
     got = [(p["vlan"], p["gw"]) for p in ports]
-    assert got == [("2110", "v2110 ↑"), ("2111", "v2111 ↓"), ("2112", "none"), ("–", "–"), ("21 +2t", "–")]
+    assert got == [("2110", "v2110 ↑"), ("2111", "v2111 ↓"), ("2112", "none"), ("–", "–"), ("21", "–")]
     assert ports[0]["vlan_title"] and ports[0]["gw_title"] == "gateway interface v2110, up"
     assert ports[4]["vlan_title"].endswith("tagged 2110, 2111")
 
@@ -865,9 +874,10 @@ def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, 
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: [view])
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
-    assert '<td class="c-vlan" data-label="VLAN" title="PVID 2110; untagged 2110; tagged none">2110</td>' in html
+    assert ('<td class="mgmt-n c-vlan" data-label="VLAN" data-sort="2110" title="PVID 2110; untagged 2110; tagged none">'
+            '2110</td>') in html
     assert '<td class="c-gw" data-label="GW" title="gateway interface v2110, up">v2110 ↑</td>' in html
-    assert "title=\"the port&#x27;s VLAN (PVID); + other untagged VLANs; +Nt tagged VLANs; all of them on hover\"" in html
+    assert "title=\"the port&#x27;s VLAN (its PVID); its other untagged and its tagged VLANs on hover\"" in html
     assert "title=\"the gateway&#x27;s interface for the port&#x27;s VLAN: ↑ up, ↓ down\"" in html
     script = html.split("<script>")[1].split("</script>")[0]
     assert "p.vlan_title" in script and "p.gw_title" in script and "innerHTML" not in script
@@ -899,7 +909,7 @@ def test_a_pis_port_is_its_interface_name_where_its_port_id_is_its_mac(monkeypat
 
 
 @pytest.mark.django_db
-def test_a_neighbouring_switch_is_shown_by_its_number_with_its_name_in_the_title(monkeypatch):
+def test_a_neighbouring_switch_is_shown_by_the_name_it_announces(monkeypatch):
     views = make_views()
     other = SwitchView(index=2, name="sw-netgear-gsm7252ps-s1", model="GSM7252PS", reachable=True, error="",
                        read_at=READ_AT, good_at=READ_AT, ports=[])
@@ -908,10 +918,11 @@ def test_a_neighbouring_switch_is_shown_by_its_number_with_its_name_in_the_title
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: [*views, other])
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
+    # the name the neighbour announces, one form (the review of #137: no "switch 2" beside the names)
     assert (ports[1]["lldp_name"], ports[1]["lldp_title"], ports[1]["lldp_port"]) == (
-        "switch 2", "sw-netgear-gsm7252ps-s1", "1/0/50")
+        "sw-netgear-gsm7252ps-s1", "the name it announces", "1/0/50")
     html = c.get("/management/switches/").content.decode()
-    assert ('<td class="c-lldp" data-label="LLDP" title="sw-netgear-gsm7252ps-s1">switch 2</td>\n'
+    assert ('<td class="c-lldp" data-label="LLDP" title="the name it announces">sw-netgear-gsm7252ps-s1</td>\n'
             '        <td class="c-lldp-port" data-label="LLDP port">1/0/50</td>') in html
 
 
@@ -923,7 +934,7 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    row = html.split('<th scope="row" class="c-port">1</th>')[1].split("</tr>")[0]
+    row = row_of(html, 1)
     poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[8:11]
     assert "⚡" in poe and "button" not in poe and watts == "3.5"
     assert power.startswith('<button type="button" class="mgmt-poe-button"') and 'class="mgmt-poe-msg"' in power
@@ -932,18 +943,21 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_a_label_is_one_value_on_one_line(monkeypatch):
-    """#130: every value is one line, so the table is as wide as its values (a label that wrapped let the table
-    stretch to the window); a port with no label says so in its title."""
+def test_the_switchs_own_label_is_on_a_board_ports_number_and_the_role_is_a_column(monkeypatch):
+    """The review of #137: one form a column. The switch's own label (its configuration, stale in places: poe #14)
+    names nothing the hardware columns do not, so it is the port number's title on a board port; the Role column holds
+    only the inventory's role words, empty on a board port."""
     views = make_views()
     views[0].ports[0].label = "1/0/51.sw-netgear-gsm7252ps-s1"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     c = Client(HTTP_HOST=HOSTS[0])
-    assert ('<td class="mgmt-label c-label" data-label="Label" title="the switch&#x27;s own label for the port">'
-            '1/0/51.sw-netgear-gsm7252ps-s1</td>' in c.get("/management/switches/").content.decode())
+    html = c.get("/management/switches/").content.decode()
+    assert re.search(r'<th scope="row" class="c-port" title="the switch labels this port '
+                     r'1/0/51\.sw-netgear-gsm7252ps-s1">1</th>', html)
+    assert '<th scope="row" class="c-port">3</th>' in html  # no label: no title
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1" and "label_parts" not in ports[0]
-    assert (ports[2]["label"], ports[2]["label_title"]) == ("–", "the switch has no label for this port")
+    assert "label" not in ports[0] and "label_parts" not in ports[0]
+    assert {p["role"] for p in ports} == {""}
 
 
 @pytest.mark.django_db
@@ -998,7 +1012,7 @@ def test_the_house_device_is_masked_on_every_switch(monkeypatch):
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec(), 2: spec(index=2, house_uplink_port=None)})
     c = Client(HTTP_HOST=HOSTS[0])
     sw2 = json.loads(c.get("/management/switches.json").content)["switches"][1]["ports"]
-    assert sw2[0]["label"] == "mirror.house uplink"
+    assert sw2[0]["port_title"] == "the switch labels this port mirror.house uplink"
     assert "upstreamhost" not in c.get("/management/switches/").content.decode()
 
 
@@ -1007,7 +1021,7 @@ def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader, setting
     settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"  # the installation's zone, whatever the test host's is
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     # READ_AT is 10:00 at +09:30 on 9 Oct: 11:00 in Adelaide (+10:30), days ago now
-    assert re.search(r'read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span></p>', html)
+    assert re.search(r'read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span>', html)
     script = html.split("<script>")[1].split("</script>")[0]
     assert "readat.textContent = s.read_ago; readat.title = s.read_at;" in script
 
@@ -1028,11 +1042,11 @@ def test_on_a_phone_a_port_is_a_block_of_its_hardware_state_link_and_poe():
     rules = _rules(phone)
     hidden = next(sels for sels, body in rules if "display: none" in body and ".mgmt-ports td.c-vlan" in sels)
     assert set(hidden) == {*(f".mgmt-ports td.c-{c}" for c in (
-        "vlan", "gw", "lldp-port", "macs", "rx", "tx", "rx-errors", "tx-errors", "label", "serial")),
-        ".mgmt-ports td:empty"}
+        "vlan", "gw", "lldp-port", "rx", "tx", "rx-errors", "tx-errors", "serial")), ".mgmt-ports td:empty"}
     assert "nth-child" not in phone  # a column is found by its class, so a new column cannot shift the layout
-    # an infrastructure port's role stays: it is what the port is
-    assert any(".mgmt-ports td.c-label.mgmt-role" in sels and "display: block" in body for sels, body in rules)
+    # an empty board port is left out on a phone, and the heading line's count of them is shown there only
+    assert any(".mgmt-ports tr.mgmt-empty-port" in sels and "display: none" in body for sels, body in rules)
+    assert any(".mgmt-empty-count:not([hidden])" in sels and "display: inline" in body for sels, body in rules)
     assert any(".mgmt-ports td[data-label]::before" in sels and "attr(data-label)" in body for sels, body in rules)
     assert any(".mgmt-ports tr" in sels and "flex-wrap: wrap" in body for sels, body in rules)
 
@@ -1078,8 +1092,9 @@ def test_a_port_shows_the_machine_the_gateway_last_leased_an_address_on_it(reade
     assert m["lease_ago"] == "5 min ago" and m["state_title"] == "operational"
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = row_of(html, 1)
-    assert '<td class="c-model" data-label="Model"><div title="Pi 5 2 GB 10000000aaaa0001">Pi 5</div></td>' in row
-    assert '<td class="c-board" data-label="Board"><div title="Acorn">Acorn</div></td>' in row
+    assert ('<td class="c-model" data-label="Model" data-sort="0 Pi 5"><div title="Pi 5 2 GB 10000000aaaa0001">Pi 5'
+            '</div></td>') in row
+    assert '<td class="c-board" data-label="Board" data-sort="0 Acorn"><div title="Acorn">Acorn</div></td>' in row
     assert ('<div class="mgmt-state-operational" title="operational">●<span class="mgmt-sr"> operational</span></div>'
             in row)
     assert '<a href="/fleet/10000000aaaa0001/">10000000aaaa0001</a>' in row
@@ -1118,12 +1133,12 @@ def test_several_machines_last_seen_on_one_port_are_a_line_each_newest_first(rea
     for column in ("c-model", "c-board", "c-state", "c-serial", "c-lease"):
         cell = re.search(rf'<td class="[^"]*{column}"[^>]*>(.*?)</td>', row).group(1)
         assert cell.count("<div") == 3, column
-    # the panel's box: the newest machine, and how many more; port 2 links at 100M under that Pi 5, so the box is
-    # "!" (Net ✗) over the machine's own ●
+    # the panel's box: the newest machine with its own ●, how many more, and, apart, the Net ✗ (port 2 links at
+    # 100M under that Pi 5)
     sw = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
     box = next(p for p in sw["panel"] if p["port"] == 2)
-    assert (box["kind"], box["mark"], [line["text"] for line in box["lines"]]) == ("attention", "!",
-                                                                                   ["Pi 5 +2", "Acorn"])
+    assert (box["kind"], box["mark"], box["more"], box["lines"], box["net"]) == (
+        "operational", "●", "+2", ["Pi 5", "Acorn", ""], "✗")
     assert box["title"].count("leased an address here") == 3
     assert "not as it should be: link 100M; a Pi 5 links at 1G" in box["title"]
 
@@ -1150,11 +1165,13 @@ def test_an_infrastructure_port_is_never_unregistered_and_shows_its_role_word(mo
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     ports = ports_json()
-    assert (ports[1]["role"], ports[1]["label"], ports[1]["unregistered"]) == ("infrastructure", "infrastructure", "")
-    assert (ports[2]["label"], ports[2]["label_title"]) == ("switch trunk", "switch trunk: its role in the inventory")
+    assert (ports[1]["role"], ports[1]["unregistered"]) == ("infrastructure", "")
+    # the role word, and the switch's own label (which can name a private device) nowhere
+    assert (ports[2]["role"], ports[2]["port_title"]) == ("switch trunk", "")
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    assert '<td class="mgmt-label c-label mgmt-role" data-label="Label" title="switch trunk: its role' in row_of(html, 50)
-    assert '<td class="mgmt-label c-label" data-label="Label"' in row_of(html, 1)
+    assert '<td class="c-role" data-label="Role">switch trunk</td>' in row_of(html, 50)
+    assert '<td class="c-role" data-label="Role"></td>' in row_of(html, 1)
+    assert "sw-netgear-gsm7252ps-s1" not in row_of(html, 50)
 
 
 # --- #130: Net, the port's reading against what it should be ------------------------------------------------------
@@ -1165,7 +1182,8 @@ def test_net_is_a_tick_when_the_port_is_as_it_should_be(reader):
     seat("pi-sw1-p1", "10000000aaaa0001", model="Pi 5", lease=(1, 1))
     port = ports_json()[0]
     assert (port["net"], port["net_ok"]) == ("✓", True)
-    assert port["net_title"] == "as it should be: VLANs against the inventory, PoE, link and speed for the Pi 5 on it"
+    assert port["net_title"] == ("as it should be: VLANs against the inventory, PoE, link and speed for the Pi 5 on it, "
+                                 "error counters (no earlier reading to compare with yet)")
 
 
 @pytest.mark.django_db
@@ -1206,10 +1224,13 @@ def test_net_names_an_inventory_failure_and_only_mentions_a_known_cause(monkeypa
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     ports = ports_json()
+    # a ✓ never reads like a fault: as it should be apart from the known issue above, VLANs not claimed as compared
     assert ports[0]["net_ok"] is True
-    assert ports[0]["net_title"].endswith("; known: also untagged in VLAN 21 (poe #16)")
-    assert ports[0]["net_title"].startswith("as it should be: VLANs against the inventory, PoE")
-    assert ports[1]["net_ok"] is False and ports[1]["net_title"].startswith("not as it should be: port 2 PVID 1, not 2102")
+    assert ports[0]["net_title"] == ("as it should be apart from the known issue above (poe #16): PoE, error counters "
+                                     "(no earlier reading to compare with yet)")
+    assert ports[1]["net_ok"] is False
+    assert ports[1]["net_title"] == ("not as it should be: port 2 PVID 1, not 2102; and the known issue above "
+                                     "(poe #16)")
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert ('<td class="mgmt-mark c-net" data-label="Net" data-sort="0" title="not as it should be: port 2 PVID 1, '
             'not 2102') in row_of(html, 2)
@@ -1223,3 +1244,81 @@ def test_the_speeds_net_compares_are_for_the_fleet_short_model_names():
 
     for label in ("Pi 3 Model B+", "Pi 4 Model B", "Pi 5", "Orange Pi PC", "Pi Compute Module 4"):
         assert short_model(label) in page.LINK_SPEEDS, label
+
+
+# --- the review of #137: error counters judged against the previous reading -----------------------------------------
+
+
+@pytest.mark.django_db
+def test_an_error_counter_that_rose_since_the_previous_reading_is_net_cross(reader, settings):
+    """The page keeps each switch's previous reading's counters (the "poe" cache, beside the reading): a counter that
+    rose is Net ✗ with how much and since when; the cells keep the totals; with no earlier reading the title says so."""
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    port = lambda: ports_json()[0]  # noqa: E731
+    first = port()
+    assert first["net_ok"] is True and "error counters (no earlier reading to compare with yet)" in first["net_title"]
+    assert port()["net_ok"] is True  # the same reading again: still nothing to compare with
+    # the next reading: rx errors 0 -> 5
+    reader[0].read_at = reader[0].good_at = "2026-10-09T10:00:15+09:30"
+    reader[0].ports[0].rx_errors = 5
+    later = port()
+    assert later["net_ok"] is False and later["net"] == "✗"
+    assert later["net_title"] == "not as it should be: rx errors +5 since 2026-10-09 11:00:00"
+    assert later["rx_errors"] == "5"  # the cell keeps the total
+    assert port()["net_ok"] is False  # every request within that reading compares with the same previous one
+    # the reading after: nothing rose
+    reader[0].read_at = reader[0].good_at = "2026-10-09T10:00:30+09:30"
+    calm = port()
+    assert calm["net_ok"] is True and "error counters (none rose since 2026-10-09 11:00:15)" in calm["net_title"]
+    # the switch restarted its count: said in the title, not a ✗
+    reader[0].read_at = reader[0].good_at = "2026-10-09T10:00:45+09:30"
+    reader[0].ports[0].rx_errors = 0
+    back = port()
+    assert back["net_ok"] is True
+    assert "rx error count went back since 2026-10-09 11:00:30 (the switch restarted its count)" in back["net_title"]
+
+
+def test_error_change_compares_rx_and_tx_apart_and_skips_a_counter_not_read():
+    p = PortView(port=1, rx_errors=10, tx_errors=7)
+    assert page.error_change(p, "", None) == ([], "error counters (no earlier reading to compare with yet)")
+    rose, _ = page.error_change(p, "2026-10-09T10:00:00+00:00", (4, 7))
+    assert len(rose) == 1 and rose[0].startswith("rx errors +6 since ")
+    rose, _ = page.error_change(p, "2026-10-09T10:00:00+00:00", (10, 2))
+    assert len(rose) == 1 and rose[0].startswith("tx errors +5 since ")
+    assert page.error_change(PortView(port=1), "2026-10-09T10:00:00+00:00", (1, 1))[0] == []
+
+
+# --- the review of #137: a phone leaves out empty board ports and counts them --------------------------------------
+
+
+@pytest.mark.django_db
+def test_empty_board_ports_are_marked_and_counted_for_the_phone(reader):
+    sw = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
+    # port 3: nothing registered, no link, no power, as it should be; ports 1 and 2 have a link and power
+    assert [p["empty"] for p in sw["ports"]] == [False, False, True] and sw["empty_ports"] == 1
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert '<tr id="switch-1-port-3" class="mgmt-empty-port">' in html and '<tr id="switch-1-port-1">' in html
+    assert ('<span class="mgmt-empty-count"> &middot; <span class="mgmt-empty-n">1</span> empty board ports not '
+            'listed</span>') in html
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert 'tr.className = "mgmt-empty-port"' in script and '.mgmt-empty-n").textContent = s.empty_ports' in script
+
+
+@pytest.mark.django_db
+def test_a_port_not_as_it_should_be_or_with_a_machine_is_never_empty(reader):
+    reader[0].ports[2].pvid = 1  # port 3: not as the inventory says
+    sw = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
+    assert sw["ports"][2]["empty"] is False and sw["empty_ports"] == 0
+
+
+@pytest.mark.django_db
+def test_the_hardware_columns_sort_empty_ports_after_the_ones_with_a_machine(reader):
+    seat("pi-sw1-p2", "10000000aaaa0002", lease=(1, 2))
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    for column in ("c-model", "c-board", "c-serial"):
+        sorts = [re.search(rf'<td class="{column}" data-label="[^"]+" data-sort="([^"]*)"', row_of(html, n)).group(1)
+                 for n in (1, 2, 3)]
+        assert sorts[1].startswith("0 ") and sorts[0] == sorts[2] == "1", (column, sorts)
+    leases = [int(re.search(r'class="c-lease" data-label="Lease" data-sort="(\d+)"', row_of(html, n)).group(1))
+              for n in (1, 2, 3)]
+    assert leases[1] < leases[0] == leases[2]
