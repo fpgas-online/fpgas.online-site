@@ -43,7 +43,6 @@ KINDS = (
     ("infrastructure", "infrastructure"),
     ("empty", "empty"),
 )
-KIND_WORDS = dict(KINDS)
 # an infrastructure role (views.switches.port_role) on the box's two lines
 ROLE_LINES = {"gateway trunk": ("gateway", "trunk"), "switch trunk": ("switch", "trunk"),
               "house uplink": ("house", "uplink"), "infrastructure": ("infra-", "structure")}
