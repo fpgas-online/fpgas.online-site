@@ -231,9 +231,10 @@ def test_no_board_offered_is_a_failure(switches, browser):
 def test_a_switch_as_the_inventory_says_is_one_row_linked_to_its_anchor(switches, browser):
     switches([as_inventory_says(1), as_inventory_says(2)])
     rows = table()
-    row = find(rows, item="Switch 2")
-    assert (row["state"], row["value"], row["href"]) == ("ok", "as the inventory says", "/management/switches/#switch-2")
-    assert [r["item"] for r in rows if r["area"] == "Switches"] == ["Switch 1", "Switch 2"]
+    row = find(rows, item="Switch 2: ports not as the inventory says")
+    assert (row["state"], row["value"], row["href"]) == ("ok", "0 ports", "/management/switches/#switch-2")
+    assert [r["item"] for r in rows if r["area"] == "Switches"] == [
+        "Switch 1: ports not as the inventory says", "Switch 2: ports not as the inventory says"]
 
 
 @pytest.mark.django_db
@@ -244,7 +245,8 @@ def test_vlan_21_on_the_board_ports_is_a_failure_row_per_switch_and_names_the_po
     rows = table()
     row = find(rows, item="Switch 1: also untagged in VLAN 21 (poe #16)")
     assert row["state"] == "failing" and row["href"] == "/management/switches/#switch-1"
-    assert row["value"] == "port 1 also untagged in VLAN 21 and 2 more"
+    assert row["value"] == "3 ports"  # a count (#123); which ports, and the issue, are its title
+    assert row["title"].startswith("port 1 also untagged in VLAN 21; port 2 also untagged in VLAN 21")
     assert "fpgas-online/fpgas.online-poe#16" in row["title"] and "port 2 also untagged in VLAN 21" in row["title"]
     assert row["seen"].endswith(" ago")  # when the switch was read
     assert find(rows, item="Switch 2: also untagged in VLAN 21 (poe #16)")["state"] == "failing"
@@ -266,7 +268,8 @@ def test_vlans_5_and_121_on_board_ports_are_one_row_naming_poe_18(switches, brow
     view.ports[1].untagged_vlans = [*view.ports[1].untagged_vlans, 121]
     switches([view])
     row = find(table(), item="Switch 2: also untagged in VLAN 5, 121 (poe #18)")
-    assert row["state"] == "failing" and row["value"] == "port 1 also untagged in VLAN 5 and 1 more"
+    assert row["state"] == "failing" and row["value"] == "2 ports"
+    assert "port 1 also untagged in VLAN 5" in row["title"]
     assert "fpgas-online/fpgas.online-poe#18" in row["title"] and "port 2 also untagged in VLAN 121" in row["title"]
 
 
@@ -277,9 +280,11 @@ def test_a_wrong_pvid_and_a_trunk_without_a_vlan_are_failures_and_the_first_kind
     view.ports[2].tagged_vlans = [2101]
     switches([view])
     rows = table()
-    assert find(rows, item="Switch 1: PVID not the port's VLAN")["value"] == "port 1 PVID 1, not 2101"
+    pvid = find(rows, item="Switch 1: PVID not the port's VLAN")
+    assert (pvid["value"], pvid["title"]) == ("1 port", "port 1 PVID 1, not 2101")
     trunk = find(rows, item="Switch 1: gateway trunk lacks board VLANs")
-    assert trunk["value"] == "gateway trunk lacks 2 board VLANs, first 2102"
+    assert trunk["value"] == "2 VLANs"  # the trunk's missing board VLANs, counted
+    assert "gateway trunk lacks 2 board VLANs, first 2102" in trunk["title"]
 
 
 @pytest.mark.django_db
@@ -289,15 +294,15 @@ def test_a_switch_read_time_that_is_not_iso_is_a_failure_row_for_that_switch_onl
     switches([bad, as_inventory_says(2)])
     rows = table()
     assert find(rows, item="Switch 1")["state"] == "failing" and "yesterday" in find(rows, item="Switch 1")["value"]
-    assert find(rows, item="Switch 2")["state"] == "ok"
+    assert find(rows, item="Switch 2: ports not as the inventory says")["state"] == "ok"
 
 
 @pytest.mark.django_db
 def test_a_switch_that_does_not_answer_is_a_failure_row(switches, browser):
     switches([SwitchView(index=2, name="sw-2", model="GSM7252PS", reachable=False, error="no answer", read_at=READ_AT)])
     row = find(table(), item="Switch 2")
-    assert (row["state"], row["value"], row["href"]) == (
-        "failing", "not answering: no answer", "/management/switches/#switch-2")
+    assert (row["state"], row["value"], row["title"], row["href"]) == (
+        "failing", "not answering", "no answer", "/management/switches/#switch-2")
 
 
 @pytest.mark.django_db
@@ -337,7 +342,7 @@ def test_a_browser_test_older_than_three_scheduled_runs_is_a_failure(switches, m
     switches([as_inventory_says(1)])
     monkeypatch.setattr("management.e2e.requests.get", Github({1: [job("shared (welland)", "success", at=ago_z(hours=8))]}))
     row = find(table(), area="Browser test")
-    assert (row["state"], row["value"]) == ("failing", "no completed run for 8 h (the last passed)")
+    assert (row["state"], row["value"], row["title"]) == ("failing", "stopped", "no completed run for 8 h (the last passed)")
     assert row["href"] == "https://github.com/fpgas-online/fpgas.online-e2e-tests/actions/workflows/e2e.yml"
 
 
@@ -362,7 +367,7 @@ def test_when_the_github_api_cannot_be_read_the_browser_test_is_a_failure_row_wi
     switches([as_inventory_says(1)])  # the autouse fixture makes every request raise ConnectionError
     row = find(table(), area="Browser test")
     assert row["state"] == "failing"
-    assert row["value"] == "cannot be read: GitHub API not reachable (ConnectionError)"
+    assert (row["value"], row["title"]) == ("not readable", "cannot be read: GitHub API not reachable (ConnectionError)")
     assert row["href"] == "https://github.com/fpgas-online/fpgas.online-e2e-tests/actions/workflows/e2e.yml"
 
 

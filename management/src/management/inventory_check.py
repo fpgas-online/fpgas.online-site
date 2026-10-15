@@ -33,6 +33,7 @@ class Failure:
     port: int | None
     text: str
     vlan: int | None = None  # the other VLAN, for an "also untagged" failure
+    count: int = 1  # how many things it is about: the trunk's missing board VLANs, else 1 (a port)
 
 
 def board_vlan(index, port):
@@ -78,5 +79,6 @@ def check(spec, view):
             absent = [v for v in wanted.values() if v not in set(getattr(trunk, "tagged_vlans", None) or ())]
             if absent:
                 found.append(Failure("trunk", trunk_port,
-                                     f"gateway trunk lacks {len(absent)} board VLANs, first {absent[0]}"))
+                                     f"gateway trunk lacks {len(absent)} board VLANs, first {absent[0]}",
+                                     count=len(absent)))
     return sorted(found, key=lambda f: (KINDS.index(f.kind), f.port))

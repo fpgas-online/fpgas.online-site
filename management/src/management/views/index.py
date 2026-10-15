@@ -204,18 +204,18 @@ def _switches(request, now):
             continue
         if not view.reachable:
             reason = view.error or "not answering"
-            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, f"not answering: {reason}", link, reason, read))
+            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, "not answering", link, reason, read))
             continue
         spec = switch_page._spec(inventory, view.index)
         if spec is None or spec is switch_page.NO_INVENTORY:
             why = "the switch inventory does not describe this switch, so its ports cannot be checked"
-            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, "not in the inventory", link, why, read))
+            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, "not in inventory", link, why, read))
             continue
         failures = inventory_check.check(spec, view)
         if not failures:
-            rows.append(_row(FINE, OK, "Switches", number, "as the inventory says", link,
-                             "board ports have their own PVID and are untagged in it only; the gateway trunk "
-                             "carries every board VLAN", read))
+            rows.append(_row(FINE, OK, "Switches", f"{number}: ports not as the inventory says",
+                             "0 ports", link, "board ports have their own PVID and are untagged in it only; the "
+                             "gateway trunk carries every board VLAN", read))
             continue
         # a row per kind of failure, and the failures of a known cause in a row of their own: a new fault does not
         # hide behind a known one
@@ -231,8 +231,10 @@ def _switches(request, now):
             title = shown + (f"; and {len(group) - TITLE_PORTS} more" if len(group) > TITLE_PORTS else "")
             if known is not None:
                 title += "; " + known[1]
-            more = f" and {len(group) - 1} more" if len(group) > 1 else ""
-            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", f"{number}: {words}", f"{group[0].text}{more}",
+            # the value is how many (#123: a count, the phrase is the title): ports, or the trunk's missing VLANs
+            count = sum(f.count for f in group)
+            unit = ("VLAN" if kind == "trunk" else "port") + ("" if count == 1 else "s")
+            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", f"{number}: {words}", f"{count} {unit}",
                              link, title, read))
     return rows
 
@@ -279,10 +281,12 @@ def _browser_test(request, now):
     try:
         run = e2e.latest(site)
     except e2e.E2EError as exc:
-        return [_row(E2E_FAILED, FAILING, "Browser test", item, f"cannot be read: {exc}", e2e.WORKFLOW_URL, str(exc))]
+        return [_row(E2E_FAILED, FAILING, "Browser test", item, "not readable", e2e.WORKFLOW_URL,
+                     f"cannot be read: {exc}")]
     if now - run["completed_at"] > e2e.STALE_AFTER:  # the test stopped running: an old result says nothing now
-        value = f"no completed run for {duration(now - run['completed_at'])} (the last {run['result']})"
-        return [_row(E2E_FAILED, FAILING, "Browser test", item, value, e2e.WORKFLOW_URL, "", run["completed_at"])]
+        why = f"no completed run for {duration(now - run['completed_at'])} (the last {run['result']})"
+        return [_row(E2E_FAILED, FAILING, "Browser test", item, "stopped", e2e.WORKFLOW_URL, why,
+                     run["completed_at"])]
     passed = run["result"] == "passed"
     return [_row(FINE if passed else E2E_FAILED, OK if passed else FAILING, "Browser test", item, run["result"],
                  run["url"], "", run["completed_at"])]
