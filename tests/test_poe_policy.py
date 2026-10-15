@@ -679,7 +679,9 @@ def test_power_switches_an_access_port_no_board_registered_on(switch_calls, host
 def test_power_refuses_a_trunk_an_uplink_or_a_port_outside_the_access_ports(switch_calls, host, switch, port):
     forge(f"pi-sw{switch}-p{port}")  # whatever is registered there
     r = post(host, "/snmp/power", {"port": port, "switch": switch, "on": False})
-    assert r.status_code in (400, 403), (switch, port)
+    assert r.status_code == 403, (switch, port)
+    assert r.json() == {"error": f"switch {switch} port {port} is not a board this site offers; "
+                                 "nothing was sent to the switch"}
     assert switch_calls == []
 
 
@@ -701,3 +703,10 @@ def test_the_policy_rechecks_the_access_port_bound_itself(switch_calls):
     assert board_port(request, 1, 30) and board_port(request, 2, 48)
     assert board_ports(request, 1, [30, 41, 47, 48, 50]) == {30}
     assert not board_port(request, 3, 5)  # a switch the file does not describe
+
+
+def test_the_deploy_check_fails_beside_a_package_without_configured_specs(monkeypatch):
+    """pibfpgas.poe reads the switches file through snmp_switch.switches.configured_specs: a package without it would
+    pass E001 and then fail every PoE request; the deploy check says so first."""
+    monkeypatch.delattr(switches, "configured_specs")
+    assert [e.id for e in poe_package_enforces_the_port_policy(None)] == ["pibfpgas.E001"]

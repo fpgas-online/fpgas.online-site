@@ -161,13 +161,15 @@ CHANNEL_LAYERS = {
     },
 }
 
-# PoE control (/snmp/status and /snmp/toggle, the snmp_switch app from the
-# fpgas-online-poe package). The endpoints need no login, so the package acts
-# only on what these say, and refuses everything when they are missing.
+# PoE control (/snmp/status, /snmp/toggle and /snmp/power, the snmp_switch app
+# from the fpgas-online-poe package). The endpoints need no login, so the
+# package acts only on what these say, and refuses everything when they are
+# missing.
 #
-# Which ports are boards: asked on every request, answered from the fleet
-# registry and the Tiny Tapeout board table (pibfpgas/poe.py). Any other port
-# is refused with a 403.
+# Which ports may be switched: asked on every request (pibfpgas/poe.py). On a
+# site with a switches file, every access port, always (Tim, 16 Oct 2026); a
+# trunk, an uplink or a port outside the access range is refused with a 403.
+# On a flat site, a port a board registered on.
 SNMP_SWITCH_PORT_POLICY = "pibfpgas.poe.board_port"
 # One power cycle per port per this many seconds; a second request inside it
 # gets a 429 with Retry-After.
