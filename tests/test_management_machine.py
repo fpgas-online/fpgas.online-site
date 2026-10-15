@@ -70,7 +70,7 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
               "board0_tests": "pin-id=pass ddr=fail sdk=pass", "board1": "fomu evt pass", "board1_tests": "uart=pass"}
     m = pi("pi-sw1-p17", detail, serial="00000000cc479fd1")
     html = page(m.serial)
-    boards = html.split("<h2>Boards</h2>", 1)[1].split("</table>", 1)[0]
+    boards = html.split("<h2 id=\"boards\">Boards</h2>", 1)[1].split("</table>", 1)[0]
     assert "acorn-holly 0x00200c8664b04854" in boards and "<td>Fomu</td>" in boards
     docs = "https://docs.fpgas.online/en/latest/boards/"
     assert f'<a href="{docs}acorn/checks/pin-id.html">pin-id</a>: pass' in boards

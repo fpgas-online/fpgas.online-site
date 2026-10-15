@@ -3,8 +3,9 @@
 One table, rows grouped by area, failures first (severity, then area). Each row is a short value with a link to the
 page that shows the detail. The areas:
 
-* Boards: a row per Pi that is not offered (fleet.services.condition, the rule the FPGA hosts page uses), then one
-  row for the offered ones;
+* Boards: the Pis as a count per condition (fleet.services.condition, the rule the Pi table uses), each linking the
+  Pi table (/fleet/) filtered to it, where every Pi is a row with its checks (Tim, 15 Oct 2026: "Why do both
+  exist?": the Pis are listed on one page only);
 * Switches: per switch, a row per kind of failure (management.inventory_check; the failures of a known cause in a row
   of their own, so a new fault does not hide behind it), or one row saying it is as the inventory says; a switch that
   does not answer is a failure row;
@@ -130,29 +131,44 @@ def _board_reason(host, now):
     return f"boot check {BAD_RESULTS[host.state]}"
 
 
+def _pis(n):
+    return f"{n} Pi" if n == 1 else f"{n} Pis"
+
+
+# Each condition's row: (severity, state word) when it counts some Pis; a condition counting none is fine, except that
+# no Pi offered is a failure.
+COUNT_STATES = {OPERATIONAL: (FINE, OK), ATTENTION: (BOARD_FAILING, FAILING), MISSING: (BOARD_MISSING, MISSING_WORD),
+                UNKNOWN: (BOARD_WAITING, WAITING)}
+TITLE_PIS = 20  # Pis named in a count row's title
+
+
 def _boards(request, now):
-    rows, offered = [], 0
+    """A row per condition with the number of Pis in it, linking the Pi table filtered to it; a Pi with a value the
+    code does not know is a failure row of its own, naming it."""
+    table = _url(request, "fleet-list") or _url(request, "management-fpgas")
+    rows, counted = [], {c: [] for c in CONDITIONS}
     for host in fpga.hosts(now):
-        link = _url(request, "fleet-detail", host.machine.serial)
-        # the Pi by its label, the port it booted on beside it (an observation), then its boards by their labels:
-        # one row per Pi, so two Pis last seen on one port are two named rows (the coordinator, 11 Oct 2026)
-        item = f"{fpga.pi_label(host.machine)} on {fpga.port_text(host.machine)}: {host.board_text}"
         try:
-            if host.condition == OPERATIONAL:
-                offered += 1
-                continue
-            reason = _board_reason(host, now)
+            if host.condition not in CONDITIONS:
+                raise ValueError(f"unknown condition {host.condition!r}")
+            why = "" if host.condition == OPERATIONAL else _board_reason(host, now)
         except ValueError as exc:
-            rows.append(_row(ERROR, FAILING, "Boards", item, str(exc), link, str(exc), host.machine.last_seen))
+            item = f"{fpga.pi_label(host.machine)} on {fpga.port_text(host.machine)}"
+            rows.append(_row(ERROR, FAILING, "Boards", item, str(exc), _url(request, "fleet-detail", host.machine.serial),
+                             str(exc), host.machine.last_seen))
             continue
-        severity, state = {MISSING: (BOARD_MISSING, MISSING_WORD), UNKNOWN: (BOARD_WAITING, WAITING)}.get(
-            host.condition, (BOARD_FAILING, FAILING))
-        rows.append(_row(severity, state, "Boards", item, reason, link, host.why, host.machine.last_seen))
-    everything = _url(request, "fleet-list") or _url(request, "management-fpgas")
-    word = "board" if offered == 1 else "boards"
-    rows.append(_row(FINE if offered else BOARD_FAILING, OK if offered else FAILING, "Boards", "offered",
-                     f"{offered} {word} offered", everything,
-                     "Pis that check in and whose boot check of this boot passed"))
+        counted[host.condition].append(f"{fpga.pi_label(host.machine)}" + (f": {why}" if why else ""))
+    for condition in CONDITIONS:
+        pis = counted[condition]
+        if pis:
+            severity, state = COUNT_STATES[condition]
+        elif condition == OPERATIONAL:
+            severity, state = BOARD_FAILING, FAILING  # no Pi offered
+        else:
+            severity, state = FINE, OK
+        title = "; ".join(pis[:TITLE_PIS]) + (f"; and {len(pis) - TITLE_PIS} more" if len(pis) > TITLE_PIS else "")
+        link = f"{table}?condition={condition}" if table and pis else ""
+        rows.append(_row(severity, state, "Boards", fpga.CONDITION_TITLES[condition], _pis(len(pis)), link, title))
     return rows
 
 
@@ -248,9 +264,10 @@ def _boot_checks(request, now):
     results = [(machine, event, _result(event)) for machine, event in checks]
     machine, event, result = results[-1]  # the newest by arrival
     name = f"{fpga.pi_label(machine)} on {fpga.port_text(machine)}"
-    # the newest check only: whether checks are running at all. A Pi whose check failed is a Boards row already.
+    # the newest check only: whether checks are running at all. A Pi whose check failed is counted in Boards already.
+    # The value is the result, a value; which Pi it was is its title, and its link the Pi's page.
     return [_row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
-                 "newest check", f"{name}: {result}", _url(request, "fleet-detail", machine.serial), "", event.ts)]
+                 "newest check", result, _url(request, "fleet-detail", machine.serial), name, event.ts)]
 
 
 # --- Browser test ---------------------------------------------------------------------------------------------

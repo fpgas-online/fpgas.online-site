@@ -36,6 +36,9 @@ def c():
 
 @pytest.mark.django_db
 def test_the_fpga_dashboard_headers_are_short(c):
+    from tests.test_management_fpgas import pi
+
+    pi("pi-sw2-p7", verifying=True)  # one Pi, no check reported: the table with no check column
     html = c.get("/management/fpgas/", follow=True).content.decode()
     # the count columns' headers are the State badges the Pi rows carry, so they need no key (the coordinator,
     # 11 Oct 2026: no symbols with a legend)
@@ -44,8 +47,28 @@ def test_the_fpga_dashboard_headers_are_short(c):
                              ("missing", "missing"), ("unknown", "checking")):
         assert f'<th scope="col"><span class="badge mgmt-{condition}">{title}</span></th>' in html
     assert 'class="mgmt-key"' not in html
-    assert headers(html, 1) == ["State", "Pi", "Port", "Board", "Boot check", "Up", "Seen", "Offered", "Why not", "Notes"]
-    assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped"' in html  # the counts table is as wide as its counts
+    assert headers(html, 1) == ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Checked", "Offered", "Why not",
+                                "Up", "Seen", "Notes"]  # no board reported a check: no check column
+    # the counts table is as wide as its counts
+    assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped mgmt-sortable"' in html
+
+
+@pytest.mark.django_db
+def test_a_check_header_is_set_upright_so_its_column_is_as_wide_as_a_mark(c):
+    """A check's column holds one mark (✓ ✗ –) a board; its name ("dip-switches") would make it ten marks wide. The
+    name is set vertically (writing-mode), which widens nothing."""
+    import pathlib
+
+    from django.apps import apps
+
+    from tests.test_management_fpgas import REAL, pi
+
+    pi("pi-sw2-p33", REAL["pi-sw2-p33"])
+    html = c.get("/fleet/").content.decode()
+    assert '<th scope="col" class="mgmt-checkhead">pin-id</th>' in html
+    css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
+    rule = next(body for sels, body in _rules(css) if ".mgmt-table th.mgmt-checkhead" in sels)
+    assert "writing-mode: vertical-rl" in rule
 
 
 @pytest.mark.django_db

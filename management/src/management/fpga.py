@@ -2,11 +2,12 @@
 by board type. Everything comes from the fleet registry (each Pi's registration and boot events); nothing here
 is a remembered table of which board is on which port."""
 
+import re
 from dataclasses import dataclass, field
 
-from django.db.models import F
+from django.db.models import F, Max
 from django.utils import timezone
-from fleet.models import BootEvent, Machine
+from fleet.models import BootEvent, GatewayRecord, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
 from pibfpgas.pis import Pi
 from rpi_hwid import names
@@ -15,8 +16,10 @@ from rpi_hwid.model import Summary
 from rpi_hwid.probe import nominal_memory
 from rpi_hwid.revision import decode_revision
 
-# The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
-TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card"}
+# The board names fpgas-verify's modules use (board<i>), as a visitor reads them. "xilinx-pcie" is its name
+# (conclusion.OTHER_PCIE) for a Xilinx PCIe card that is not ours (15 Oct 2026: one on welland showed as "other").
+TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card",
+               "xilinx-pcie": "PCIe card"}
 OTHER = "other"  # a board name this page does not know: one bucket, so a Pi cannot make a row per name it sends
 SNAPSHOT_TT = "TT, not checked this boot"
 # What a registration's hardware document calls a board kind, for a machine whose check reported none this boot.
@@ -72,38 +75,116 @@ def registered_model(machine):
     return _text(model, MAX_TEXT) if isinstance(model, str) else ""
 
 
-def pi_label_parts(machine):
-    """(label, why, note) of a host: its label by rpi-hwid's own rules ("Pi 5 2 GB 285df3f84af242d0", from the revision
-    code its registration sent: decode_revision, the label header's "Pi <model>"; a host with no revision code, an
-    Orange Pi, by rpi-hwid's identify(): "Orange Pi PC 02c0008164c2a1b0"). What keeps a host from its label is
-    `why` in full ("revision 'zz' not readable") and `note` as a short value ("revision unreadable"); both are ""
-    for a host with a label. The label of such a host is its serial alone."""
+def short_model(model):
+    """"Pi 3 Model B+" -> "Pi 3B+", "Pi 4 Model B" -> "Pi 4B", "Pi Compute Module 4" -> "Pi CM4", "Orange Pi PC" ->
+    "OPi PC"; any other model as it is ("Pi 5", "Pi Zero 2 W")."""
+    short = re.sub(r"(\d) Model ", r"\1", model)
+    short = short.replace("Compute Module ", "CM")
+    return re.sub(r"^Orange Pi\b", "OPi", short)
+
+
+@dataclass(frozen=True)
+class PiFields:
+    """A host's label as its values, each its own column on the Pi dashboard (Tim, 15 Oct 2026: "Model names in the
+    same column as serial numbers"): the model as the label's header names it ("Pi 5", "Pi 3 Model B+", "Orange Pi
+    PC"), the memory ("2 GB", "" where the registration gave none), the serial. `why` and `note` say what keeps the
+    host from its label (both "" for a host with one); such a host has no model and no memory, only its serial."""
+    model: str
+    memory: str
+    serial: str
+    why: str = ""
+    note: str = ""
+
+    @property
+    def short(self):
+        """The model in a few characters for a dashboard column (Tim, 9 Oct 2026: "Pi 3B+", "Pi 5", "OPi PC"): the
+        label's "Model " and "Compute Module " folded ("Pi 3 Model B+" -> "Pi 3B+", "Pi Compute Module 4" -> "Pi
+        CM4"), "Orange Pi" as "OPi". The label's own words stay in the cell's title."""
+        return short_model(self.model)
+
+    @property
+    def label(self):
+        """"Pi 5 2 GB 285df3f84af242d0", or the serial alone for a host with no label."""
+        return " ".join(part for part in (self.model, self.memory, self.serial) if part)
+
+    @property
+    def memory_mb(self):
+        """The memory as a number of MB, for sorting ("512 MB" before "1 GB"); 0 for none."""
+        if not self.memory:
+            return 0
+        number, _, unit = self.memory.partition(" ")
+        scale = {"MB": 1, "GB": 1024, "TB": 1024 * 1024}.get(unit)
+        try:
+            value = float(number)
+        except ValueError:
+            value = None
+        if scale is None or value is None:
+            raise ValueError(f"memory {self.memory!r} is not '<number> MB|GB|TB'")
+        return int(value * scale)
+
+
+def _memory(facts):
+    kb = facts.get("mem_total_kb")
+    return nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
+
+
+def _other_board(facts, model, serial):
+    """PiFields of a host whose registered model rpi-hwid identifies as a board that is not a Raspberry Pi, else
+    None."""
+    if not isinstance(model, str) or not model.strip():
+        return None
+    memory = _memory(facts)
+    try:
+        ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
+    except (ValueError, KeyError):  # a Raspberry Pi model: its revision code is what names it
+        return None
+    if ident is None or ident.kind == "rpi":
+        return None
+    return PiFields(ident.short, memory or "", serial)
+
+
+def pi_fields(machine):
+    """A host's label by rpi-hwid's own rules, as its values (PiFields): from the revision code its registration sent
+    (decode_revision, the label header's "Pi <model>"), or for a host with no revision code, an Orange Pi, by
+    rpi-hwid's identify() ("Orange Pi PC"). What keeps a host from its label is `why` in full ("revision 'zz' not
+    readable") and `note` as a short value ("revision unreadable")."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
     facts = facts if isinstance(facts, dict) else {}
     code, model = facts.get("revision_code"), facts.get("model")
     serial = machine.serial
     if code is not None and (not isinstance(code, str) or not code):
-        return serial, f"revision {_text(str(code), 20)!r} not readable", "revision unreadable"
+        return PiFields("", "", serial, f"revision {_text(str(code), 20)!r} not readable", "revision unreadable")
     if code:
         try:
             rev = decode_revision(code)
         except (ValueError, KeyError):
-            return serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable"
-        return f"Pi {rev.model} {rev.memory} {serial}", "", ""
+            # not a Raspberry Pi's code: an Orange Pi's kernel says "0000" (welland's seven, 15 Oct 2026). Its
+            # registered model names it when rpi-hwid knows that model as another board; else the code is the fault.
+            other = _other_board(facts, model, serial)
+            if other is not None:
+                return other
+            return PiFields("", "", serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable")
+        return PiFields(f"Pi {rev.model}", rev.memory, serial)
     if model is None:
-        return serial, "no model registered", "no model registered"
+        return PiFields("", "", serial, "no model registered", "no model registered")
     if not isinstance(model, str) or not model.strip():
-        return serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable"
-    kb = facts.get("mem_total_kb")
-    memory = nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
+        return PiFields("", "", serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable")
+    memory = _memory(facts)
     try:
         ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
     except (ValueError, KeyError):  # a Raspberry Pi by its model, with no revision code to decode
-        return serial, "no revision code registered", "no revision code"
+        return PiFields("", "", serial, "no revision code registered", "no revision code")
     if ident is None:
-        return serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown"
-    return " ".join(part for part in (ident.short, memory, serial) if part), "", ""
+        return PiFields("", "", serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown")
+    return PiFields(ident.short, memory or "", serial)
+
+
+def pi_label_parts(machine):
+    """(label, why, note) of a host: its label ("Pi 5 2 GB 285df3f84af242d0", "Orange Pi PC 02c0008164c2a1b0"), or
+    its serial alone with what keeps it from its label (pi_fields)."""
+    fields = pi_fields(machine)
+    return fields.label, fields.why, fields.note
 
 
 def pi_label(machine):
@@ -280,3 +361,25 @@ def summary(rows):
     table = [(t, counts, sum(counts.values())) for t, counts in sorted(types.items())]
     total = {c: sum(counts[c] for _, counts, _ in table) for c in CONDITIONS}
     return table, total, sum(total.values())
+
+
+@dataclass(frozen=True)
+class SeenPort:
+    """The port the gateway last saw a machine on: its newest lease record that names a port (fleet.GatewayRecord,
+    from dnsmasq on the gateway), and when. An observation with its time, never a remembered table."""
+    switch: int
+    port: int
+    at: object  # datetime
+
+    @property
+    def text(self):
+        return f"sw{self.switch} p{self.port}"
+
+
+def seen_ports():
+    """{machine id: SeenPort} for every machine the gateway has leased an address to on a port, in two queries."""
+    newest = GatewayRecord.objects.filter(kind="lease", machine__isnull=False, switch__isnull=False,
+                                          port__isnull=False).values("machine_id").annotate(last=Max("id")) \
+        .values_list("last", flat=True)
+    return {r.machine_id: SeenPort(r.switch, r.port, r.at)
+            for r in GatewayRecord.objects.filter(id__in=list(newest))}

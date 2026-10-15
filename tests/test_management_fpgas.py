@@ -19,10 +19,20 @@ from management import fpga
 REAL = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-welland-2026-10-04.json").read_text())
 
 
-def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None):
-    """A registered Pi, seen `seen_ago` minutes ago, with an fpga-verified event of `detail` in its boot."""
+def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None, lease=True):
+    """A registered Pi, seen `seen_ago` minutes ago, with an fpga-verified event of `detail` in its boot; with
+    `lease`, the gateway's lease record of it on the port its host name names, at the same time (a live Pi renews its
+    lease, so the gateway has one)."""
+    from fleet.models import GatewayRecord
+    from pibfpgas.pis import Pi
+
+    seen = timezone.now() - datetime.timedelta(minutes=seen_ago)
     m = Machine.objects.create(serial=serial or hostname, site="welland", hostname=hostname, online=True,
-                               last_seen=timezone.now() - datetime.timedelta(minutes=seen_ago), last_boot_id="b1")
+                               last_seen=seen, last_boot_id="b1")
+    place = Pi.from_hostname(hostname)
+    if lease and place is not None and place.switch:
+        GatewayRecord.objects.create(site="welland", kind="lease", switch=place.switch, port=place.port,
+                                     hostname=hostname, at=seen, doc={}, machine=m)
     if verifying:
         BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verifying", ts=timezone.now(), detail={})
     if detail is not None:
@@ -79,13 +89,14 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     assert row.boards[0]["failing"] == ["pin-id", "spiflash"]
     assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    # every test is a column of the Tests table; a failed one is ✗ in its own column, its reason in the last cell
-    grid = _grid(html, "TT board, not identified")
-    assert grid["header"][0] == "Pi" and grid["header"][-1] == "Reason"
-    failing = dict(zip(grid["header"], grid["rows"][0]))
-    assert failing["Pi"] == "pi-sw2-p33" and failing["pin-id"] == "✗" and failing["uart"] == "✓"
-    assert '<td class="mgmt-mark mgmt-test-fail" data-sort="0" title="pin-id: fail">✗' in html
-    assert "pin-id fail: the test exited 1" in failing["Reason"]
+    # every check is a column of the one Pi table; a failed one is ✗ in its own column, its reason the ✗'s title
+    # (Tim, 15 Oct 2026: "Make the error message be the popup when mousing over the x") and the ✗ links the Pi's page
+    failing = _by_serial(html)["pi-sw2-p33"]
+    assert (failing["pin-id"], failing["spiflash"], failing["uart"]) == ("✗", "✗", "✓")
+    assert ('<div class="mgmt-test-fail" title="pin-id fail: the test exited 1">'
+            '<a href="/fleet/pi-sw2-p33/#boards">✗</a>') in html
+    assert 'title="spiflash fail: the test exited 1"' in html
+    assert "Reason" not in _header(html)
 
 
 @pytest.mark.django_db
@@ -149,7 +160,7 @@ def test_times_are_the_installations_own_with_the_zone_named_once(fleet, setting
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     # "x ago" in the cell, the exact local time in its title (#91)
     assert 'title="2026-10-09 10:45:00 ACDT"' in html  # UTC only in the <time datetime> a machine reads
-    assert "Times are Australia/Adelaide." in html and "UTC" not in html
+    assert "Times are Australia/Adelaide," in html and "UTC" not in html
     from django.utils import timezone as tz
 
     assert tz.get_current_timezone_name() == settings.TIME_ZONE  # nothing left behind for the next request
@@ -214,7 +225,7 @@ def test_failing_tests_are_read_by_the_checks_own_board_number():
 def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     from fleet.models import HardwareSnapshot
 
-    m = pi("pi-sw2-p33", verifying=True)
+    m = pi("pi-sw2-p33", verifying=True, lease=False)
     snap = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
         "fpga": {"boards": [{"kind": "tt-demo-board"}, {"kind": "<b>" + "z" * 300}]}})
     m.latest_snapshot = snap
@@ -223,7 +234,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
     assert row.registered is not None
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "the port its host name says it booted on, as it registered" in html and "<b>" not in html
+    assert "no lease seen; named sw2 p" in html and "<b>" not in html
     # its board as the registration names it, escaped and cut
     assert "<div>tt-demo-board</div><div>&lt;b&gt;zzz" in html
 
@@ -297,103 +308,128 @@ def _cells(table_html):
             for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
 
 
-COLUMNS = ["State", "Pi", "Port", "Board", "Boot check", "Up", "Seen", "Offered", "Why not", "Notes"]
+FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Checked", "Offered", "Why not", "Up",
+         "Seen"]
+AFTER = ["Notes"]
+
+
+def _hosts_table(html):
+    return html.split('class="mgmt-table mgmt-hosts', 1)[1].split("</table>", 1)[0]
+
+
+def _header(html):
+    """The Pi table's column names, in order."""
+    head = _hosts_table(html).split("</thead>", 1)[0]
+    return [re.sub(r"<[^>]+>", "", th).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", head, re.S)]
 
 
 def _rows(html):
-    """The Pi table's rows as [[cell text, ...]], one per column of COLUMNS."""
-    body = html.split('class="mgmt-table mgmt-hosts', 1)[1].split("</table>", 1)[0]
-    rows = _cells(body)
-    assert rows and all(len(r) == len(COLUMNS) for r in rows)
-    return rows
-
-
-def _tables(html):
-    """The titles of the Tests tables, in page order."""
-    return re.findall(r"<h2>(.*?) tests</h2>", html)
-
-
-def _grid(html, title):
-    """A Tests table: {"header": [column names], "rows": [[cell text, ...]]}, a cell's text without the words only a
-    screen reader hears; a Pi's label and its board's name in the first cell are told apart by a newline."""
+    """The Pi table's rows as [{column: cell text}], a cell's text without the words only a screen reader hears, its
+    lines (a label or a mark per board) told apart by a newline."""
     import html as htmllib
 
-    body = html.split(f"<h2>{title} tests</h2>", 1)[1].split("</table>", 1)[0]
-    header = [re.sub(r"<[^>]+>", "", th).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", body, re.S)]
-    cleaned = re.sub(r'<span class="mgmt-sr">.*?</span>', "", body, flags=re.S).replace("<div", "\n<div")
+    header = _header(html)
+    cleaned = re.sub(r'<span class="mgmt-sr">.*?</span>', "", _hosts_table(html), flags=re.S)
+    cleaned = cleaned.replace("</div><div", "</div>\n<div")
     rows = _cells(cleaned)
     assert rows and all(len(r) == len(header) for r in rows)
-    return {"header": header, "rows": [[htmllib.unescape(c) for c in r] for r in rows]}
+    return [dict(zip(header, (htmllib.unescape(c) for c in r))) for r in rows]
+
+
+def _by_serial(html):
+    return {r["Serial"]: r for r in _rows(html)}
+
+
+def _by_port(html):
+    return {r["Port"]: r for r in _rows(html)}
 
 
 @pytest.mark.django_db
 def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    header = _header(html)
+    # a value per column (Tim, 15 Oct 2026): the label's model, memory and serial apart, the checks between
+    assert header[:len(FIXED)] == FIXED and header[-len(AFTER):] == AFTER
     rows = _rows(html)
-    by_port = {r[2]: r for r in rows}
-    col = {name: i for i, name in enumerate(COLUMNS)}
+    by_port = _by_port(html)
     # the Boot check cell holds the verdict word and nothing else: no test, no mark
-    assert by_port["sw2 p33"][col["Boot check"]] == "failed"
-    assert by_port["sw2 p46"][col["Boot check"]] == "passed" and by_port["sw2 p7"][col["Boot check"]] == "running"
-    assert by_port["sw2 p7"][col["State"]] == "checking" and by_port["sw2 p4"][col["State"]] == "missing"
+    assert by_port["sw2 p33"]["Boot check"] == "failed"
+    assert by_port["sw2 p46"]["Boot check"] == "passed" and by_port["sw2 p7"]["Boot check"] == "running"
+    assert by_port["sw2 p7"]["State"] == "checking" and by_port["sw2 p4"]["State"] == "missing"
     for row in rows:
-        assert row[col["Boot check"]] in ("passed", "failed", "running", "found no board", "could not finish",
-                                          "not started")
-        assert row[col["Offered"]] in ("yes", "no")
-        assert "(" not in row[col["Pi"]]  # the label alone, never a sentence beside it
-    assert by_port["sw2 p46"][col["Pi"]] == "pi-sw2-p46" and by_port["sw2 p46"][col["Board"]].startswith("acorn-")
-    assert by_port["sw2 p33"][col["Board"]] == "TT board, not identified 4df39a7a6856f86f"
+        assert row["Boot check"] in ("passed", "failed", "running", "found no board", "could not finish",
+                                     "not started")
+        assert row["Offered"] in ("yes", "no")
+        assert "(" not in row["Serial"] and " " not in row["Serial"]  # the serial alone, never a sentence beside it
+    assert by_port["sw2 p46"]["Serial"] == "pi-sw2-p46" and by_port["sw2 p46"]["Board"].startswith("acorn-")
+    assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in html  # the serial links the Pi's page
+    assert by_port["sw2 p33"]["Board"] == "TT board, not identified 4df39a7a6856f86f"
     # Offered is yes or no; Why not is the reason as a value, empty for a Pi that is offered
-    assert by_port["sw2 p46"][col["Offered"]] == "yes" and by_port["sw2 p46"][col["Why not"]] == ""
-    assert (by_port["sw2 p33"][col["Offered"]], by_port["sw2 p33"][col["Why not"]]) == ("no", "pin-id, spiflash")
-    assert by_port["sw2 p10"][col["Why not"]] == "stopped checking in"
-    assert by_port["sw2 p4"][col["Why not"]] == "missing 7 h" and by_port["sw2 p7"][col["Why not"]] == "boot check running"
+    assert by_port["sw2 p46"]["Offered"] == "yes" and by_port["sw2 p46"]["Why not"] == ""
+    assert (by_port["sw2 p33"]["Offered"], by_port["sw2 p33"]["Why not"]) == ("no", "pin-id, spiflash")
+    assert by_port["sw2 p10"]["Why not"] == "stopped checking in"
+    assert by_port["sw2 p4"]["Why not"] == "missing 7 h" and by_port["sw2 p7"]["Why not"] == "boot check running"
     # Seen is the time only
-    assert by_port["sw2 p4"][col["Seen"]] == "7 h ago" and by_port["sw2 p46"][col["Seen"]].endswith("ago")
-    # the registration fact (a serial standing for the label) is a short value in Notes
-    assert by_port["sw2 p46"][col["Notes"]] == "no model registered"
+    assert by_port["sw2 p4"]["Seen"] == "7 h ago" and by_port["sw2 p46"]["Seen"].endswith("ago")
+    # these Pis registered no model: Model and Memory are empty, Notes says why in a short value
+    assert (by_port["sw2 p46"]["Model"], by_port["sw2 p46"]["Memory"]) == ("", "")
+    assert by_port["sw2 p46"]["Notes"] == "no model registered"
     # what needs a person first, then by switch and port
-    assert [r[0] for r in rows] == ["needs attention", "needs attention", "missing", "checking", "operational",
-                                    "operational"]
-    assert [r[2] for r in rows][:2] == ["sw2 p10", "sw2 p33"]
+    assert [r["State"] for r in rows] == ["needs attention", "needs attention", "missing", "checking", "operational",
+                                          "operational"]
+    assert [r["Port"] for r in rows][:2] == ["sw2 p10", "sw2 p33"]
     assert 'class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable"' in html
 
 
 @pytest.mark.django_db
-def test_a_table_for_each_board_type_with_its_tests_as_columns_and_a_row_per_board(fleet):
+def test_every_check_is_a_column_of_the_one_table_pass_fail_or_not_applicable(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert sorted(_tables(html)) == ["Acorn", "TT board, not identified"]  # a type with no tests has no table
-    acorn = _grid(html, "Acorn")
-    header = acorn["header"]
-    # the Acorn's own tests in the check's order, and no other type's
-    assert header[:5] == ["Pi", "pcie-link", "pcie-bar0", "rp1-pio", "jtag"] and header[-1] == "Reason"
-    assert "pin-id" not in header and "spiflash" not in header and len(set(header)) == len(header)
-    rows = {r[0]: dict(zip(header, r)) for r in acorn["rows"]}
-    assert set(rows) == {"pi-sw2-p46", "pi-sw2-p47", "10000000f536c51f", "10000000f77b8415"}
-    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["Reason"] == ""
-    tt = _grid(html, "TT board, not identified")
-    assert tt["header"] == ["Pi", "pin-id", "uart", "spiflash", "Reason"]
-    (row,) = (dict(zip(tt["header"], r)) for r in tt["rows"])
-    assert (row["Pi"], row["pin-id"], row["spiflash"], row["uart"]) == ("pi-sw2-p33", "✗", "✗", "✓")
-    assert row["Reason"].startswith("pin-id fail: the test exited 1")
-    # the result is in the mark's title, and said to a screen reader
-    assert re.search(r'<td class="mgmt-mark mgmt-test-pass" data-sort="2" title="jtag: pass">✓<span class="mgmt-sr"> '
-                     r'jtag: pass</span></td>', html)
-    assert 'class="mgmt-table mgmt-testgrid mgmt-fit mgmt-striped mgmt-sortable"' in html
-    assert html.count('role="region"') == 3 and 'aria-label="Acorn tests"' in html  # a scrolling table is reachable
+    # no table per board type: one table, its check columns grouped by type, each type's in its check's order
+    assert " tests</h2>" not in html and "mgmt-testgrid" not in html and html.count("<table") == 2
+    checks = _header(html)[len(FIXED):-len(AFTER)]
+    assert checks[:4] == ["pcie-link", "pcie-bar0", "rp1-pio", "jtag"]  # the Acorn's, first by type
+    assert checks[-3:] == ["pin-id", "uart", "spiflash"]  # then the TT board's
+    assert len(set(checks)) == len(checks)
+    rows = _by_serial(html)
+    # every cell is one of three marks: ✓ passed, ✗ failed, – not applicable
+    for row in rows.values():
+        assert {row[name] for name in checks} <= {"✓", "✗", "–"}
+    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["pin-id"] == "–"
+    assert (rows["pi-sw2-p33"]["pin-id"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
+    assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
+    # the result is in the mark's title, and said to a screen reader; a – says why it is not applicable
+    assert ('<div class="mgmt-test-pass" title="jtag pass">✓<span class="mgmt-sr"> jtag pass</span></div>'
+            in html)
+    assert 'title="pin-id not run on acorn-' in html
+    assert 'title="jtag not run: no board checked this boot"' in html
+    # a cell sorts failures first, then passes, then the Pis it does not apply to
+    assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="pin-id"><div class="mgmt-test-fail"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="1" data-label="jtag"><div class="mgmt-test-pass"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="2" data-label="jtag"><div class="mgmt-test-none"', html)
+    # a passing or not applicable mark is not a link: only a ✗ leads to the reason's page
+    assert html.count('#boards">✗</a>') == 2 and '#boards">✓' not in html
 
 
 @pytest.mark.django_db
-def test_a_result_that_is_neither_pass_nor_fail_is_a_mark_of_its_own_sorted_between(fleet):
-    pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=skip ddr=pass flash=fail"})
+def test_every_result_but_pass_is_a_fail_mark_with_the_result_in_its_title(fleet):
+    """fpgas-verify: only "pass" means the board is as it should be ("changed", "missing", "error" are not)."""
+    pi("pi-sw2-p30", {"result": "fail", "board0": "acorn - fail", "board0_tests": "jtag=error ddr=pass flash=changed",
+                      "board0_reason": "jtag error: openocd: no device; the cable may be loose; flash changed: id"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert ('<td class="mgmt-mark mgmt-test-other" data-sort="1" title="jtag: skip">–<span class="mgmt-sr"> jtag: skip'
-            '</span></td>') in html
-    assert "✗ skip" not in html and "skip</td>" not in html  # the mark alone; the word is in the title
-    assert 'data-sort="0" title="flash: fail">✗' in html and 'data-sort="2" title="ddr: pass">✓' in html
-    grid = _grid(html, "Acorn")
-    row = dict(zip(grid["header"], next(r for r in grid["rows"] if r[0] == "pi-sw2-p30")))
-    assert (row["jtag"], row["ddr"], row["flash"]) == ("–", "✓", "✗")  # the mark is the cell's whole text
+    row = _by_serial(html)["pi-sw2-p30"]
+    assert (row["jtag"], row["ddr"], row["flash"]) == ("✗", "✓", "✗")  # the mark is the cell's whole text
+    # each ✗ carries its own test's part of the reason; a part that names no test stays with the one before
+    assert 'title="jtag error: openocd: no device; the cable may be loose"' in html
+    assert 'title="flash changed: id"' in html
+
+
+@pytest.mark.django_db
+def test_a_reason_that_names_no_test_is_the_boards_whole_reason():
+    board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "reason": "the board did not answer"}
+    from management.views.fpgas import test_reason
+
+    assert test_reason(board, "jtag") == "the board did not answer"
+    assert test_reason(dict(board, reason=""), "jtag") == ""
 
 
 @pytest.mark.django_db
@@ -401,7 +437,7 @@ def test_the_up_column_sorts_by_seconds_not_text(fleet):
     for hostname, seconds in (("pi-sw2-p46", 3 * 86400), ("pi-sw2-p47", 700), ("pi-sw2-p33", 90000)):
         Machine.objects.filter(hostname=hostname).update(last_uptime_s=seconds)
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    keys = re.findall(r'<td data-label="Up" data-sort="(\d+)">([^<]*)</td>', html)
+    keys = re.findall(r'<td class="mgmt-c-up" data-label="Up" data-sort="(\d+)">([^<]*)</td>', html)
     assert ("259200", "3 d 0 h") in keys and ("700", "11 min") in keys and ("90000", "1 d 1 h") in keys
     # an unreported or stale uptime sorts as 0, with nothing shown
     assert ("0", "") in keys
@@ -412,10 +448,10 @@ def test_a_pi_seen_in_the_future_has_the_clock_error_in_notes_and_the_page_stand
     Machine.objects.filter(hostname="pi-sw2-p46").update(last_seen=timezone.now() + datetime.timedelta(hours=2, minutes=1))
     r = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/")
     assert r.status_code == 200
-    rows = {row[2]: row for row in _rows(r.content.decode())}
-    assert rows["sw2 p46"][COLUMNS.index("Seen")] == ""  # Seen is a time or nothing
+    rows = _by_port(r.content.decode())
+    assert rows["sw2 p46"]["Seen"] == ""  # Seen is a time or nothing
     assert "<div>no model registered</div><div>clock 2 h ahead</div>" in r.content.decode()  # one fact a line
-    assert rows["sw2 p47"][COLUMNS.index("Seen")].endswith("ago")
+    assert rows["sw2 p47"]["Seen"].endswith("ago")
 
 
 @pytest.mark.django_db
@@ -466,8 +502,7 @@ def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fl
     pi("pi-sw2-p20", {"result": "pass", "board0": "tt tt-asic pass", "board0_identity_chip": "asic",
                       "board0_identity_usb_serial": "abcd1234"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    rows = {r[2]: r for r in _rows(html)}
-    assert rows["sw2 p20"][COLUMNS.index("Offered")] == "yes"
+    assert _by_port(html)["sw2 p20"]["Offered"] == "yes"
     assert '<a href="https://tinytapeout.fpgas.online/board/' in html and 'abcd1234/">yes</a>' in html
     tt = Client(HTTP_HOST="tinytapeout.fpgas.online").get("/management/fpgas/").content.decode()
     assert 'abcd1234/">yes</a>' in tt and 'href="https://tinytapeout.fpgas.online' not in tt  # its own host: a path
@@ -476,10 +511,10 @@ def test_every_yes_links_a_visitor_page_and_an_offered_pi_without_one_says_so(fl
 
     with mock.patch("ttsite.boards.pages", return_value=[]):
         html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    row = {r[2]: r for r in _rows(html)}["sw2 p20"]
-    assert (row[COLUMNS.index("Offered")], row[COLUMNS.index("Why not")]) == ("no", "no visitor page")
+    row = _by_port(html)["sw2 p20"]
+    assert (row["Offered"], row["Why not"]) == ("no", "no visitor page")
     for row in _rows(html):  # every yes has a page, every no a reason
-        assert (row[COLUMNS.index("Offered")] == "yes") == (row[COLUMNS.index("Why not")] == "")
+        assert (row["Offered"] == "yes") == (row["Why not"] == "")
 
 
 @pytest.mark.django_db
@@ -499,6 +534,10 @@ def test_the_reload_switch_keeps_the_filter_and_the_redirect_keeps_every_paramet
     ({"model": "Xunlong Orange Pi PC"}, "Orange Pi PC S1"),  # no memory registered: none said
     ({"revision_code": "a020d3"}, "Pi 3 Model B+ 1 GB S1"),  # the revision code: the label header's "Pi <model>"
     ({"revision_code": "zz"}, "S1 (revision 'zz' not readable)"),
+    # an Orange Pi's kernel gives revision 0000 (welland's seven, 15 Oct 2026): its model names it
+    ({"revision_code": "0000", "model": "Xunlong Orange Pi PC", "mem_total_kb": 1016548}, "Orange Pi PC 1 GB S1"),
+    # a Raspberry Pi's model with a code that is not one: the code is the fault
+    ({"revision_code": "0000", "model": "Raspberry Pi 4 Model B Rev 1.4"}, "S1 (revision '0000' not readable)"),
     ({"revision_code": 7}, "S1 (revision '7' not readable)"),
     ({"model": "Raspberry Pi 4 Model B Rev 1.4"}, "S1 (no revision code registered)"),
     ({"model": "Some Router"}, "S1 (model 'Some Router' not known to rpi-hwid)"),
@@ -527,7 +566,10 @@ def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
     m.save()
     assert fpga.pi_label(m) == "Orange Pi PC 02c0008164c2a1b0"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert '<a href="/fleet/02c0008164c2a1b0/">Orange Pi PC 02c0008164c2a1b0</a>' in html
+    row = _by_serial(html)["02c0008164c2a1b0"]
+    assert (row["Model"], row["Serial"]) == ("OPi PC", "02c0008164c2a1b0")  # short (#92), the label's words on hover
+    assert '<a href="/fleet/02c0008164c2a1b0/">02c0008164c2a1b0</a>' in html
+    assert 'data-label="Model" title="Orange Pi PC; registered as Xunlong Orange Pi PC">OPi PC</td>' in html
     # the registered model in full is on the host's own page, not only in a tooltip here
     assert "<td>Xunlong Orange Pi PC</td>" in Client(HTTP_HOST="welland.fpgas.online").get(
         "/fleet/02c0008164c2a1b0/").content.decode()
@@ -600,10 +642,22 @@ def test_a_filter_that_matches_nothing_says_so_under_the_table(fleet):
 def test_with_two_boards_each_test_names_its_board(fleet):
     pi("pi-sw2-p30", {"result": "pass", "board0": "acorn - pass", "board0_tests": "pin-id=pass",
                       "board1": "tt tt-fpga pass", "board1_identity_chip": "fpga", "board1_tests": "pin-id=pass"})
+    pi("pi-sw2-p32", {"result": "fail", "board0": "acorn - pass", "board0_tests": "pin-id=pass jtag=pass",
+                      "board1": "tt tt-fpga fail", "board1_identity_chip": "fpga", "board1_tests": "pin-id=fail",
+                      "board1_reason": "pin-id fail: pin 3 stuck low"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    # each board type has its own table, so a test name two types share (pin-id) is a column of each
-    assert {"Acorn", "TT FPGA"} <= set(_tables(html))
-    assert "pin-id" in _grid(html, "Acorn")["header"] and "pin-id" in _grid(html, "TT FPGA")["header"]
+    # a name two types share (pin-id) is one column; a Pi with two boards has a mark per board, in the Board order
+    assert _header(html).count("pin-id") == 1
+    rows = _by_serial(html)
+    assert rows["pi-sw2-p30"]["Board"].split("\n") == ["Acorn", "TT FPGA"]
+    assert rows["pi-sw2-p30"]["pin-id"] == "✓\n✓" and rows["pi-sw2-p30"]["jtag"] == "–\n–"
+    assert rows["pi-sw2-p32"]["pin-id"] == "✓\n✗" and rows["pi-sw2-p32"]["jtag"] == "✓\n–"
+    # the cell sorts as its worst mark, and its ✗ says which check failed and why
+    assert re.search(r'data-sort="0" data-label="pin-id"><div class="mgmt-test-pass" title="pin-id pass">✓'
+                     r'<span class="mgmt-sr"> pin-id pass</span></div><div class="mgmt-test-fail" '
+                     r'title="pin-id fail: pin 3 stuck low"><a href="/fleet/pi-sw2-p32/#boards">✗</a>',
+                     html)
+    assert 'title="jtag not run on TT FPGA"' in html
 
 
 @pytest.mark.django_db
@@ -617,22 +671,24 @@ def test_a_revision_that_cannot_be_read_is_a_short_note_and_the_label_is_the_ser
     assert fpga.pi_label_parts(m) == ("285df3f84af242d0", "revision 'zz' not readable", "revision unreadable")
     assert fpga.pi_label(m) == "285df3f84af242d0 (revision 'zz' not readable)"  # the registry JSON's one string
     row = _rows(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[0]
-    assert row[COLUMNS.index("Pi")] == "285df3f84af242d0" and row[COLUMNS.index("Notes")] == "revision unreadable"
+    assert (row["Model"], row["Memory"], row["Serial"]) == ("", "", "285df3f84af242d0")
+    assert row["Notes"] == "revision unreadable"
     assert "not readable" not in Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
 
 
 @pytest.mark.django_db
-def test_two_boards_of_one_type_are_two_rows_each_with_its_board_label(fleet):
+def test_two_boards_of_one_type_are_one_row_with_a_mark_per_board_label(fleet):
     pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board0_tests": "jtag=pass",
                       "board0_identity_dna": "0x00200c8664b04854",
                       "board1": "acorn - pass", "board1_tests": "jtag=fail", "board1_identity_dna": "0x0054b48664b04854"})
-    grid = _grid(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode(), "Acorn")
-    assert "Acorn jtag 2" not in grid["header"] and grid["header"].count("jtag") == 1
-    two = [dict(zip(grid["header"], r)) for r in grid["rows"] if r[0].startswith("pi-sw2-p31")]
-    assert [(r["Pi"].split("\n")[0], r["jtag"]) for r in two] == [("pi-sw2-p31", "✓"), ("pi-sw2-p31", "✗")]
-    assert two[0]["Pi"].split("\n")[1].startswith("acorn-") and two[0]["Pi"] != two[1]["Pi"]
-    # a Pi with one board of the type has the Pi's label alone
-    assert next(r[0] for r in grid["rows"] if r[0].startswith("pi-sw2-p46")) == "pi-sw2-p46"
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert _header(html).count("jtag") == 1
+    row = _by_serial(html)["pi-sw2-p31"]
+    boards = row["Board"].split("\n")
+    assert len(boards) == 2 and boards[0].endswith("0x00200c8664b04854") and boards[1].endswith("0x0054b48664b04854")
+    assert row["jtag"] == "✓\n✗"  # the first board's mark, then the second's
+    # a Pi with one board has one mark
+    assert _by_serial(html)["pi-sw2-p46"]["jtag"] == "✓"
 
 
 @pytest.mark.django_db
@@ -640,5 +696,96 @@ def test_the_board_cell_lists_a_label_a_line(fleet):
     pi("pi-sw2-p31", {"result": "pass", "board0": "acorn - pass", "board1": "acorn - pass",
                       "board0_identity_dna": "0x00200c8664b04854", "board1_identity_dna": "0x0054b48664b04854"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    assert re.search(r'<td data-label="Board" class="mgmt-boardlist"><div>acorn-\w+ 0x00200c8664b04854</div>'
+    assert re.search(r'<td class="mgmt-c-board mgmt-boardlist" data-label="Board"><div>acorn-\w+ 0x00200c8664b04854</div>'
                      r'<div>acorn-\w+ 0x0054b48664b04854</div></td>', html)
+
+
+@pytest.mark.parametrize("model, short", [
+    ("Pi 3 Model B+", "Pi 3B+"), ("Pi 4 Model B", "Pi 4B"), ("Pi 5", "Pi 5"), ("Pi Zero 2 W", "Pi Zero 2 W"),
+    ("Pi Compute Module 4", "Pi CM4"), ("Orange Pi PC", "OPi PC"), ("Orange Pi Zero", "OPi Zero"),
+])
+def test_a_model_is_short_on_the_dashboard(model, short):
+    """The dashboard spec (Tim, 9 Oct 2026): "Pi 3B+", "Pi 5", "OPi PC"; the label's words are the title."""
+    assert fpga.short_model(model) == short
+
+
+@pytest.mark.django_db
+def test_memory_is_its_own_column_and_sorts_as_megabytes():
+    from fleet.models import HardwareSnapshot
+
+    for serial, code in (("s-a", "a020d3"), ("s-b", "c04170"), ("s-c", "902120")):  # 1 GB, 4 GB, 512 MB
+        m = pi(f"pi-sw1-p{len(serial)}{code[-1]}", serial=serial)
+        m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint=serial, document={
+            "machine": {"serial": serial, "revision_code": code}})
+        m.save()
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    rows = _by_serial(html)
+    assert (rows["s-a"]["Model"], rows["s-a"]["Memory"]) == ("Pi 3B+", "1 GB")
+    assert (rows["s-c"]["Model"], rows["s-c"]["Memory"]) == ("Pi Zero 2 W", "512 MB")
+    assert 'data-label="Memory" data-sort="1024">1 GB</td>' in html and 'data-sort="512">512 MB</td>' in html
+    assert 'title="Pi 3 Model B+">Pi 3B+</td>' in html  # the label's own words on hover
+
+
+@pytest.mark.django_db
+def test_the_port_is_where_the_gateway_last_leased_the_pi_an_address_with_the_time(fleet, settings):
+    from fleet.models import GatewayRecord
+
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    m = Machine.objects.get(hostname="pi-sw2-p46")
+    at = datetime.datetime(2026, 10, 15, 5, 18, 22, tzinfo=datetime.timezone.utc)
+    for port, when in ((40, at - datetime.timedelta(hours=1)), (41, at)):  # the newest record is the observation
+        GatewayRecord.objects.create(site="welland", kind="lease", switch=2, port=port, mac="98:fe:54:13:e0:75",
+                                     at=when, doc={}, machine=m)
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["pi-sw2-p46"]
+    assert row["Port"] == "sw2 p41"
+    assert 'data-sort="002041" title="the gateway leased it an address on this port at 15 Oct 15:48">sw2 p41' in html
+    # its host name names another port: a short fact in Notes, the observation stands
+    assert "named sw2 p46" in row["Notes"]
+    # a Pi the gateway has no lease record of: no port observed (the review of #122: a host name's port is the Pi's
+    # word, not an observation); Notes names the port its host name names
+    pi("pi-sw2-p50", lease=False)
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["pi-sw2-p50"]
+    assert (row["Port"], row["Notes"]) == ("", "no model registered\nno lease seen; named sw2 p50")
+
+
+@pytest.mark.django_db
+def test_a_xilinx_pcie_card_is_a_pcie_card_and_an_unknown_board_name_is_a_note(fleet):
+    """fpgas-verify calls a Xilinx PCIe card that is not ours "xilinx-pcie" (welland's showed as "other", 15 Oct)."""
+    pi("pi-sw1-p38", {"result": "fail", "board0": "xilinx-pcie - fail"})
+    pi("pi-sw1-p39", {"result": "fail", "board0": "gizmo - fail"})
+    rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
+    assert rows["pi-sw1-p38"]["Board"] == "PCIe card" and "not known" not in rows["pi-sw1-p38"]["Notes"]
+    assert "board 'gizmo' not known" in rows["pi-sw1-p39"]["Notes"]
+
+
+@pytest.mark.django_db
+def test_a_fail_whose_reason_names_no_test_says_the_test_and_result_first():
+    from management.views.fpgas import _mark
+
+    board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "reason": "the board did not answer"}
+    assert _mark(board, "jtag")[0].title == "jtag fail: the board did not answer"
+    assert _mark(dict(board, reason=""), "jtag")[0].title == "jtag fail"
+
+
+@pytest.mark.django_db
+def test_the_number_of_queries_for_the_pi_table_does_not_grow_with_the_fleet(fleet, django_assert_max_num_queries):
+    c = Client(HTTP_HOST="welland.fpgas.online")
+    with django_assert_max_num_queries(20) as before:
+        c.get("/fleet/")
+    for n in range(20):
+        pi(f"pi-sw1-p{n + 1}", REAL["pi-sw2-p46"], serial=f"20000000{n:08x}")
+    with django_assert_max_num_queries(len(before.captured_queries)):
+        c.get("/fleet/")
+
+
+@pytest.mark.django_db
+def test_checked_is_when_the_boot_check_of_this_boot_reported(fleet, settings):
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    BootEvent.objects.filter(machine__hostname="pi-sw2-p46").update(ts=timezone.now() - datetime.timedelta(hours=2))
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    rows = _by_serial(html)
+    assert rows["pi-sw2-p46"]["Checked"] == "2 h ago"
+    assert rows["pi-sw2-p7"]["Checked"].endswith("ago")  # a running check: when it started reporting
+    assert re.search(r'<td class="mgmt-c-checked" data-label="Checked" data-sort="\d+"><time ', html)
