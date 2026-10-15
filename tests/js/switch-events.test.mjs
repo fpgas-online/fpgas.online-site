@@ -37,7 +37,7 @@ function page({ up = true, speed = "1G", title = TITLE_UP }) {
   speedCell.textContent = speed;
   row.kids[".c-link"] = link;
   row.kids[".c-speed"] = speedCell;
-  const box = new Element({ class: `mgmt-port mgmt-box-operational mgmt-edge-${up ? "up" : "down"}` });
+  const box = new Element({ class: `mgmt-port mgmt-box-operational mgmt-link-${up ? "up" : "down"}` });
   box.kids.title = Object.assign(new Element(), { textContent: title });
   box.parentNode = new Element({ "aria-label": title });
   const byId = { "switch-2-port-9": row, "switch-2-panel-9": box };
@@ -56,18 +56,18 @@ test("a link-down record changes the row's Link mark, clears its Speed, and dash
   assert.equal(p.speed.textContent, "");
   assert.equal(p.speed.attrs["data-sort"], "0");
   // the box keeps its State fill; only its edge changes
-  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-down");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-link-down");
   assert.equal(p.box.kids.title.textContent, TITLE_UP.replace("link up 1G", "link down"));
   assert.equal(p.box.parentNode.attrs["aria-label"], p.box.kids.title.textContent);
 });
 
-test("a link-up record gives a solid edge and keeps the speed the cell shows until a reading says", () => {
+test("a link-up record lights the link light and keeps the speed the cell shows until a reading says", () => {
   const down = TITLE_UP.replace("link up 1G", "link down");
   const p = page({ up: false, speed: "", title: down });
   applyRecord(p.doc, record("up"));
   assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
   assert.equal(p.link.className, "mgmt-mark c-link mgmt-up");
-  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-link-up");
   assert.equal(p.box.kids.title.textContent, down.replace("link down", "link up"));
   const again = page({});
   applyRecord(again.doc, record("up"));
@@ -88,7 +88,7 @@ test("a bounced record, another port, or garbage draws nothing", () => {
   assert.equal(applyRecord(p.doc, record("down", { port: 10 })), false);
   assert.equal(applyRecord(p.doc, null), false);
   assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
-  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-link-up");
 });
 
 test("a row without a panel box still gets its link cell", () => {
@@ -146,7 +146,7 @@ const { createKeeper } = require(
 function rebuild(p) {
   p.link.kids[".mgmt-glyph"].textContent = "↑"; p.link.className = "mgmt-mark c-link mgmt-up";
   p.speed.textContent = "1G";
-  p.box.attrs.class = "mgmt-port mgmt-box-operational mgmt-edge-up";
+  p.box.attrs.class = "mgmt-port mgmt-box-operational mgmt-link-up";
 }
 const reading = (goodAt) => [{ index: 2, good_at_iso: goodAt }];
 
@@ -157,7 +157,7 @@ test("a record, then a tick with an older reading, keeps the pushed state", () =
   rebuild(p);  // the cached reading, taken before the change
   keeper.reapply(p.doc, reading("2026-10-14T01:02:00+00:00"));
   assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↓");
-  assert.match(p.box.attrs.class, /mgmt-edge-down/);
+  assert.match(p.box.attrs.class, /mgmt-link-down/);
   // and again on the next older reading: still kept
   rebuild(p);
   keeper.reapply(p.doc, reading("2026-10-14T01:02:02+00:00"));
@@ -172,7 +172,7 @@ test("a tick with a newer reading replaces the pushed state and drops the record
   rebuild(p);  // the reading says up (the port came back, or the change was wrong)
   keeper.reapply(p.doc, reading("2026-10-14T01:02:04+00:00"));
   assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
-  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-up");
+  assert.equal(p.box.attrs.class, "mgmt-port mgmt-box-operational mgmt-link-up");
   assert.equal(keeper.size(), 0);
   // a reading exactly as old as the record has caught up with it too
   keeper.apply(p.doc, record("down", { at: "2026-10-14T01:03:00+00:00" }));
@@ -200,12 +200,12 @@ test("the keeper keeps the newest record per port, ignores records the page cann
 test("a record redraws the box in the narrow drawing too, and keeps the MACs in the link mark's title", () => {
   const p = page({});
   p.link.title = "link up; MACs seen: aa:00:00:00:00:01";
-  const twin = new Element({ class: "mgmt-port mgmt-box-operational mgmt-edge-up" });
+  const twin = new Element({ class: "mgmt-port mgmt-box-operational mgmt-link-up" });
   twin.kids.title = Object.assign(new Element(), { textContent: TITLE_UP });
   twin.parentNode = new Element({ "aria-label": TITLE_UP });
   const doc = { getElementById: (id) => (id === "switch-2-panel-9-n" ? twin : p.doc.getElementById(id)) };
   applyRecord(doc, record("down"));
   assert.equal(p.link.title, "link down; MACs seen: aa:00:00:00:00:01");
-  assert.equal(twin.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-down");
+  assert.equal(twin.attrs.class, "mgmt-port mgmt-box-operational mgmt-link-down");
   assert.equal(twin.kids.title.textContent, TITLE_UP.replace("link up 1G", "link down"));
 });
