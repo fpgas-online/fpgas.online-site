@@ -196,3 +196,16 @@ test("the keeper keeps the newest record per port, ignores records the page cann
   assert.equal(p.link.kids[".mgmt-glyph"].textContent, "↑");
   assert.equal(keeper.size(), 0);
 });
+
+test("a record redraws the box in the narrow drawing too, and keeps the MACs in the link mark's title", () => {
+  const p = page({});
+  p.link.title = "link up; MACs seen: aa:00:00:00:00:01";
+  const twin = new Element({ class: "mgmt-port mgmt-box-operational mgmt-edge-up" });
+  twin.kids.title = Object.assign(new Element(), { textContent: TITLE_UP });
+  twin.parentNode = new Element({ "aria-label": TITLE_UP });
+  const doc = { getElementById: (id) => (id === "switch-2-panel-9-n" ? twin : p.doc.getElementById(id)) };
+  applyRecord(doc, record("down"));
+  assert.equal(p.link.title, "link down; MACs seen: aa:00:00:00:00:01");
+  assert.equal(twin.attrs.class, "mgmt-port mgmt-box-operational mgmt-edge-down");
+  assert.equal(twin.kids.title.textContent, TITLE_UP.replace("link up 1G", "link down"));
+});
