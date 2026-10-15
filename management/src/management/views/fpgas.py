@@ -183,18 +183,20 @@ def test_reason(board, name):
 def _mark(board, name):
     result = dict(board["tests"]).get(name)
     if result is None:
-        return Mark("–", "mgmt-test-none", f"{name}: not run on {board['label']}"), NONE_SORT
+        return Mark("–", "mgmt-test-none", f"{name} not run on {board['label']}"), NONE_SORT
     if result == "pass":
-        return Mark("✓", "mgmt-test-pass", f"{name}: pass"), PASS_SORT
+        return Mark("✓", "mgmt-test-pass", f"{name} pass"), PASS_SORT
     # every result but "pass" is a failure (fpgas-verify: only "pass" means the board is as it should be)
     reason = test_reason(board, name)
-    return Mark("✗", "mgmt-test-fail", f"{name}: {result}" + (f": {reason}" if reason else "")), FAIL_SORT
+    said = f"{name} {result}"  # the check's own words start so ("pin-id fail: 0/18 pins match"): not said twice
+    title = reason if reason.startswith(said) else f"{said}" + (f": {reason}" if reason else "")
+    return Mark("✗", "mgmt-test-fail", title), FAIL_SORT
 
 
 def check_cell(host, name, link):
     """A Pi's cell in the column of check `name`: a mark per board; one – for a Pi whose check named no board."""
     if not host.boards:
-        return CheckCell(name, [Mark("–", "mgmt-test-none", f"{name}: no board checked this boot")], NONE_SORT, "")
+        return CheckCell(name, [Mark("–", "mgmt-test-none", f"{name} not run: no board checked this boot")], NONE_SORT, "")
     marks, sorts = zip(*(_mark(b, name) for b in host.boards))
     worst = min(sorts)
     return CheckCell(name, list(marks), worst, link if worst == FAIL_SORT else "")

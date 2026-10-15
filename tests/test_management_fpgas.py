@@ -83,9 +83,9 @@ def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     # (Tim, 15 Oct 2026: "Make the error message be the popup when mousing over the x") and the ✗ links the Pi's page
     failing = _by_serial(html)["pi-sw2-p33"]
     assert (failing["pin-id"], failing["spiflash"], failing["uart"]) == ("✗", "✗", "✓")
-    assert ('<div class="mgmt-test-fail" title="pin-id: fail: pin-id fail: the test exited 1">'
+    assert ('<div class="mgmt-test-fail" title="pin-id fail: the test exited 1">'
             '<a href="/fleet/pi-sw2-p33/#boards">✗</a>') in html
-    assert 'title="spiflash: fail: spiflash fail: the test exited 1"' in html
+    assert 'title="spiflash fail: the test exited 1"' in html
     assert "Reason" not in _header(html)
 
 
@@ -298,8 +298,8 @@ def _cells(table_html):
             for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
 
 
-FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check"]
-AFTER = ["Up", "Seen", "Offered", "Why not", "Notes"]
+FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Offered", "Why not", "Up", "Seen"]
+AFTER = ["Notes"]
 
 
 def _hosts_table(html):
@@ -387,10 +387,10 @@ def test_every_check_is_a_column_of_the_one_table_pass_fail_or_not_applicable(fl
     assert (rows["pi-sw2-p33"]["pin-id"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
     assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
     # the result is in the mark's title, and said to a screen reader; a – says why it is not applicable
-    assert ('<div class="mgmt-test-pass" title="jtag: pass">✓<span class="mgmt-sr"> jtag: pass</span></div>'
+    assert ('<div class="mgmt-test-pass" title="jtag pass">✓<span class="mgmt-sr"> jtag pass</span></div>'
             in html)
-    assert 'title="pin-id: not run on acorn-' in html
-    assert 'title="jtag: no board checked this boot"' in html
+    assert 'title="pin-id not run on acorn-' in html
+    assert 'title="jtag not run: no board checked this boot"' in html
     # a cell sorts failures first, then passes, then the Pis it does not apply to
     assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="pin-id"><div class="mgmt-test-fail"', html)
     assert re.search(r'<td class="mgmt-mark" data-sort="1" data-label="jtag"><div class="mgmt-test-pass"', html)
@@ -408,8 +408,8 @@ def test_every_result_but_pass_is_a_fail_mark_with_the_result_in_its_title(fleet
     row = _by_serial(html)["pi-sw2-p30"]
     assert (row["jtag"], row["ddr"], row["flash"]) == ("✗", "✓", "✗")  # the mark is the cell's whole text
     # each ✗ carries its own test's part of the reason; a part that names no test stays with the one before
-    assert 'title="jtag: error: jtag error: openocd: no device; the cable may be loose"' in html
-    assert 'title="flash: changed: flash changed: id"' in html
+    assert 'title="jtag error: openocd: no device; the cable may be loose"' in html
+    assert 'title="flash changed: id"' in html
 
 
 @pytest.mark.django_db
@@ -642,11 +642,11 @@ def test_with_two_boards_each_test_names_its_board(fleet):
     assert rows["pi-sw2-p30"]["pin-id"] == "✓\n✓" and rows["pi-sw2-p30"]["jtag"] == "–\n–"
     assert rows["pi-sw2-p32"]["pin-id"] == "✓\n✗" and rows["pi-sw2-p32"]["jtag"] == "✓\n–"
     # the cell sorts as its worst mark, and its ✗ says which check failed and why
-    assert re.search(r'data-sort="0" data-label="pin-id"><div class="mgmt-test-pass" title="pin-id: pass">✓'
-                     r'<span class="mgmt-sr"> pin-id: pass</span></div><div class="mgmt-test-fail" '
-                     r'title="pin-id: fail: pin-id fail: pin 3 stuck low"><a href="/fleet/pi-sw2-p32/#boards">✗</a>',
+    assert re.search(r'data-sort="0" data-label="pin-id"><div class="mgmt-test-pass" title="pin-id pass">✓'
+                     r'<span class="mgmt-sr"> pin-id pass</span></div><div class="mgmt-test-fail" '
+                     r'title="pin-id fail: pin 3 stuck low"><a href="/fleet/pi-sw2-p32/#boards">✗</a>',
                      html)
-    assert 'title="jtag: not run on TT FPGA"' in html
+    assert 'title="jtag not run on TT FPGA"' in html
 
 
 @pytest.mark.django_db
@@ -744,3 +744,12 @@ def test_a_xilinx_pcie_card_is_a_pcie_card_and_an_unknown_board_name_is_a_note(f
     rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
     assert rows["pi-sw1-p38"]["Board"] == "PCIe card" and "not known" not in rows["pi-sw1-p38"]["Notes"]
     assert "board 'gizmo' not known" in rows["pi-sw1-p39"]["Notes"]
+
+
+@pytest.mark.django_db
+def test_a_fail_whose_reason_names_no_test_says_the_test_and_result_first():
+    from management.views.fpgas import _mark
+
+    board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "reason": "the board did not answer"}
+    assert _mark(board, "jtag")[0].title == "jtag fail: the board did not answer"
+    assert _mark(dict(board, reason=""), "jtag")[0].title == "jtag fail"

@@ -134,8 +134,14 @@
 .mgmt:has(.mgmt-hosts) { max-width: none; }
 /* a model, a memory, a serial, a port and a time are one value each: they do not break */
 .mgmt-hosts td.mgmt-c-model, .mgmt-hosts td.mgmt-c-memory, .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-port,
-.mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen { white-space: nowrap; }
+.mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen, .mgmt-hosts td.mgmt-c-check { white-space: nowrap; }
 .mgmt-hosts td.mgmt-c-memory { text-align: right; }
+/* the serial names the row: it stays in view while the check columns scroll sideways (#78's port column on the
+   switch page does the same); its right edge is a shadow, which stays */
+.mgmt-hosts td.mgmt-c-serial, .mgmt-hosts th.mgmt-c-serial { position: sticky; left: 0; z-index: 1; background: #fff;
+                                                            box-shadow: 1px 0 0 #ccc; }
+.mgmt-hosts th.mgmt-c-serial { background: #f0f0f0; }
+.mgmt-hosts.mgmt-striped tbody tr:nth-child(even) td.mgmt-c-serial { background: #f4f4f4; }
 /* A check's column (#121): a mark a board, ✓ ✗ – coloured as well as shaped, the result (and a ✗'s reason) in its
    title and for a screen reader. The check's name is set upright, so the column is as wide as a mark. */
 .mgmt-table th.mgmt-checkhead { writing-mode: vertical-rl; text-align: left; vertical-align: bottom; }
@@ -158,10 +164,12 @@
   .mgmt-hosts tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.7rem;
                    border: 1px solid #ccc; border-top: 0; padding: 0.4rem 0.6rem; }
   .mgmt-hosts tr:first-child { border-top: 1px solid #ccc; }
-  .mgmt-table.mgmt-hosts td { border: 0; padding: 0; }
+  .mgmt-table.mgmt-hosts td { border: 0; padding: 0; position: static; box-shadow: none; background: none; }
   .mgmt-hosts td.mgmt-c-serial { font-weight: 600; }
   .mgmt-hosts td.mgmt-c-board, .mgmt-hosts td.mgmt-c-notes { flex-basis: 100%; }
   .mgmt-hosts td.mgmt-mark div { display: inline; }
+  /* a check that does not apply to any of the Pi's boards is left out: the block lists what was checked */
+  .mgmt-hosts td.mgmt-mark[data-sort="2"] { display: none; }
   .mgmt-hosts td.mgmt-mark div + div::before { content: " "; }
   .mgmt-hosts td:empty { display: none; }
   .mgmt-hosts td { white-space: normal; }
