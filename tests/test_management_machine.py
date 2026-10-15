@@ -212,14 +212,17 @@ def test_a_host_with_no_check_and_no_events_says_so_outside_the_tables():
 
 
 @pytest.mark.django_db
-def test_a_host_that_carries_no_board_has_the_same_verdict_in_its_history():
-    """The review of #135: the facts and /fleet/ said ✓ "as expected", the history said ✗ "found no board"."""
+def test_a_host_whose_check_finds_no_board_has_the_same_verdict_in_its_history_and_facts():
+    """Tim, 16 Oct 2026 (coord-65, site #144): an Orange Pi whose check finds no board needs attention: ✗ "found no
+    board" in its history, as in its facts and on /fleet/."""
     from tests.test_management_fpgas import _orange_pi
 
     m = _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
-    history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
-    assert 'title="found no board, as expected: this host carries none"><span class="mgmt-test-pass">✓' in history
-    assert "mgmt-test-fail" not in history
+    html = page(m.serial)
+    history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    assert 'title="found no board"><span class="mgmt-test-fail">✗' in history
+    assert "mgmt-test-pass" not in history
+    assert "needs attention: no board found" in html and "not offered: boot check found no board" in html
 
 
 @pytest.mark.django_db
