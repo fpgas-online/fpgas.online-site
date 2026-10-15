@@ -434,7 +434,7 @@ def test_every_check_is_a_column_grouped_in_dependency_order_with_four_states(fl
     assert (rows["pi-sw2-p33"]["wiring"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
     # a check its type gets that its report does not have is ⊘ (#129), never –: the TT board's sdk
     assert rows["pi-sw2-p33"]["sdk"] == "⊘"
-    assert 'title="sdk was not reported by this board&#x27;s check (fpgas.online-test-designs#340)"' in html
+    assert 'title="sdk was not reported by this board&#x27;s check: its fpgas-verify does not report it yet"' in html
     assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
     # the state is in the cell's title, and said to a screen reader; a – says why it is not applicable
     assert ('data-label="jtag" title="jtag passed"><div class="mgmt-test-pass">✓<span class="mgmt-sr"> jtag passed'

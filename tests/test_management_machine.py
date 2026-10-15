@@ -77,8 +77,11 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
     boards = html.split("<h2 id=\"boards\">Boards</h2>", 1)[1].split("</table>", 1)[0]
     # a row a board: its type, the id on its label (its name on hover), its result and a mark per check, grouped as on
     # /fleet/ (#132: "suffers from many of the issues I told you about on other pages")
-    assert '<td class="mgmt-c-id" title="acorn-holly 0x00200c8664b04854">0x00200c8664b04854</td>' in boards
-    assert '<td class="mgmt-c-board">Acorn</td>' in boards and '<td class="mgmt-c-board" title="Fomu EVT">Fomu</td>' in boards
+    assert '<td class="mgmt-c-id" data-label="ID" title="acorn-holly 0x00200c8664b04854">0x00200c8664b04854</td>' in boards
+    assert '<td class="mgmt-c-board" data-label="Board">Acorn</td>' in boards
+    assert '<td class="mgmt-c-board" data-label="Board" title="Fomu EVT">Fomu</td>' in boards
+    # on a phone each cell says its column (the review of #135: a row of bare marks at 390 px)
+    assert re.search(r'<td class="mgmt-mark" data-label="jtag" data-sort="\d"', boards)
     docs = "https://docs.fpgas.online/en/latest/boards/"
     # each mark links its check's docs page (by the name the check sent: pin-id), else the board's checks page
     assert re.search(rf'title="wiring passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/pin-id.html">✓</a>',
@@ -206,3 +209,34 @@ def test_a_host_with_no_check_and_no_events_says_so_outside_the_tables():
     html = page(m.serial)
     assert "<p>No boot check has reported.</p>" in html and "<p>No events recorded for this boot.</p>" in html
     assert "colspan" not in html  # no sentence rows inside a sortable table
+
+
+@pytest.mark.django_db
+def test_a_host_that_carries_no_board_has_the_same_verdict_in_its_history():
+    """The review of #135: the facts and /fleet/ said ✓ "as expected", the history said ✗ "found no board"."""
+    from tests.test_management_fpgas import _orange_pi
+
+    m = _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
+    history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    assert 'title="found no board, as expected: this host carries none"><span class="mgmt-test-pass">✓' in history
+    assert "mgmt-test-fail" not in history
+
+
+@pytest.mark.django_db
+def test_what_keeps_rpi_hwid_from_a_label_is_the_event_it_lacks_with_the_sentence_on_hover():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
+    assert ('<td title="no usable pi-identified event from this Pi"><code>pi-identified</code></td>' in labels)
+    assert ">no usable pi-identified event from this Pi<" not in labels  # never as a cell's text
+
+
+@pytest.mark.django_db
+def test_the_new_fpgas_verify_report_reads_the_same_on_the_pis_own_page():
+    from tests.test_management_fpgas import NEW_VERIFY_TT_FPGA
+
+    m = pi("pi-sw2-p34", NEW_VERIFY_TT_FPGA, serial="1000000085948b10")
+    boards = page(m.serial).split('<h2 id="boards">Boards</h2>', 1)[1].split("</table>", 1)[0]
+    assert re.search(r'data-label="spram" data-sort="1" title="spram did not run: no boot-check test yet: '
+                     r'fpgas.online-test-designs #343"><span class="mgmt-test-notrun">', boards)
+    # the Pi's own page has a column per check its boards' types get: none for jtag on a TT FPGA
+    assert 'data-label="jtag"' not in boards and 'data-label="wiring"' in boards

@@ -52,7 +52,7 @@ def test_detail_shows_history_and_events(c):
 def test_detail_says_what_the_labels_still_need(c):
     register_document(DOC)
     html = c.get("/fleet/abc123/").content.decode()
-    assert "<h2>Labels</h2>" in html and '<th scope="col">Still needs</th>' in html
+    assert "<h2>Labels</h2>" in html and '>Still needs</th>' in html
     # each field rpi-hwid still needs, and who sends it (#93 item 4)
     for field, owner in (("revision", "registration"), ("header", "pi-identified")):
         assert re.search(rf'<td><code>{field}</code></td><td title="[^"]*">{owner}</td>', html)

@@ -208,7 +208,7 @@ def test_rpi_hwid_refuses_a_label_with_a_fact_missing(machine):
 # `missing` with no keys -- rpi-hwid lists each label it can make, with [].
 
 COMPLETE = "rpi-hwid has everything it needs for this host's labels."
-INCOMPLETE = '<th scope="col">Still needs</th>'
+INCOMPLETE = '>Still needs</th>'  # its header (with its title, #132)
 
 
 @pytest.mark.django_db
