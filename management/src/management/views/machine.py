@@ -16,7 +16,7 @@ from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview
 
-from .. import fpga, localtime, network
+from .. import fpga, localtime, network, states
 from .fpgas import CHECK_WORDS, CONDITION_KEYS, _check, _offered, _visitor_pages
 from .index import _url
 
@@ -153,6 +153,7 @@ def _page(request, entry):
         "net_addresses": [(a, _lifetime(a.get("valid_lifetime_s")), _lifetime(a.get("preferred_lifetime_s")))
                           for a in net.addresses] if net else [],
         "net_last_ack": _when(net.last_ack) if net else "", "net_expires": _exact(net.expires) if net else "",
+        "state_mark": states.MARKS[host.condition],
         "label": fpga.pi_label(entry), "model": fpga.registered_model(entry), "port": fpga.port_text(entry),
         "condition": CONDITION_KEYS[host.condition], "check": check, "check_title": check_title,
         "offered": offered, "page": page,

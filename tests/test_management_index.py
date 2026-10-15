@@ -229,7 +229,7 @@ def test_the_pis_are_a_count_per_condition_each_linking_the_pi_table_filtered_to
     """Tim, 15 Oct 2026: "Why do both exist?": the Pis are rows on /fleet/ only; here they are counts per condition,
     and the counts add up to every registered Pi."""
     switches([as_inventory_says(1)])
-    boards = [r for r in table() if r["area"] == "Boards"]
+    boards = [r for r in table() if r["area"] == "Raspberry Pis"]
     assert sorted(r["item"] for r in boards) == ["checking", "missing", "needs attention", "operational"]
     by = {r["item"]: r for r in boards}
     assert (by["needs attention"]["state"], by["needs attention"]["value"]) == ("needs attention", "2 Pis")
@@ -249,17 +249,18 @@ def test_the_pis_are_a_count_per_condition_each_linking_the_pi_table_filtered_to
 
 
 @pytest.mark.django_db
-def test_a_condition_with_no_pi_is_fine_and_has_no_link(switches, browser):
+def test_a_condition_with_no_pi_has_no_row_but_the_operational_count_is_always_there(switches, browser):
+    """The review of #133: "missing: 0 Pis" beside a green "operational" mark read as two answers."""
     switches([as_inventory_says(1)])
     pi("pi-sw2-p46", REAL["pi-sw2-p46"])
-    by = {r["item"]: r for r in table() if r["area"] == "Boards"}
-    assert (by["missing"]["state"], by["missing"]["value"], by["missing"]["href"]) == ("operational", "0 Pis", None)
+    by = {r["item"]: r for r in table() if r["area"] == "Raspberry Pis"}
+    assert set(by) == {"operational"} and by["operational"]["value"] == "1 Pi"
 
 
 @pytest.mark.django_db
 def test_no_board_offered_is_a_failure(switches, browser):
     switches([as_inventory_says(1)])
-    row = find(table(), area="Boards", item="operational")
+    row = find(table(), area="Raspberry Pis", item="operational")
     assert (row["state"], row["value"]) == ("needs attention", "0 Pis")
 
 
@@ -346,7 +347,7 @@ def test_switches_that_cannot_be_read_at_all_are_one_failure_row(browser):
     # the installed poe package has no switch reader here, or it failed: the reason is the row's value
     row = find(table(), area="Switches")
     assert row["state"] == "needs attention" and row["item"] == "all switches" and row["href"] == "/management/switches/"
-    assert row["value"] == page.NOT_INSTALLED
+    assert (row["value"], row["title"]) == ("✗", page.NOT_INSTALLED)  # a result is a mark, its words the title
 
 
 @pytest.mark.django_db
@@ -371,7 +372,7 @@ def test_a_boot_check_from_the_future_fails_its_row_only(fleet, switches, browse
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
     assert newest["state"] == "needs attention" and "future" in newest["value"]
-    assert find(rows, area="Boards", item="operational")["state"] == "operational"  # the other areas stand
+    assert find(rows, area="Raspberry Pis", item="operational")["state"] == "operational"  # the other areas stand
 
 
 @pytest.mark.django_db
@@ -492,7 +493,7 @@ def test_a_condition_the_page_does_not_know_is_a_failure_row_naming_it(switches,
         return hosts
 
     monkeypatch.setattr(fpga, "hosts", odd)
-    row = find(table(), area="Boards", item="pi-sw2-p5 (no model registered) on sw2 p5")
+    row = find(table(), area="Raspberry Pis", item="pi-sw2-p5 (no model registered) on sw2 p5")
     assert (row["state"], row["value"]) == ("needs attention", "unknown condition 'sulking'")
     assert row["href"] == "/fleet/pi-sw2-p5/"
 
@@ -537,7 +538,7 @@ def test_two_pis_last_seen_on_one_port_are_both_counted_each_named_by_its_label(
     switches([as_inventory_says(1)])
     pi("pi-sw2-p48", REAL["pi-sw2-p46"], seen_ago=60 * 7, serial="10000000aaaa0048")
     pi("pi-sw2-p48", REAL["pi-sw2-p47"], seen_ago=60 * 8, serial="10000000bbbb0048")
-    row = find(table(), area="Boards", item="missing")
+    row = find(table(), area="Raspberry Pis", item="missing")
     assert row["value"] == "2 Pis"
     assert "10000000aaaa0048 (no model registered): missing 7 h" in row["title"]
     assert "10000000bbbb0048 (no model registered): missing 8 h" in row["title"]
@@ -552,7 +553,7 @@ def test_a_pi_with_no_report_this_boot_is_counted_as_needing_attention(switches,
     m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
         "fpga": {"boards": [{"kind": "acorn-cle-215+"}]}})
     m.save()
-    row = find(table(), area="Boards", item="needs attention")
+    row = find(table(), area="Raspberry Pis", item="needs attention")
     assert (row["state"], row["value"]) == ("needs attention", "1 Pi")
     assert row["title"] == "10000000cccc0038 (no model registered): stopped checking in"
 
