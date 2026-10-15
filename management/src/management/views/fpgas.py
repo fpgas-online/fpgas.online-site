@@ -220,6 +220,8 @@ def _port(host, observed):
 def _line(host, now, pages, columns, detail, observed=None):
     fields = fpga.pi_fields(host.machine)
     notes = [fields.note] if fields.note else []
+    # a board name the page does not know is said, loud, in Notes: the Board cell's "other" is not a value
+    notes.extend(f"board {b['kind']!r} not known" for b in host.boards if b["title"] == fpga.OTHER)
     port, port_title, sort_port, port_note = _port(host, observed)
     if port_note:
         notes.append(port_note)

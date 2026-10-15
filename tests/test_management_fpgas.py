@@ -734,3 +734,13 @@ def test_the_port_is_where_the_gateway_last_leased_the_pi_an_address_with_the_ti
     # a Pi with no lease record: the port its host name names, and its title says so
     assert _by_serial(html)["pi-sw2-p47"]["Port"] == "sw2 p47"
     assert 'title="its host name names this port; the gateway has no lease record of it">sw2 p47' in html
+
+
+@pytest.mark.django_db
+def test_a_xilinx_pcie_card_is_a_pcie_card_and_an_unknown_board_name_is_a_note(fleet):
+    """fpgas-verify calls a Xilinx PCIe card that is not ours "xilinx-pcie" (welland's showed as "other", 15 Oct)."""
+    pi("pi-sw1-p38", {"result": "fail", "board0": "xilinx-pcie - fail"})
+    pi("pi-sw1-p39", {"result": "fail", "board0": "gizmo - fail"})
+    rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
+    assert rows["pi-sw1-p38"]["Board"] == "PCIe card" and "not known" not in rows["pi-sw1-p38"]["Notes"]
+    assert "board 'gizmo' not known" in rows["pi-sw1-p39"]["Notes"]

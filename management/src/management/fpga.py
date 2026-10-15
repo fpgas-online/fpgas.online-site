@@ -16,8 +16,10 @@ from rpi_hwid.model import Summary
 from rpi_hwid.probe import nominal_memory
 from rpi_hwid.revision import decode_revision
 
-# The board names fpgas-verify's modules use (board<i>), as a visitor reads them.
-TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card"}
+# The board names fpgas-verify's modules use (board<i>), as a visitor reads them. "xilinx-pcie" is its name
+# (conclusion.OTHER_PCIE) for a Xilinx PCIe card that is not ours (15 Oct 2026: one on welland showed as "other").
+TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card",
+               "xilinx-pcie": "PCIe card"}
 OTHER = "other"  # a board name this page does not know: one bucket, so a Pi cannot make a row per name it sends
 SNAPSHOT_TT = "TT, not checked this boot"
 # What a registration's hardware document calls a board kind, for a machine whose check reported none this boot.
