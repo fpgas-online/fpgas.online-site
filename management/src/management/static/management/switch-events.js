@@ -7,7 +7,7 @@
  * record {"schema": 1, "switch", "port", "hostname", "link": "up"|"down"|"bounced", "at"}. applyRecord draws it on
  * the page the way the next reading would: the row's Link mark (↑ / ↓, its words in its title and for a screen
  * reader), its Speed (empty while down; a link that comes up keeps what the cell shows until the next reading gives
- * the speed), and the front-panel box's edge (solid while up, dashed while down) and the link words in its title.
+ * the speed), and the front-panel box's link light (lit green while up, dark while down) and the link words in its title.
  * It does not fetch anything: the dashboard's JSON comes through a 15 s server cache and would still show the old
  * state. The rest of what a link change means (the Net check of a Pi's port, the State) follows at the next reading.
  * The page's own 15 s refresh stays as the fallback and rebuilds the table, so a Keeper remembers each applied record
@@ -43,9 +43,9 @@
       var g = doc.getElementById("switch-" + record.switch + "-panel-" + record.port + suffix);
       if (!g) { return; }
       var kept = (g.getAttribute("class") || "").split(/\s+/).filter(function (c) {
-        return c && c !== "mgmt-edge-up" && c !== "mgmt-edge-down";
+        return c && c !== "mgmt-link-up" && c !== "mgmt-link-down";
       });
-      g.setAttribute("class", kept.concat("mgmt-edge-" + record.link).join(" "));
+      g.setAttribute("class", kept.concat("mgmt-link-" + record.link).join(" "));
       var title = g.querySelector("title").textContent;
       var now = LINK_PART.test(title) ? title.replace(LINK_PART, function (all, sep) { return sep + WORDS[record.link]; })
                                       : title;

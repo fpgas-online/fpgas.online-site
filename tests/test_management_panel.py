@@ -1,7 +1,7 @@
 """A switch's front panel on the switch page (#90, #130): each port where it is, drawn so that it needs no key (Tim, 15
 Oct 2026): its number, the hardware the gateway last saw on it, its /fleet/ State mark and fill (always the machine's
-own), the Net column's ✗ apart where the network reading is not as it should be, a solid edge while the link is up and
-a dashed one while it is down, ⚡ while PoE delivers; a switch-wide known issue one line above the drawing; each port's
+own), the Net column's ✗ apart where the network reading is not as it should be, a link light, green while the link is up and
+dark while it is down, ⚡ while PoE delivers; a switch-wide known issue one line above the drawing; each port's
 words in its title, linked to its row; a narrow drawing for a phone."""
 
 import json
@@ -143,7 +143,7 @@ def test_a_box_line_is_never_squeezed_it_fits_or_wraps_at_a_space():
 def row(**over):
     base = {"port": 3, "machines": [], "role": "", "unregistered": "", "unregistered_title": "", "net_ok": True,
             "net_title": "as it should be: PoE", "link_up": False, "link_title": "link down", "speed": "",
-            "poe_state": "searching", "poe_title": "PoE on, nothing drawing power", "watts": "", "vlan": "2103",
+            "poe_state": "searching", "poe_title": "PoE on, searching: nothing drawing power", "watts": "", "vlan": "2103",
             "lldp_name": ""}
     return {**base, **over}
 
@@ -191,7 +191,7 @@ def test_the_state_mark_is_always_the_machines_own_and_net_is_a_mark_of_its_own(
 
 
 @pytest.mark.django_db
-def test_the_panel_needs_no_key_each_box_says_its_state_by_mark_edge_and_bolt(one_switch):
+def test_the_panel_needs_no_key_each_box_says_its_state_by_mark_link_light_and_bolt(one_switch):
     seat("pi-sw1-p10", "10000000aaaa0010", lease=(1, 10))  # an operational Pi 5 with an Acorn on port 10
     seat("pi-sw1-p4", "10000000aaaa0004", lease=(1, 4))  # an operational Pi 5 on port 4, whose link is down
     view = board_switch()
@@ -201,20 +201,20 @@ def test_the_panel_needs_no_key_each_box_says_its_state_by_mark_edge_and_bolt(on
     html = page_html()
     assert "mgmt-panel-key" not in html  # no key
     assert '<svg class="mgmt-panel mgmt-panel-wide" id="switch-1-panel"' in html and 'role="group"' in html
-    # port 10: link up (solid edge), PoE delivering (⚡), the Pi's model and board, its ● in the State's colour, no ✗
+    # port 10: link up (link light lit), PoE delivering (⚡), the Pi's model and board, its ● in the State's colour, no ✗
     ten = box_of(html, 10)
-    assert 'class="mgmt-port mgmt-box-operational mgmt-edge-up"' in ten
+    assert 'class="mgmt-port mgmt-box-operational mgmt-link-up"' in ten
     assert texts(ten)["mgmt-bolt"] == "⚡" and texts(ten)["mgmt-pmark"] == "●" and texts(ten)["mgmt-net"] == ""
     assert texts(ten)["hw"] == ["Pi 5", "Acorn", ""]
     assert '<text class="mgmt-pmark mgmt-state-operational"' in ten
     # port 4: the machine's own ● (the State column's), and apart from it the Net ✗ in red: link down under it
     four = box_of(html, 4)
-    assert 'mgmt-box-operational mgmt-edge-down' in four
+    assert 'mgmt-box-operational mgmt-link-down' in four
     assert texts(four)["mgmt-pmark"] == "●" and texts(four)["mgmt-net"] == "✗"
     assert '<text class="mgmt-net mgmt-test-fail"' in four and "not as it should be: link down under" in four
-    # port 1: an empty port, link down (dashed edge), no bolt, no mark, nothing on it
+    # port 1: an empty port, link down (link light dark), no bolt, no mark, nothing on it
     one = box_of(html, 1)
-    assert 'class="mgmt-port mgmt-box-empty mgmt-edge-down"' in one
+    assert 'class="mgmt-port mgmt-box-empty mgmt-link-down"' in one
     assert texts(one)["mgmt-bolt"] == "" and texts(one)["mgmt-pmark"] == "" and texts(one)["hw"] == ["", "", ""]
     assert texts(one)["mgmt-net"] == ""
     # port 3: nothing on it, the Net ✗ where the network reading is not as it should be, its reason in the title
@@ -223,7 +223,7 @@ def test_the_panel_needs_no_key_each_box_says_its_state_by_mark_edge_and_bolt(on
     assert "not as it should be: port 3 PVID 1, not 2103" in three
     # port 12: power drawn and a link, nothing registered: "?"
     twelve = box_of(html, 12)
-    assert 'mgmt-box-unregistered mgmt-edge-up' in twelve and texts(twelve)["mgmt-pmark"] == "?"
+    assert 'mgmt-box-unregistered mgmt-link-up' in twelve and texts(twelve)["mgmt-pmark"] == "?"
     assert "not registered: a link up and PoE power drawn" in twelve
     # port 47: the gateway trunk by its role, one word
     assert texts(box_of(html, 47))["hw"] == ["gateway", "", ""]
@@ -266,7 +266,7 @@ def test_the_refresh_script_keeps_the_panel_with_the_table(one_switch):
     one_switch(board_switch())
     script = page_html().split("<script>")[1].split("</script>")[0]
     assert 'getElementById(anchor + "-panel-" + p.port)' in script and 'querySelector("title").textContent' in script
-    assert '"mgmt-port mgmt-box-" + p.kind + " mgmt-edge-" + (p.link_up ? "up" : "down")' in script
+    assert '"mgmt-port mgmt-box-" + p.kind + " mgmt-link-" + (p.link_up ? "up" : "down")' in script
     assert 'querySelector(".mgmt-bolt").textContent = p.bolt' in script
     assert 'querySelector(".mgmt-net").textContent = p.net' in script
     assert 'querySelector(".mgmt-more").textContent = p.more' in script

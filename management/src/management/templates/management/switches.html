@@ -35,8 +35,9 @@
   }
   var busy = {};
   function powerButton(sw, p) {
-    var b = cell("button", p.poe_button);
-    b.type = "button"; b.className = "mgmt-poe-button";
+    var b = cell("button", p.power_icon);
+    b.type = "button"; b.className = "mgmt-poe-button mgmt-poe-to-" + p.poe_action;
+    b.setAttribute("aria-label", p.power_title + " on port " + p.port); b.title = p.power_title;
     b.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
     b.dataset.port = String(p.port); b.dataset.action = p.poe_action; b.dataset.powers = p.powers;
     b.disabled = !!busy[key(b.dataset.switch, p.port)];
@@ -80,11 +81,18 @@
     tr.appendChild(poe);
     var w = td("mgmt-n c-watts", "W"); w.textContent = p.watts; tr.appendChild(w);
     /* the PoE button in a column of its own (#89), with what the last press said */
-    var power = td("c-power");
-    if (p.can_power) {
-      if (p.poe_action) { power.appendChild(powerButton(sw, p)); }
+    /* the power symbol on every PoE port (#139): a button where a press is accepted, else greyed with the reason */
+    var power = td("c-power", "", p.power_title);
+    if (p.poe_action) {
+      power.appendChild(powerButton(sw, p));
       var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
       power.appendChild(msg);
+    } else {
+      if (p.power_icon) {
+        var none = cell("span", p.power_icon); none.className = "mgmt-poe-none"; none.setAttribute("aria-hidden", "true");
+        power.appendChild(none);
+      }
+      var why = cell("span", p.power_title); why.className = "mgmt-sr"; power.appendChild(why);
     }
     tr.appendChild(power);
     var vlan = td("mgmt-n c-vlan", "VLAN", p.vlan_title, p.vlan_sort); vlan.textContent = p.vlan; tr.appendChild(vlan);
@@ -148,7 +156,7 @@
         [anchor + "-panel-" + p.port, anchor + "-panel-" + p.port + "-n"].forEach(function (id) {
           var g = document.getElementById(id);
           if (!g) { return; }
-          g.setAttribute("class", "mgmt-port mgmt-box-" + p.kind + " mgmt-edge-" + (p.link_up ? "up" : "down"));
+          g.setAttribute("class", "mgmt-port mgmt-box-" + p.kind + " mgmt-link-" + (p.link_up ? "up" : "down"));
           g.querySelector("title").textContent = p.title;
           var pm = g.querySelector(".mgmt-pmark"); pm.textContent = p.mark; pm.setAttribute("class", "mgmt-pmark mgmt-state-" + p.kind);
           g.querySelectorAll(".mgmt-hw").forEach(function (t, i) { t.textContent = p.lines[i] || ""; });
@@ -233,7 +241,7 @@
   {# a switch-wide known issue: one line above the drawing, not a mark on every port (#130) #}
   <ul class="mgmt-known">{% for k in s.known_issues %}<li>{{ k.text }}: <a href="{{ k.url }}">{{ k.issue }}</a></li>{% endfor %}</ul>
   {% if s.panel %}
-  {# the drawing needs no key (#130): each box shows its number, its State mark in the State's colour, the hardware on it, ⚡ while PoE delivers, the Net ✗ where the port is not as it should be, a solid edge while the link is up (dashed when down); its title says all of it in words. The wide drawing is the switch as it is; a phone gets the same boxes in bands of seven columns, scaled to its width. #}
+  {# the drawing needs no key (#130): each box shows its number, its State mark in the State's colour, the hardware on it, ⚡ while PoE delivers, the Net ✗ where the port is not as it should be, its link light lit green while the link is up (dark when down); its title says all of it in words. The wide drawing is the switch as it is; a phone gets the same boxes in bands of seven columns, scaled to its width. #}
   <div class="mgmt-panel-box" role="region" aria-label="Front panel of {{ s.title }}">
   <svg class="mgmt-panel mgmt-panel-wide" id="switch-{{ anchor }}-panel" viewBox="0 0 {{ s.panel_width }} {{ s.panel_height }}" style="max-width: {{ s.panel_width }}px" role="group" aria-label="{{ s.panel_label }}. A port links to its row.">
   {% for p in s.panel %}{% include "management/switch_box.html" with x=p.x y=p.y suffix="" %}{% endfor %}
@@ -282,7 +290,7 @@
         <td class="c-speed" data-label="Speed" data-sort="{{ p.speed_sort }}">{{ p.speed }}</td>
         <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
         <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
-        <td class="c-power">{% if p.can_power %}{% if p.poe_action %}<button type="button" class="mgmt-poe-button" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}">{{ p.poe_button }}</button>{% endif %}<span class="mgmt-poe-msg"></span>{% endif %}</td>
+        <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}">{{ p.power_icon }}</button><span class="mgmt-poe-msg"></span>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>
         <td class="mgmt-n c-vlan" data-label="VLAN" data-sort="{{ p.vlan_sort }}" title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td class="c-gw" data-label="GW" title="{{ p.gw_title }}">{{ p.gw }}</td>
         <td class="c-lldp" data-label="LLDP"{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}</td>

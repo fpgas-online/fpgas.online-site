@@ -14,7 +14,9 @@ port shows the hardware on it, so the drawing reads like a labelled photo of the
 * at the bottom: ⚡ while PoE is delivering power; "+3" where three more machines were last seen on the port; and the
   Net column's ✗, in red, where the port's network reading is not as it should be (the review of #137: the State
   mark is always the machine's own, and the Net verdict is its own mark, as the table's two columns are);
-* its edge: solid while the link is up, dashed while it is down.
+* its link light, a small rectangle at the top as on the switch's own face: lit green while the link is up, dark
+  while it is down (Tim, 16 Oct 2026, site #139: "Why are you using the switch border style to indicate if a switch
+  port has link?"); the box's edge is the same for every port.
 
 Each port's title (and accessible name) says everything about it in words; each links its row in the table.
 
@@ -69,7 +71,7 @@ class Port:
     kind: str  # KINDS: the box's fill and its State mark's colour
     mark: str  # the State column's mark: the newest machine's /fleet/ mark, or "?"; "" for an empty or role port
     net_ok: bool  # False: the Net column's ✗ in the box's corner
-    link_up: bool  # a solid edge; a dashed one when down
+    link_up: bool  # the link light lit green; dark when down
     bolt: str  # BOLT while PoE delivers, else ""
     more: str  # "+3" where three more machines were last seen on the port, else ""
     lines: list  # the hardware (or role) on the box's three lines: the model, then the board's type over two
