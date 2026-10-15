@@ -163,7 +163,9 @@ def boot_mark(host, checked_text=""):
     word = _check_word(host)
     # why the Pi is not offered goes with a check that did not pass; a passed check is not contradicted by it
     passed = host.state == "pass"
-    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why and not passed else "")
+    # the why, unless it only says the word again ("found no board": "no board found")
+    said = host.why and not passed and not (host.state == "missing" and host.why == "no board found")
+    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if said else "")
     if passed:
         return Mark(PASSED[0], PASSED[1], title), PASSED[2]
     if host.state == "verifying":
