@@ -967,3 +967,33 @@ def test_a_planned_check_with_no_test_yet_names_its_issue(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert _by_serial(html)["pi-sw2-p30"]["ethernet"] == "⊘"
     assert 'title="ethernet did not run: no boot-check test yet (fpgas.online-test-designs#341)"' in html
+
+
+# A real fpga-verified detail from fpgas-verify's branch for fpgas.online-test-designs #339/#340 (PR #344), the check of
+# TT FPGA 4df39a7a6856f86f on welland at 20:46 on 15 Oct 2026 (fo-tools, runner.details() of a --no-publish run).
+NEW_VERIFY_TT_FPGA = {
+    "result": "pass", "board0": "tt tt-fpga pass", "board0_identity_chip": "fpga",
+    "board0_tests": "sdk=pass dip-switches=pass wiring=pass uart=pass",
+    "board0_not_run": "spram",
+    "board0_not_run_spram": "no boot-check test yet: fpgas.online-test-designs #343",
+    "board0_planned": "sdk dip-switches wiring uart spram",
+    "board0_groups": "sdk=board-specific dip-switches=board-specific wiring=basic uart=peripherals spram=memory",
+    "board0_not_applicable_ddr": "the demo board has no DRAM",
+    "board0_not_applicable_ethernet": "the demo board has no Ethernet",
+    "board0_not_applicable_jtag": "the iCE40UP5K has no JTAG port: it is loaded through the demo board's RP2350",
+    "board0_not_applicable_flash": "the FPGA breakout has no configuration flash: the RP2350 streams each design from "
+                                   "the Pi",
+}
+
+
+@pytest.mark.django_db
+def test_a_report_of_the_new_fpgas_verify_is_read_as_it_comes(fleet):
+    """The new fields read from a real report: what ran, the planned test with no test yet (⊘, verify's reason) and
+    the common checks that do not apply (–, verify's reasons)."""
+    pi("pi-sw2-p34", NEW_VERIFY_TT_FPGA, serial="1000000085948b10")
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["1000000085948b10"]
+    assert [row[c] for c in ("sdk", "dip-switches", "wiring", "uart", "spram")] == ["✓", "✓", "✓", "✓", "⊘"]
+    assert [row[c] for c in ("jtag", "flash", "ddr")] == ["–", "–", "–"]
+    assert 'title="spram did not run: no boot-check test yet: fpgas.online-test-designs #343"' in html
+    assert 'title="jtag not applicable to TT FPGA: the iCE40UP5K has no JTAG port: it is loaded through the demo board' in html
