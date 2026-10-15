@@ -230,6 +230,16 @@ def board_tests(detail, index):
     return [(_text(name, 40), _text(result, 20)) for name, _, result in (w.partition("=") for w in words) if result]
 
 
+def not_run_tests(detail, index):
+    """The tests a board's check left out because something earlier did not pass (fpgas-verify's `board<i>_not_run`:
+    names joined by ", "), in its order: "should have run, did not" on the Pi table (site #127). A name with a
+    space ("scratch over BAR0") is part of a test that ran, not a test of its own: it stays out of the columns."""
+    names = detail.get(f"board{index}_not_run", "")
+    if not isinstance(names, str):
+        return []
+    return [_text(n.strip(), 40) for n in names.split(",") if n.strip() and " " not in n.strip()]
+
+
 def failing_tests(detail, index):
     """The names of a board's tests that did not pass."""
     return [name for name, result in board_tests(detail, index) if result != "pass"]
@@ -343,7 +353,10 @@ def hosts(now=None):
                            "variant": variant, "id": board_id(b),
                            "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
-                           "failing": failing_tests(detail, i), "tests": board_tests(detail, i)})
+                           "failing": failing_tests(detail, i), "tests": board_tests(detail, i),
+                           "not_run": not_run_tests(detail, i),
+                           # the type as a visitor reads it, its variant with it (#127): "Acorn CLE-215+", "TT FPGA"
+                           "type": f"{board_title(b)} {variant.upper()}" if variant else board_title(b)})
         kinds = []
         if boards:
             board_type = " + ".join(dict.fromkeys(b["title"] for b in boards))
