@@ -96,6 +96,9 @@
 .mgmt-table th[aria-sort="none"] .mgmt-sort::after { content: " \21C5"; opacity: 0.45; }
 .mgmt-table th[aria-sort="ascending"] .mgmt-sort::after { content: " \25B2"; }
 .mgmt-table th[aria-sort="descending"] .mgmt-sort::after { content: " \25BC"; }
+/* #127: the arrow sits under a header's word, so it widens no column (a column is as wide as its values); an
+   upright (check) header keeps it at its end */
+.mgmt-table th:not(.mgmt-checkhead) .mgmt-sort::after { display: block; }
 .mgmt-table th[aria-sort] .mgmt-sort:hover, .mgmt-table th[aria-sort] .mgmt-sort:focus-visible {
   text-decoration: underline; }
 .mgmt-table th[aria-sort] .mgmt-sort:hover::after { opacity: 1; }
@@ -136,7 +139,7 @@
 .mgmt-hosts td.mgmt-c-model, .mgmt-hosts td.mgmt-c-memory, .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-port,
 /* every value of the Pi table is one line (#123): a board's name and its id are two columns */
 .mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen, .mgmt-hosts td.mgmt-c-check,
-.mgmt-hosts td.mgmt-c-checked, .mgmt-hosts td.mgmt-c-why, .mgmt-hosts td.mgmt-c-board,
+.mgmt-hosts td.mgmt-c-checked, .mgmt-hosts td.mgmt-c-board,
 .mgmt-hosts td.mgmt-c-id { white-space: nowrap; }
 .mgmt-hosts td.mgmt-c-memory { text-align: right; }
 /* the serial names the row: it stays in view while the check columns scroll sideways (#78's port column on the
@@ -156,6 +159,21 @@
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail, .mgmt-test-fail a { color: #b00020; font-weight: 700; }
 .mgmt-test-none { color: #999; }
+.mgmt-test-notrun { color: #b36b00; font-weight: 700; }
+/* #127: the State is one character, coloured as the summary's badges, the word on hover and for a screen reader */
+.mgmt-hosts td.mgmt-c-state { text-align: center; font-weight: 700; cursor: help; }
+.mgmt-state-operational { color: #1b7a1b; }
+.mgmt-state-attention { color: #b00020; }
+.mgmt-state-unknown { color: #b36b00; }
+.mgmt-state-missing { color: #666; }
+/* the Offered mark: the ✓ links the visitor page, the ✗ says why not on hover */
+.mgmt-hosts td.mgmt-c-offered a { text-decoration: none; }
+/* #127: Serial and ID in a fixed-width font, so their digits line up */
+.mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+                                                                      "Liberation Mono", monospace; }
+/* #127: the groups of the check columns, named once above them */
+.mgmt-hosts tr.mgmt-groups td { border: 0; background: none; }
+.mgmt-table.mgmt-hosts th.mgmt-group { text-align: center; font-weight: 600; font-size: 0.8em; background: #e8e8e8; }
 /* a Pi's boards, one label a line; Why not may wrap; Notes are facts, not alarms: plain, one line */
 .mgmt-hosts td.mgmt-note div { white-space: nowrap; }
 /* many columns in the page's width: tighter cells than the shared 0.6rem */
@@ -173,7 +191,7 @@
   .mgmt-hosts td.mgmt-c-board, .mgmt-hosts td.mgmt-c-notes { flex-basis: 100%; }
   .mgmt-hosts td.mgmt-mark div { display: inline; }
   /* a check that does not apply to any of the Pi's boards is left out: the block lists what was checked */
-  .mgmt-hosts td.mgmt-mark[data-sort="2"] { display: none; }
+  .mgmt-hosts td.mgmt-mark[data-sort="3"] { display: none; }
   .mgmt-hosts td.mgmt-mark div + div::before { content: " "; }
   .mgmt-hosts td:empty { display: none; }
   .mgmt-hosts td { white-space: normal; }

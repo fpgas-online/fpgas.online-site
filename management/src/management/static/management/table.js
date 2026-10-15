@@ -37,7 +37,8 @@
   }
 
   function enhance(table) {
-    var body = table.tBodies[0], heads = table.tHead.rows[0].cells;
+    /* the column headers are the head's last row: a row above it may name groups of columns (#127) */
+    var body = table.tBodies[0], heads = table.tHead.rows[table.tHead.rows.length - 1].cells;
     var rows = Array.prototype.slice.call(body.rows);
     rows.forEach(function (row, i) { row.setAttribute("data-served", String(i)); });
     Array.prototype.forEach.call(heads, function (th, column) {

@@ -24,24 +24,27 @@
 </table></div>
 
 {% if filtered %}<p class="mgmt-filter">Showing {% if want_type %}{{ want_type }}{% endif %}{% if want_type and want_condition %}, {% endif %}{% for c, title in conditions %}{% if c == want_condition %}{{ title }}{% endif %}{% endfor %} &middot; <a href="?">show all</a></p>{% endif %}
-{% if rows %}
-{# one table of the Pis (Tim, 15 Oct 2026): a value per column, and a column per check across the fleet #}
-<div class="mgmt-scroll" tabindex="0" role="region" aria-label="Raspberry Pis"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">State</th><th scope="col">Model</th><th scope="col"><abbr title="Memory">RAM</abbr></th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">ID</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Up</th><th scope="col">Seen</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}<th scope="col">Notes</th></tr></thead>
+{% for table_title, lines in tables %}
+{% if table_title %}<h2>{{ table_title }}</h2>{% endif %}
+{# one table of the Pis (Tim, 15 Oct 2026): a value per column, a column per check across the fleet, the checks grouped under a header row (#127); the missing Pis are a table of their own below #}
+<div class="mgmt-scroll" tabindex="0" role="region" aria-label="{{ table_title|default:'Raspberry Pis' }}"><table class="mgmt-table mgmt-hosts mgmt-fit mgmt-striped mgmt-sortable">
+  <thead>
+  {% if groups %}<tr class="mgmt-groups"><td colspan="12"></td>{% for group, n in groups %}<th scope="colgroup" colspan="{{ n }}" class="mgmt-group">{{ group }}</th>{% endfor %}<td></td></tr>{% endif %}
+  <tr><th scope="col" class="mgmt-checkhead mgmt-c-state">State</th><th scope="col">Model</th><th scope="col"><abbr title="Memory">RAM</abbr></th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">ID</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col" class="mgmt-checkhead">Offered</th><th scope="col">Up</th><th scope="col">Seen</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}<th scope="col">Notes</th></tr>
+  </thead>
   <tbody>
-  {% for line in rows %}{% with h=line.host %}
+  {% for line in lines %}{% with h=line.host %}
     <tr>
-      <td class="mgmt-c-state" data-sort="{{ line.severity }}"><span class="badge mgmt-{{ h.condition }}"{% if h.why %} title="{{ h.why }}"{% endif %}>{{ h.condition_title }}</span></td>
+      <td class="mgmt-c-state mgmt-state-{{ h.condition }}" data-sort="{{ line.severity }}" data-label="State" title="{{ h.condition_title }}{% if h.why %}: {{ h.why }}{% endif %}">{{ line.state }}<span class="mgmt-sr"> {{ h.condition_title }}</span></td>
       <td class="mgmt-c-model" data-label="Model"{% if line.model_title %} title="{{ line.model_title }}"{% endif %}>{{ line.model }}</td>
       <td class="mgmt-c-memory" data-label="Memory" data-sort="{{ line.memory_mb }}">{{ line.memory }}</td>
       <td class="mgmt-c-serial">{% if fleet %}<a href="{{ fleet }}{{ line.serial }}/">{{ line.serial }}</a>{% else %}{{ line.serial }}{% endif %}</td>
       <td class="mgmt-c-port" data-label="Port" data-sort="{{ line.sort_port }}" title="{{ line.port_title }}">{{ line.port }}</td>
-      <td class="mgmt-c-board" data-label="Board">{% for name, ident in line.boards %}<div>{{ name }}</div>{% endfor %}</td>
-      <td class="mgmt-c-id" data-label="ID">{% for name, ident in line.boards %}<div>{{ ident|default:"–" }}</div>{% endfor %}</td>
+      <td class="mgmt-c-board" data-label="Board">{% for type, ident, label in line.boards %}<div>{{ type }}</div>{% endfor %}</td>
+      <td class="mgmt-c-id" data-label="ID">{% for type, ident, label in line.boards %}<div{% if label %} title="{{ label }}"{% endif %}>{{ ident|default:"–" }}</div>{% endfor %}</td>
       <td class="mgmt-c-check" data-label="Boot check"{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
       <td class="mgmt-c-checked" data-label="Checked" data-sort="{{ line.sort_checked }}">{{ line.checked }}</td>
-      <td class="mgmt-c-offered" data-label="Offered">{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
-      <td class="mgmt-c-why" data-label="Why not">{{ line.why_not }}</td>
+      <td class="mgmt-c-offered mgmt-mark" data-label="Offered" data-sort="{{ line.offered|yesno:'1,0' }}" title="{{ line.offered_title }}">{% if line.offered %}<a class="mgmt-test-pass" href="{{ line.page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ line.offered_title }}</span></td>
       <td class="mgmt-c-up" data-label="Up" data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
       <td class="mgmt-c-seen" data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
       {% for cell in line.checks %}<td class="mgmt-mark" data-sort="{{ cell.sort }}" data-label="{{ cell.name }}" title="{{ cell.title }}">{% for m in cell.marks %}<div class="{{ m.cls }}">{% if cell.link and m.mark == "✗" %}<a href="{{ cell.link }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
@@ -50,15 +53,17 @@
   {% endwith %}{% endfor %}
   </tbody>
 </table></div>
-{% else %}<p>No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</p>{% endif %}
+{% empty %}<p>No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</p>
+{% endfor %}
 
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
-  <li>Model, RAM, Serial: the Pi's label, a value a column (the label's words and the registered model in the Model's title); the serial links the Pi's own page. Port: the port the gateway last leased it an address on, the time in its title; empty when the gateway has no lease record (Notes then names the port its host name names). Board, ID: each board's name and the id on its label (the DNA, a USB serial), one board a line; – where its check read no id.</li>
-  <li>Boot check: the verdict of the check of the boot it is running; Checked: when that check reported. Offered: "yes" links its visitor page. Why not: only what State and Boot check do not already say (stopped checking in, no visitor page).</li>
+  <li>State: ● operational, ! needs attention, ⟳ checking, ○ missing; the word and why on hover. The missing Pis are the second table.</li>
+  <li>Model, RAM, Serial: the Pi's label, a value a column (the label's words and the registered model in the Model's title); the serial links the Pi's own page. Port: the port the gateway last leased it an address on, the time in its title; empty when the gateway has no lease record (Notes then names the port its host name names). Board: the board's type; ID: the id on its label (the DNA, a USB serial), its name on hover; one board a line, – where its check read no id.</li>
+  <li>Boot check: the verdict of the check of the boot it is running; Checked: when that check reported. Offered (to visitors): ✓ links its visitor page, ✗ says why not on hover.</li>
   <li>Up: the uptime it last reported. Seen: its last status beat. Times are {{ zone }}. The exact time is in each one's title.</li>
-  <li>Then a column per check across the fleet: ✓ passed, ✗ failed (the reason on hover; it links the Pi's page), – not applicable (the board does not run it); a Pi with two boards has a mark per board, in the Board cell's order. Notes: what the page could not read (a revision, a clock, a lease).</li>
+  <li>Then a column per check across the fleet, grouped (basic, memory, peripherals, board specific) and in the order one needs another: ✓ ran and passed, ✗ ran and failed (the reason on hover; it links the Pi's page), ⊘ did not run because an earlier check did not pass, – not applicable to this board; a Pi with two boards has a mark per board, in the Board cell's order. Notes: what the page could not read (a revision, a clock, a lease).</li>
   <li>Every column sorts: a click on its header, again to reverse, a third time for the served order (what needs a person first).</li>
   <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>
 </ul>
