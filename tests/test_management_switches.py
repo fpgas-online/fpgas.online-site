@@ -686,7 +686,7 @@ def test_an_infrastructure_port_never_gets_a_button_even_if_a_machine_claims_it(
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[2]["port"] == 48 and ports[2]["can_power"] is False
     row = row_of(c.get("/management/switches/").content.decode(), 48)
-    assert "<button" not in row and "not switched from this page: this port is the house uplink" in row
+    assert "<button" not in row and "not switched from this page: the port&#x27;s role is house uplink" in row
 
 
 @pytest.mark.django_db
@@ -715,7 +715,7 @@ def test_every_poe_port_has_the_power_symbol_and_a_port_without_poe_says_why_it_
     no_inventory = page.power_cell(True, False, "", None, True, "PoE off")
     assert no_inventory[0] == "⏻" and "inventory could not be read" in no_inventory[1]
     assert page.power_cell(True, False, "", "gateway trunk", False, "")[1] == \
-        "not switched from this page: this port is the gateway trunk"
+        "not switched from this page: the port's role is gateway trunk"
 
 
 @pytest.mark.django_db

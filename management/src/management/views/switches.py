@@ -485,7 +485,7 @@ def power_cell(has_poe, can_power, action, role, no_inventory, poe_title):
     if no_inventory:
         return POWER_ICON, "not switched: the switch inventory could not be read, so no port is known to be a board's"
     if role:
-        return POWER_ICON, f"not switched from this page: this port is the {role}"
+        return POWER_ICON, f"not switched from this page: the port's role is {role}"
     return POWER_ICON, ("not switched: no board has registered on this port, and the site switches only a port a "
                         "board has registered on")
 
