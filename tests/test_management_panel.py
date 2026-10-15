@@ -318,3 +318,12 @@ def test_the_legacy_switch_links_to_rows_by_its_place_on_the_page(one_switch):
     html = page_html()
     assert '<section class="mgmt-switch" id="switch-1">' in html and 'id="switch-1-panel-1"' in html
     assert '<tr id="switch-1-port-1" class="mgmt-empty-port">' in html
+
+
+def test_an_unregistered_ports_box_names_what_it_announces_over_lldp():
+    """#148: the device a reader wants named is the unregistered one: its box carries its LLDP name, wrapped."""
+    assert panel.box(row(unregistered="?", lldp_name="rpi5-new-13f59c")) == (
+        "unregistered", "?", "", ["rpi5-", "new-", "13f59c"])
+    assert panel.wrap_name("a-very-long-name-indeed-yes", 3)[-1].endswith("…")
+    assert panel.box(row(unregistered="?", lldp_name="x")) == ("unregistered", "?", "", ["x", "", ""])
+    assert panel.box(row(unregistered="?")) == ("unregistered", "?", "", ["", "", ""])

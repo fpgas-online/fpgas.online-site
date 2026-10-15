@@ -201,9 +201,10 @@ def test_a_fleet_pis_lldp_name_links_to_its_page_and_other_names_do_not(reader):
     # the neighbour, then the port it reports in a column of its own (#130: one value a column)
     assert ('<td class="c-lldp" data-label="LLDP" title="the name it announces"><a href="/fleet/10000000aaaa0001/">'
             'pi-sw1-p1</a></td>\n        <td class="c-lldp-port" data-label="LLDP port">eth0</td>') in html
-    # a name the page may not show is withheld, its title says so (the review of #137: the one other form)
-    assert ('<td class="c-lldp" data-label="LLDP" title="its name is not shown: not a fleet Pi or a switch">device</td>'
-            in html) and "not-a-fleet-host" not in html
+    # any other neighbour by the name it announces, never "device" (Tim, 16 Oct 2026, #148: "Why is the device's LLDP
+    # information hidden for port 11 on switch 2?"); only a fleet Pi's links a page
+    assert '<td class="c-lldp" data-label="LLDP" title="the name it announces">not-a-fleet-host</td>' in html
+    assert ">device<" not in html
     assert '<td class="c-lldp-port" data-label="LLDP port">gi1</td>' in html
 
 
@@ -454,7 +455,7 @@ def test_a_host_with_no_name_of_its_own_is_refused(monkeypatch):
     ("sw-netgear-s3300-1", "sw-netgear-s3300-1"),
     ("sw-netgear-s3300-1.example.org", "sw-netgear-s3300-1"),
     ("gwhost", "gateway"),
-    ("core-router", "switch"),
+    ("core-router", "core-router"),
 ])
 def test_a_switch_name_follows_the_same_rule(gateway_host, given, shown):
     assert page.switch_name(given) == shown
@@ -494,12 +495,16 @@ def test_the_house_uplinks_device_is_masked_wherever_a_label_names_it(gateway_ho
     ("sw-netgear-s3300-1", "sw-netgear-s3300-1"),
     ("gwhost.example.org", "gateway"),
     ("gwhost", "gateway"),
-    ("rpi5-new-13f59c", "device"),
-    ("upstreamhost.example.org", "device"),
+    ("rpi5-new-13f59c", "rpi5-new-13f59c"),  # welland's switch 2 port 30 in the 9 Oct replay (#148)
+    ("some-laptop.example.org", "some-laptop"),
     ("", ""),
 ])
-def test_an_lldp_neighbour_is_a_pi_a_switch_the_gateway_or_a_device(gateway_host, given, shown):
+def test_an_lldp_neighbour_is_shown_by_its_name_only_the_gateway_by_its_role(gateway_host, given, shown):
     assert page.neighbour(given) == shown
+
+
+def test_the_house_uplinks_device_is_said_by_its_role_as_a_neighbour_too(gateway_host):
+    assert page.neighbour("upstreamhost.example.org", ("upstreamhost.example.org", "upstreamhost")) == "house uplink"
 
 
 @pytest.mark.django_db
@@ -1377,3 +1382,15 @@ def test_on_and_off_buttons_differ_in_shape_not_only_colour():
     on = css.split(".mgmt-poe-button.mgmt-poe-to-on {", 1)[1].split("}", 1)[0]
     assert "background: #1b7a1b" in off and "color: #fff" in off
     assert "background: #fff" in on and "color: #b00020" in on
+
+
+@pytest.mark.django_db
+def test_an_lldp_neighbours_chassis_id_is_on_hover(monkeypatch):
+    """#148: the neighbour's name in the cell, its chassis id (a MAC for a Pi) on hover."""
+    views = make_views()
+    views[0].ports[2].lldp_name, views[0].ports[2].lldp_port = "rpi5-new-13f59c", "eth0"
+    views[0].ports[2].lldp_chassis = "98:fe:54:13:f5:9c"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    port = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"][2]
+    assert (port["lldp_name"], port["lldp_title"], port["lldp_port"]) == (
+        "rpi5-new-13f59c", "the name it announces; chassis 98:fe:54:13:f5:9c", "eth0")

@@ -27,6 +27,7 @@ number, so a port the reading lacks leaves its gap and moves no other port. A mo
 Each port also has a place in a narrow drawing for a phone: the same two rows, cut into bands of NARROW_COLUMNS
 columns, one under the other, the uplink block a band of its own."""
 
+import re
 from dataclasses import dataclass
 
 # a port's pitch, its box, a row's pitch, the gap before the uplink block, the gap between two bands of the narrow
@@ -105,6 +106,24 @@ def wrap(text, lines=LINES):
     return out + [""] * (lines - len(out))
 
 
+def wrap_name(name, lines):
+    """A host name on at most `lines` lines that each fit a box, broken after its hyphens ("rpi5-" / "new-" /
+    "13f59c"); a part longer than a line, or more parts than the lines hold, end in "…" as wrap() does."""
+    parts = re.findall(r"[^-]+-?|-", name)
+    out = []
+    while parts and len(out) < lines:
+        line = parts.pop(0)
+        while parts and fits(line + parts[0]):
+            line += parts.pop(0)
+        out.append(line)
+    if parts or any(not fits(line) for line in out):
+        last = out[-1]
+        while last and not fits(last + "…"):
+            last = last[:-1]
+        out[-1] = last + "…"
+    return out + [""] * (lines - len(out))
+
+
 def _place(ports, port_count, poe_port_count, band=None):
     """{port: (x, y)} by port number: the main block (1..poe_port_count, or every port with no PoE), then the uplink
     block after a gap; odd above even in each. With `band`, the narrow drawing: each block cut into bands of `band`
@@ -142,8 +161,8 @@ def box(row):
     if row["role"]:
         word = ROLE_WORDS.get(row["role"], row["role"])
         return "infrastructure", "", "", wrap(word, 1) + [""] * LINES
-    if row["unregistered"]:
-        return "unregistered", row["unregistered"], "", [""] * (1 + LINES)
+    if row["unregistered"]:  # what it announces over LLDP, where it does: the device a reader wants named (#148)
+        return "unregistered", row["unregistered"], "", wrap_name(row["lldp_name"] or "", 1 + LINES)
     return "empty", "", "", [""] * (1 + LINES)
 
 
