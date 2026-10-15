@@ -160,7 +160,7 @@ def test_times_are_the_installations_own_with_the_zone_named_once(fleet, setting
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     # "x ago" in the cell, the exact local time in its title (#91)
     assert 'title="2026-10-09 10:45:00 ACDT"' in html  # UTC only in the <time datetime> a machine reads
-    assert "Times are Australia/Adelaide," in html and "UTC" not in html
+    assert "Times are Australia/Adelaide." in html and "UTC" not in html
     from django.utils import timezone as tz
 
     assert tz.get_current_timezone_name() == settings.TIME_ZONE  # nothing left behind for the next request
@@ -800,3 +800,14 @@ def test_checked_is_when_the_boot_check_of_this_boot_reported(fleet, settings):
     assert rows["pi-sw2-p46"]["Checked"] == "2 h ago"
     assert rows["pi-sw2-p7"]["Checked"].endswith("ago")  # a running check: when it started reporting
     assert re.search(r'<td class="mgmt-c-checked" data-label="Checked" data-sort="\d+"><time ', html)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("zone", ["Australia/Adelaide", "America/Chicago"])
+def test_the_fleet_page_says_times_are_the_zone_in_the_exact_form_the_gateway_verify_reads(fleet, settings, zone):
+    """fpgas.online-infra's site verify (roles/site/tasks/verify/main.yml, "Assert the dashboard's times are in
+    site_timezone") GETs /fleet/ and requires the exact sentence "Times are <site_timezone>."; #122 changed it to
+    "Times are <zone>, ..." and deploy 27's verify failed (site #124). The key keeps that sentence word for word."""
+    settings.MANAGEMENT_TIME_ZONE = zone
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert f"Times are {zone}." in html
