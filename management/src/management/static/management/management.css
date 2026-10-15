@@ -1,7 +1,9 @@
 /* The management section (#66): shared by every management page, on both themes. */
 .mgmt { max-width: 72rem; }
-.mgmt-crumbs { margin: 0 0 0.8rem; font-size: 0.95em; }
-.mgmt-crumbs a { text-decoration: none; }
+/* the one navigation (#131), at the top and the foot of every page; the page you are on in bold, not a link colour */
+.mgmt-nav { margin: 0.6rem 0 0.8rem; font-size: 0.95em; }
+.mgmt-nav a { text-decoration: none; }
+.mgmt-nav a[aria-current="page"] { font-weight: 700; color: inherit; }
 .mgmt-table { border-collapse: collapse; width: 100%; }
 .mgmt-table th, .mgmt-table td { border: 1px solid #ccc; padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
 .mgmt-table th { background: #f0f0f0; }
@@ -106,7 +108,6 @@
 .mgmt-table th[aria-sort="ascending"], .mgmt-table th[aria-sort="descending"] { background: #dde6f3; }
 /* The state word of a row on the index (ok / failing / missing / waiting): the colour is not the only signal. */
 .mgmt-glance td { vertical-align: baseline; }
-.mgmt-links { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
 /* The index on a phone: five columns do not fit, and a sideways scroll hides the values (the point of the page).
    Each row becomes a block: the state word and the item, then the value, then the area and when, small. The
    header goes (each cell's place says what it is); the sort buttons go with it, and the served order is

@@ -165,7 +165,6 @@
   setInterval(tick, {{ refresh_seconds }} * 1000);
 })();
 </script>{% endblock %}
-{% block crumb %} &rsaquo; Switch ports{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
 {{ panel_states|json_script:"mgmt-panel-states" }}

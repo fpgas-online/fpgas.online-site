@@ -1,7 +1,6 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}{{ label }} &mdash; Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block crumb %} &rsaquo; {% if fleet %}<a href="{{ fleet }}">Raspberry Pis</a>{% else %}Raspberry Pis{% endif %} &rsaquo; {{ label }}{% endblock %}
 {% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
 {% block body %}
 <h1>{{ label }}</h1>

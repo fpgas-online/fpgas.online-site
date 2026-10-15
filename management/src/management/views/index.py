@@ -297,9 +297,6 @@ def _browser_test(request, now):
 
 # --- The page -------------------------------------------------------------------------------------------------
 
-# each dashboard by the first of its names this host has: the Pis are /fleet/ where the host has the fleet pages
-LINKS = (("Switch ports", ("management-switches",)), ("Raspberry Pis", ("fleet-list", "management-fpgas")),
-         ("Visitor and usage stats", ("management-stats",)))
 BUILDERS = (("Boards", _boards), ("Switches", _switches), ("Boot checks", _boot_checks),
             ("Browser test", _browser_test))
 
@@ -322,6 +319,4 @@ def index(request):
     # the site's own zone)
     with timezone.override(localtime.zone()):
         table = rows(request)
-    links = [(title, url) for title, names in LINKS
-             if (url := next((u for name in names if (u := _url(request, name))), ""))]
-    return render(request, "management/index.html", {"rows": table, "links": links})
+    return render(request, "management/index.html", {"rows": table})

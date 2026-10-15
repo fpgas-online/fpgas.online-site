@@ -49,7 +49,7 @@ def test_the_index_answers_without_a_login_on_every_host(host):
 @pytest.mark.django_db
 def test_each_host_has_its_own_look(welland, tt):
     w = welland.get("/management/").content.decode()
-    assert '<a href="/fleet/">fleet</a>' in w and "tt-nav" not in w  # the fleet pages' look
+    assert "tt-nav" not in w  # the fleet pages' look
     assert '<a href="/fleet/">Raspberry Pis</a>' in w
     t = tt.get("/management/").content.decode()
     assert 'class="tt-nav"' in t and "Tiny Tapeout" in t  # tinytapeout's own look
@@ -67,13 +67,16 @@ def test_management_is_not_linked_from_the_public_pages(welland, tt, settings):
         assert response.status_code == 200
         html = response.content.decode()
         assert '>Management</a>' not in html and '>management</a>' not in html
-    # the management landing on tinytapeout: no nav entry for itself either
-    assert 'aria-current="page">Management</a>' not in tt.get("/management/").content.decode()
-    # the pages of the section lead back to its landing: /fleet/ is the Pi dashboard, one of them
-    assert '<a href="/management/">Management</a> &rsaquo; Raspberry Pis' in welland.get("/fleet/").content.decode()
-    # a host's own page is one of them too (#93), under the Pi dashboard
-    assert ('<a href="/management/">Management</a> &rsaquo; <a href="/fleet/">Raspberry Pis</a> &rsaquo;'
-            in welland.get("/fleet/s1/").content.decode())
+    # the management landing on tinytapeout: the site's own (visitors') navigation has no entry for it
+    tt_page = tt.get("/management/").content.decode()
+    visitor_nav = tt_page.split('class="tt-nav"', 1)[1].split("</nav>", 1)[0]
+    assert "Management" not in visitor_nav
+    # the pages of the section lead back to its landing through the one navigation (#131): /fleet/ is one of them,
+    # and a host's own page (#93) is under Raspberry Pis
+    for path in ("/fleet/", "/fleet/s1/"):
+        nav = welland.get(path).content.decode().split('<nav class="mgmt-nav"', 1)[1].split("</nav>", 1)[0]
+        assert '<a href="/management/">Management</a>' in nav
+        assert '<a href="/fleet/" aria-current="page">Raspberry Pis</a>' in nav
 
 
 def test_every_management_page_extends_one_base_that_owns_the_header():
@@ -84,18 +87,49 @@ def test_every_management_page_extends_one_base_that_owns_the_header():
 
     base = (pathlib.Path(apps.get_app_config("management").path) / "templates/management/base.html").read_text()
     assert base.startswith("{% extends management_theme %}")
-    for block in ("title", "extra_head", "crumb", "body"):
+    for block in ("title", "extra_head", "body"):
         assert "{% block " + block + " %}" in base
-    assert '<nav class="mgmt-crumbs"' in base
+    # one navigation (#131), at the top and the foot of every page
+    assert base.count('{% include "management/nav.html" %}') == 2 and "crumb" not in base
 
+
+
+NAV = [("/management/", "Management"), ("/fleet/", "Raspberry Pis"), ("/management/switches/", "Switch ports")]
+
+
+def _navs(html):
+    """[[(href, name, current)]] of each management navigation on the page."""
+    return [[(href, name, bool(cur)) for href, cur, name in
+             re.findall(r'<a href="([^"]+)"( aria-current="page")?>([^<]+)</a>', nav)]
+            for nav in re.findall(r'<nav class="mgmt-nav" aria-label="Management">(.*?)</nav>', html, re.S)]
 
 
 @pytest.mark.django_db
-def test_the_landing_has_no_crumb_to_itself_and_a_page_below_it_has_its_parent(welland):
-    # a crumb "Management" directly above the heading "Management" says the same word twice (the coordinator, 11 Oct)
-    assert "mgmt-crumbs" not in welland.get("/management/").content.decode()
-    below = welland.get("/management/switches/").content.decode()
-    assert re.search(r'<nav class="mgmt-crumbs"[^>]*>\s*<a href="/management/">Management</a> &rsaquo; Switch ports', below)
+@pytest.mark.parametrize("path, current", [("/management/", "/management/"), ("/fleet/", "/fleet/"),
+                                           ("/management/switches/", "/management/switches/"),
+                                           ("/fleet/s1/", "/fleet/")])
+def test_one_navigation_top_and_foot_of_every_page_the_same_names_the_page_marked(welland, path, current):
+    """Tim, 15 Oct 2026 (site #131): "Why is there at the top of the page `fleet * boards` and the bottom of the page
+    `Switch Ports, Rapsberry Pis`?" One navigation, the same links and names, at the top and the foot of every
+    management page; the page you are on is marked (a Pi's own page is under Raspberry Pis)."""
+    Machine.objects.create(serial="s1", site="welland", hostname="pi-sw2-p4", last_seen=timezone.now())
+    html = welland.get(path).content.decode()
+    navs = _navs(html)
+    assert len(navs) == 2 and navs[0] == navs[1]
+    assert [(href, name) for href, name, _ in navs[0]] == NAV
+    assert [href for href, _, cur in navs[0] if cur] == [current]
+    # no other navigation: not the theme's old "fleet · boards" line, no breadcrumb, no list of links at the foot
+    assert ">fleet</a>" not in html and ">boards</a>" not in html and "mgmt-crumbs" not in html
+    assert "mgmt-links" not in html
+
+
+@pytest.mark.django_db
+def test_on_tinytapeout_the_navigation_names_its_own_pis_page(tt):
+    navs = _navs(tt.get("/management/").content.decode())
+    assert [(href, name) for href, name, _ in navs[0]] == [
+        ("/management/", "Management"), ("/management/fpgas/", "Raspberry Pis"),
+        ("/management/switches/", "Switch ports")]
+
 
 # --- the state at a glance (Tim, 11 Oct 2026) ---------------------------------------------------------------------
 
@@ -400,13 +434,9 @@ def test_the_table_is_striped_sortable_and_plain(fleet, switches, browser):
     assert 'class="mgmt-table mgmt-striped mgmt-sortable mgmt-glance"' in html
     assert '<script src="/static/management/table.js" defer></script>' in html
     assert html.count("<table") == 1
-    # no prose between the heading and the table or between the table and the list of links
-    middle = html.split("<h1>Management</h1>")[1].split("</ul>")[0]
+    # no prose between the heading and the table, nor between the table and the navigation at the foot (#131)
+    middle = html.split("<h1>Management</h1>")[1].split('<nav class="mgmt-nav"')[0]
     assert "<p" not in middle
-    # a plain list of the dashboards at the foot, no descriptions
-    foot = html.split('<ul class="mgmt-links">')[1].split("</ul>")[0]
-    assert re.findall(r"<a href=\"([^\"]*)\">([^<]*)</a>", foot) == [
-        ("/management/switches/", "Switch ports"), ("/fleet/", "Raspberry Pis")]
     assert "coming" not in html and "SNMP" not in html
 
 
