@@ -4,14 +4,14 @@
 {% block body %}
 <h1>Management</h1>
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-striped mgmt-sortable mgmt-glance">
-  <thead><tr><th scope="col">State</th><th scope="col">Area</th><th scope="col">Item</th><th scope="col">Value</th><th scope="col">Seen</th></tr></thead>
+  <thead><tr><th scope="col" class="mgmt-checkhead">State</th><th scope="col">Area</th><th scope="col">Item</th><th scope="col">Value</th><th scope="col">Seen</th></tr></thead>
   <tbody>
   {% for row in rows %}
     <tr>
-      <td data-sort="{{ row.severity }}"><span class="badge mgmt-{{ row.css }}">{{ row.state }}</span></td>
+      <td class="mgmt-c-state mgmt-state-{{ row.css }}" data-sort="{{ row.severity }}" title="{{ row.word }}">{{ row.mark }}<span class="mgmt-sr"> {{ row.word }}</span></td>
       <td>{{ row.area }}</td>
       <td>{{ row.item }}</td>
-      <td{% if row.title %} title="{{ row.title }}"{% endif %}>{% if row.link %}<a href="{{ row.link }}">{{ row.value }}</a>{% else %}{{ row.value }}{% endif %}</td>
+      <td{% if row.value_cls %} class="{{ row.value_cls }}"{% endif %}{% if row.title %} title="{{ row.title }}"{% endif %}>{% if row.link %}<a href="{{ row.link }}">{{ row.value }}</a>{% else %}{{ row.value }}{% endif %}{% if row.value_cls %}<span class="mgmt-sr"> {{ row.title }}</span>{% endif %}</td>
       <td data-sort="{{ row.sort_seen }}">{{ row.seen }}</td>
     </tr>
   {% endfor %}

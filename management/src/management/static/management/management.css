@@ -162,7 +162,7 @@
 .mgmt-test-none { color: #999; }
 .mgmt-test-notrun { color: #b36b00; font-weight: 700; }
 /* #127: the State is one character, coloured as the summary's badges, the word on hover and for a screen reader */
-.mgmt-hosts td.mgmt-c-state { text-align: center; font-weight: 700; cursor: help; }
+.mgmt-table td.mgmt-c-state { text-align: center; font-weight: 700; cursor: help; }
 .mgmt-state-operational { color: #1b7a1b; }
 .mgmt-state-attention { color: #b00020; }
 .mgmt-state-unknown { color: #b36b00; }

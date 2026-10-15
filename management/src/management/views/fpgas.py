@@ -17,7 +17,7 @@ from fleet.timeago import ago_time, duration
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import check_groups, e2e, fpga, localtime, network
+from .. import check_groups, e2e, fpga, localtime, network, states
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -70,7 +70,7 @@ PASSED, FAILED, NOT_RUN, NOT_APPLICABLE = ("✓", "mgmt-test-pass", 2), ("✗", 
 FAIL_SORT = FAILED[2]
 # The State column, one character (#127: "The 'State' column should be 1 character wide"), the word in its title and
 # for a screen reader: a mark per condition that needs no legend beside the summary's badges of the same colours.
-STATE_MARKS = {OPERATIONAL: "●", ATTENTION: "!", UNKNOWN: "⟳", MISSING: "○"}
+STATE_MARKS = states.MARKS
 
 
 @dataclass
