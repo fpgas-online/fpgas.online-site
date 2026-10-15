@@ -98,8 +98,13 @@ def _gateway(topic, kind, site, payload):
     return f"gw/{kind}"
 
 
-def dispatch(topic, payload):
-    """Route one message. Returns the handler that ran, or "ignored"."""
+def dispatch(topic, payload, retained=False):
+    """Route one message. Returns the handler that ran, or "ignored".
+
+    `retained`: MQTT's retain flag as delivered, set only on a stored copy the
+    broker hands over at subscribe (MQTT 3.1.1 section 3.3.1.3), never on a
+    message forwarded live; such a copy updates state but is no sign the Pi is
+    alive now (services.status, register_document; site #119)."""
     parts = topic.split("/")
     if len(parts) == 4 and parts[0] == "fpgas" and parts[2] == "gw" and parts[3] in GATEWAY_KINDS:
         return _gateway(topic, parts[3], parts[1], payload)
@@ -120,11 +125,11 @@ def dispatch(topic, payload):
         if doc.get("machine", {}).get("serial") != serial:
             log.warning("registration serial mismatch on %s ignored", topic)
             return "ignored"
-        services.register_document(doc)
+        services.register_document(doc, retained=retained)
         return "registration"
     if kind == "status":
-        machine = services.status(serial, doc)
-        if machine is not None:
+        machine = services.status(serial, doc, retained=retained)
+        if machine is not None and not retained:  # a replayed old status is no news for the board page
             stage = "online" if machine.online \
                 else f"offline ({doc.get('reason', 'unknown')})"
             _bridge(machine.hostname, stage)

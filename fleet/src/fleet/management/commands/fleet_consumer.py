@@ -16,6 +16,15 @@ log = logging.getLogger(__name__)
 TOPICS = ("fpgas/+/pi/+/+", "fpgas/+/gw/+")
 
 
+def on_message(client, userdata, msg):
+    """One message to fleet.consumer.dispatch, with its retain flag (a stored copy replayed at subscribe)."""
+    try:
+        handled = consumer.dispatch(msg.topic, msg.payload, retained=bool(msg.retain))
+        log.debug("%s -> %s", msg.topic, handled)
+    except Exception:
+        log.exception("dispatch failed for %s", msg.topic)
+
+
 class Command(BaseCommand):
     help = "Consume fleet registration/status/event and gateway port/lease messages from MQTT"
 
@@ -27,13 +36,6 @@ class Command(BaseCommand):
             log.info("connected to %(host)s:%(port)s", cfg)
             for topic in TOPICS:
                 client.subscribe(topic, qos=1)
-
-        def on_message(client, userdata, msg):
-            try:
-                handled = consumer.dispatch(msg.topic, msg.payload)
-                log.debug("%s -> %s", msg.topic, handled)
-            except Exception:
-                log.exception("dispatch failed for %s", msg.topic)
 
         client.on_connect = on_connect
         client.on_message = on_message

@@ -367,3 +367,73 @@ def test_the_migration_drops_every_ipv6_lease_record_and_nothing_else():
     migration.drop_ipv6_lease_records(apps, None)
     assert sorted((r.kind, r.doc["family"] if r.kind == "lease" else None) for r in GatewayRecord.objects.all()) == [
         ("lease", 4), ("port", None)]
+
+
+# --- retained messages (site #119) --------------------------------------------------------------------------------
+# The Pi publishes its registration, status beat and will retained, so the broker replays each machine's last copy to
+# the consumer whenever it subscribes. Such a copy updates state but is no sign the Pi spoke now.
+
+DAY_AGO = timezone.now() - timezone.timedelta(days=1)
+PI = "fpgas/welland/pi/abc/"
+
+
+def _known_machine_seen_a_day_ago():
+    consumer.dispatch(PI + "registration", json.dumps(DOC).encode())
+    Machine.objects.filter(serial="abc").update(last_seen=DAY_AGO)
+
+
+@pytest.mark.django_db
+def test_a_retained_status_applies_the_state_but_leaves_last_seen():
+    _known_machine_seen_a_day_ago()
+    will = json.dumps({"online": False, "reason": "connection-lost"}).encode()
+    assert consumer.dispatch(PI + "status", will, retained=True) == "status"
+    m = Machine.objects.get(serial="abc")
+    assert m.last_seen == DAY_AGO and m.online is False
+
+
+@pytest.mark.django_db
+def test_a_live_status_sets_last_seen():
+    _known_machine_seen_a_day_ago()
+    beat = json.dumps({"online": True, "boot_id": "b", "uptime_s": 5}).encode()
+    assert consumer.dispatch(PI + "status", beat, retained=False) == "status"
+    m = Machine.objects.get(serial="abc")
+    assert m.last_seen > DAY_AGO and m.online is True and m.last_boot_id == "b"
+
+
+@pytest.mark.django_db
+def test_a_retained_registration_of_a_known_machine_leaves_last_seen():
+    _known_machine_seen_a_day_ago()
+    moved = {**DOC, "connection": {"site": "welland", "hostname": "pi-sw2-p10"}}
+    assert consumer.dispatch(PI + "registration", json.dumps(moved).encode(), retained=True) == "registration"
+    m = Machine.objects.get(serial="abc")
+    assert m.last_seen == DAY_AGO and m.hostname == "pi-sw2-p10"
+
+
+@pytest.mark.django_db
+def test_a_retained_registration_of_a_new_machine_creates_it():
+    assert consumer.dispatch(PI + "registration", json.dumps(DOC).encode(), retained=True) == "registration"
+    assert Machine.objects.get(serial="abc").last_seen is not None  # required: the time the site first heard of it
+
+
+@pytest.mark.django_db
+def test_a_retained_status_is_not_told_to_the_board_page(monkeypatch):
+    _known_machine_seen_a_day_ago()
+    told = []
+    monkeypatch.setattr(consumer, "_bridge", lambda hostname, stage: told.append((hostname, stage)))
+    consumer.dispatch(PI + "status", b'{"online": false, "reason": "connection-lost"}', retained=True)
+    assert told == []
+    consumer.dispatch(PI + "status", b'{"online": true, "boot_id": "b", "uptime_s": 5}', retained=False)
+    assert told == [("pi-sw2-p9", "online")]
+
+
+@pytest.mark.parametrize("retain", [0, 1])
+def test_the_mqtt_callback_passes_the_retain_flag(monkeypatch, retain):
+    from types import SimpleNamespace
+
+    from fleet.management.commands import fleet_consumer
+
+    seen = []
+    monkeypatch.setattr(fleet_consumer.consumer, "dispatch",
+                        lambda topic, payload, retained=False: seen.append((topic, payload, retained)))
+    fleet_consumer.on_message(None, None, SimpleNamespace(topic=PI + "status", payload=b"{}", retain=retain))
+    assert seen == [(PI + "status", b"{}", bool(retain))]
