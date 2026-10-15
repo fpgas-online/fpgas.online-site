@@ -19,10 +19,20 @@ from management import fpga
 REAL = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-welland-2026-10-04.json").read_text())
 
 
-def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None):
-    """A registered Pi, seen `seen_ago` minutes ago, with an fpga-verified event of `detail` in its boot."""
+def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None, lease=True):
+    """A registered Pi, seen `seen_ago` minutes ago, with an fpga-verified event of `detail` in its boot; with
+    `lease`, the gateway's lease record of it on the port its host name names, at the same time (a live Pi renews its
+    lease, so the gateway has one)."""
+    from fleet.models import GatewayRecord
+    from pibfpgas.pis import Pi
+
+    seen = timezone.now() - datetime.timedelta(minutes=seen_ago)
     m = Machine.objects.create(serial=serial or hostname, site="welland", hostname=hostname, online=True,
-                               last_seen=timezone.now() - datetime.timedelta(minutes=seen_ago), last_boot_id="b1")
+                               last_seen=seen, last_boot_id="b1")
+    place = Pi.from_hostname(hostname)
+    if lease and place is not None and place.switch:
+        GatewayRecord.objects.create(site="welland", kind="lease", switch=place.switch, port=place.port,
+                                     hostname=hostname, at=seen, doc={}, machine=m)
     if verifying:
         BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verifying", ts=timezone.now(), detail={})
     if detail is not None:
@@ -150,7 +160,7 @@ def test_times_are_the_installations_own_with_the_zone_named_once(fleet, setting
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     # "x ago" in the cell, the exact local time in its title (#91)
     assert 'title="2026-10-09 10:45:00 ACDT"' in html  # UTC only in the <time datetime> a machine reads
-    assert "Times are Australia/Adelaide." in html and "UTC" not in html
+    assert "Times are Australia/Adelaide," in html and "UTC" not in html
     from django.utils import timezone as tz
 
     assert tz.get_current_timezone_name() == settings.TIME_ZONE  # nothing left behind for the next request
@@ -215,7 +225,7 @@ def test_failing_tests_are_read_by_the_checks_own_board_number():
 def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     from fleet.models import HardwareSnapshot
 
-    m = pi("pi-sw2-p33", verifying=True)
+    m = pi("pi-sw2-p33", verifying=True, lease=False)
     snap = HardwareSnapshot.objects.create(machine=m, fingerprint="f", document={
         "fpga": {"boards": [{"kind": "tt-demo-board"}, {"kind": "<b>" + "z" * 300}]}})
     m.latest_snapshot = snap
@@ -224,7 +234,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
     assert row.registered is not None
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "its host name names this port; the gateway has no lease record of it" in html and "<b>" not in html
+    assert "no lease seen; named sw2 p" in html and "<b>" not in html
     # its board as the registration names it, escaped and cut
     assert "<div>tt-demo-board</div><div>&lt;b&gt;zzz" in html
 
@@ -298,7 +308,8 @@ def _cells(table_html):
             for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
 
 
-FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Offered", "Why not", "Up", "Seen"]
+FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "Boot check", "Checked", "Offered", "Why not", "Up",
+         "Seen"]
 AFTER = ["Notes"]
 
 
@@ -731,9 +742,12 @@ def test_the_port_is_where_the_gateway_last_leased_the_pi_an_address_with_the_ti
     assert 'data-sort="002041" title="the gateway leased it an address on this port at 15 Oct 15:48">sw2 p41' in html
     # its host name names another port: a short fact in Notes, the observation stands
     assert "named sw2 p46" in row["Notes"]
-    # a Pi with no lease record: the port its host name names, and its title says so
-    assert _by_serial(html)["pi-sw2-p47"]["Port"] == "sw2 p47"
-    assert 'title="its host name names this port; the gateway has no lease record of it">sw2 p47' in html
+    # a Pi the gateway has no lease record of: no port observed (the review of #122: a host name's port is the Pi's
+    # word, not an observation); Notes names the port its host name names
+    pi("pi-sw2-p50", lease=False)
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["pi-sw2-p50"]
+    assert (row["Port"], row["Notes"]) == ("", "no model registered\nno lease seen; named sw2 p50")
 
 
 @pytest.mark.django_db
@@ -753,3 +767,25 @@ def test_a_fail_whose_reason_names_no_test_says_the_test_and_result_first():
     board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "reason": "the board did not answer"}
     assert _mark(board, "jtag")[0].title == "jtag fail: the board did not answer"
     assert _mark(dict(board, reason=""), "jtag")[0].title == "jtag fail"
+
+
+@pytest.mark.django_db
+def test_the_number_of_queries_for_the_pi_table_does_not_grow_with_the_fleet(fleet, django_assert_max_num_queries):
+    c = Client(HTTP_HOST="welland.fpgas.online")
+    with django_assert_max_num_queries(20) as before:
+        c.get("/fleet/")
+    for n in range(20):
+        pi(f"pi-sw1-p{n + 1}", REAL["pi-sw2-p46"], serial=f"20000000{n:08x}")
+    with django_assert_max_num_queries(len(before.captured_queries)):
+        c.get("/fleet/")
+
+
+@pytest.mark.django_db
+def test_checked_is_when_the_boot_check_of_this_boot_reported(fleet, settings):
+    settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
+    BootEvent.objects.filter(machine__hostname="pi-sw2-p46").update(ts=timezone.now() - datetime.timedelta(hours=2))
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    rows = _by_serial(html)
+    assert rows["pi-sw2-p46"]["Checked"] == "2 h ago"
+    assert rows["pi-sw2-p7"]["Checked"].endswith("ago")  # a running check: when it started reporting
+    assert re.search(r'<td class="mgmt-c-checked" data-label="Checked" data-sort="\d+"><time ', html)

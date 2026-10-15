@@ -134,7 +134,8 @@
 .mgmt:has(.mgmt-hosts) { max-width: none; }
 /* a model, a memory, a serial, a port and a time are one value each: they do not break */
 .mgmt-hosts td.mgmt-c-model, .mgmt-hosts td.mgmt-c-memory, .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-port,
-.mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen, .mgmt-hosts td.mgmt-c-check { white-space: nowrap; }
+.mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen, .mgmt-hosts td.mgmt-c-check,
+.mgmt-hosts td.mgmt-c-checked { white-space: nowrap; }
 .mgmt-hosts td.mgmt-c-memory { text-align: right; }
 /* the serial names the row: it stays in view while the check columns scroll sideways (#78's port column on the
    switch page does the same); its right edge is a shadow, which stays */

@@ -96,6 +96,8 @@ class Line:
     sort_uptime: int  # seconds, 0 for none
     seen: str  # <time> html, or "" when the time cannot be shown
     sort_seen: int
+    checked: str  # when the boot check of this boot reported: <time> html, or ""
+    sort_checked: int
     severity: int
     offered: str  # "yes" or "no"
     why_not: str  # in the index's words ("stopped checking in", "pin-id, spiflash"), "" when offered
@@ -204,15 +206,13 @@ def check_cell(host, name, link):
 
 def _port(host, observed):
     """(port, its title, its sort key, a note or ""): the port the gateway last leased the Pi an address on, with the
-    time, an observation (the dashboard spec: "switch port (observed, with its time, never a remembered table)");
-    for a Pi the gateway has no lease record of (records are kept for days), the port its host name names, said so.
-    A host name naming another port than the gateway saw is a note."""
+    time, an observation (the dashboard spec: "switch port (observed, with its time, never a remembered table)").
+    A Pi the gateway has no lease record of (records are kept for days) has no port: the cell is empty and Notes
+    says so with the port its host name names, which is the Pi's word, not an observation (the review of #122). A
+    host name naming another port than the gateway saw is a note too."""
     named = fpga.port_text(host.machine)
     if observed is None:
-        why = "its host name names this port; the gateway has no lease record of it" if host.pi else \
-            "its host name names no port, and the gateway has no lease record of it"
-        key = f"{host.pi.switch or 0:03d}{host.pi.port:03d}" if host.pi else "999999"
-        return named, why, key, ""
+        return "", "", "999999", f"no lease seen; named {named}" if host.pi else "no lease seen"
     when = timezone.localtime(observed.at).strftime("%-d %b %H:%M")
     note = f"named {named}" if host.pi and named != observed.text else ""
     return (observed.text, f"the gateway leased it an address on this port at {when}",
@@ -241,6 +241,11 @@ def _line(host, now, pages, columns, detail, observed=None):
     except ValueError as exc:  # fail loud, in this Pi's Notes: the rest of the page stands
         seen = ""
         notes.append(f"clock {duration(stamp - now)} ahead" if stamp and stamp > now else str(exc))
+    try:
+        checked = ago_time(host.checked) if host.checked else ""
+    except ValueError as exc:  # a check stamped in the future by the Pi's clock: loud in Notes, the page stands
+        checked = ""
+        notes.append(f"check {duration(host.checked - now)} ahead" if host.checked > now else str(exc))
     offered, why_not, page = _offer(host, now, pages)
     seconds = host.machine.last_uptime_s if host.uptime else 0
     link = f"{detail}{host.machine.serial}/#boards" if detail else ""
@@ -248,7 +253,8 @@ def _line(host, now, pages, columns, detail, observed=None):
                 port, port_title, sort_port, _check_word(host), host.why,
                 [b["label"] for b in host.boards] or host.registered_kinds or [host.board_type],
                 [check_cell(host, name, link) for name in columns],
-                host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, SEVERITY[host.condition],
+                host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
+                int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],
                 "yes" if offered else "no", why_not, notes, page)
 
 
