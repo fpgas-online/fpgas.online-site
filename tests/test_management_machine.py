@@ -107,12 +107,17 @@ def test_the_check_is_shown_with_its_history_across_boots():
                              detail=REAL["pi-sw2-p33"])
     html = page(m.serial)
     history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
-    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history, re.S)
+    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history.split("<tbody>", 1)[1], re.S)
     # a row a boot (the review of 15 Oct: a "running" row and a result row of one boot were two), its result a mark
     assert len(rows) == 2
     assert 'title="the boot it is running">●' in rows[0] and 'title="failed"><span class="mgmt-test-fail">✗' in rows[0]
     assert 'title="an earlier boot">–' in rows[1] and 'title="passed"><span class="mgmt-test-pass">✓' in rows[1]
     assert '<td class="mgmt-mono" title="b0">b0</td>' in rows[1]
+    # the tests of each boot, a column a check, as on /fleet/ (Tim, 16 Oct 2026: "Why doesn't the boot checks table
+    # show the tests for that boot?"): b1's failed test is ✗ in its column, b0's TT board passed its check
+    heads = re.findall(r'<th scope="col" class="mgmt-checkhead" title="([a-z0-9-]+): ', history)
+    assert heads and len(re.findall(r'<td class="mgmt-mark" data-label="', rows[0])) == len(heads)
+    assert "mgmt-test-fail" in "".join(re.findall(r'<td class="mgmt-mark" data-label=".*?</td>', rows[0]))
 
 
 @pytest.mark.django_db
@@ -122,8 +127,10 @@ def test_a_boot_with_a_running_check_and_its_report_is_one_row():
     BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=timezone.now(), detail=REAL["pi-sw2-p33"])
     BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verifying", ts=timezone.now(), detail={})
     history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
-    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history, re.S)
+    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history.split("<tbody>", 1)[1], re.S)
     assert len(rows) == 2  # b2 running, b1 its report
+    # a running boot's test cells say it is running, never a stale result
+    assert 'title="the check of this boot is running: no test has reported yet"' in rows[0]
     assert 'title="running"><span class="mgmt-test-running">⟳' in rows[0] and "mgmt-test-fail" in rows[1]
 
 
@@ -315,3 +322,47 @@ def test_a_board_rpi_hwid_refuses_keeps_no_other_boards_label_off():
     assert [m.title for m in made] == ["acorn-linden 0x0044a48664b0485c"]
     assert any(kind == "fpga" and "nan" in str(exc) for kind, exc in refused)
     assert labelart.png(document, made[0].id).startswith(b"\x89PNG")
+
+
+@pytest.mark.django_db
+def test_registrations_and_boots_are_named_apart_with_what_each_is():
+    """Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot checks `Boot` value?" No: a
+    registration is the Pi's document, kept once per different document; a boot is one power-on. The page says so
+    on both names, and lists the registrations as a table, the one it sends now marked."""
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p33")
+    old = HardwareSnapshot.objects.create(machine=m, fingerprint="a" * 64, document={"machine": {"serial": m.serial}})
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="b" * 64,
+                                                        document={"machine": {"serial": m.serial, "model": "x"}})
+    m.save()
+    html = page(m.serial)
+    assert "a registration: what the Pi says it is" in html and "a boot: one power-on of the Pi" in html
+    section = html.split("Registrations</h2>", 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r"<tr><td.*?</tr>", section, re.S)
+    assert len(rows) == 2 and old.pk
+    assert any('title="' + "b" * 64 + '">bbbbbbbb</td><td class="mgmt-mark" title="the one it sends now">●' in r
+               for r in rows)
+    assert any('title="' + "a" * 64 + '">aaaaaaaa</td><td class="mgmt-mark" title="an earlier one">–' in r for r in rows)
+    assert "<summary>JSON</summary>" in section
+
+
+@pytest.mark.django_db
+def test_each_event_has_its_kind_by_colour_and_name_and_a_tests_result_is_a_mark():
+    m = pi("pi-sw2-p33")
+    for stage, detail in (("network-online", {}), ("ssh-up", {}), ("fpga-board-identified", {}),
+                          ("fpga-test-finished", {"board": "acorn", "test": "ddr", "result": "fail", "reason": "x"}),
+                          ("fpga-test-finished", {"board": "acorn", "test": "jtag", "result": "pass"}),
+                          ("something-new", {})):
+        BootEvent.objects.create(machine=m, boot_id=m.last_boot_id, stage=stage, ts=timezone.now(), detail=detail)
+    events = page(m.serial).split("<h2>Events", 1)[1].split("</table>", 1)[0]
+    for kind, stage in (("network", "network-online"), ("service", "ssh-up"), ("identify", "fpga-board-identified"),
+                        ("test", "fpga-test-finished"), ("other", "something-new")):
+        assert re.search(rf'<tr class="mgmt-ev-{kind}"><td>[^<]*</td><td title="[^"]+"><span class="mgmt-ev">{kind}'
+                         rf'</span></td><td>{stage}</td>', events), kind
+    assert '<td>ddr</td><td class="mgmt-mark" title="failed: x"><span class="mgmt-test-fail">✗' in events
+    assert '<td>jtag</td><td class="mgmt-mark" title="passed"><span class="mgmt-test-pass">✓' in events
+    css = (__import__("pathlib").Path(__file__).parents[1] / "management" / "src" / "management" / "static" /
+           "management" / "management.css").read_text()
+    assert all(f".mgmt-ev-{k} .mgmt-ev {{ background:" in css
+               for k in ("network", "service", "identify", "check", "test", "other"))
