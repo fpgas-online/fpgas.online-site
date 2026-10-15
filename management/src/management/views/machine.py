@@ -6,6 +6,7 @@ the label input download (/fleet/<serial>/rpi-hwid.json)."""
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from django.http import Http404
 from django.shortcuts import render
@@ -15,7 +16,7 @@ from fleet.models import BootEvent, Machine
 from fleet.services import FPGA_STAGES
 from fleet.timeago import ago_time, exact
 
-from fleet import hwid, jsonview
+from fleet import hwid, jsonview, labelart
 
 from .. import check_groups, fpga, localtime, network, states
 from .fpgas import CHECK_WORDS, CONDITION_KEYS, HEAD_TITLES, Mark, _mark, _offer, _port, _visitor_pages, boot_mark, plan
@@ -190,8 +191,10 @@ def _page(request, entry):
     built = hwid.build(entry)
     try:
         missing = sorted((label, fields) for label, fields in hwid.missing(built.document).items() if fields)
+        made, refused = labelart.made(built.document)
     except hwid.label_input.InputError as exc:  # build() makes documents rpi-hwid takes; the last guard (§35)
-        missing = [("document", exc.problems)]
+        missing, made, refused = [("document", exc.problems)], [], []
+    png, pdf = _url(request, "fleet-label-png", entry.serial), _url(request, "fleet-label-pdf", entry.serial)
     offered, why, page = _offer(host, now, _visitor_pages(request))
     fields = fpga.pi_fields(entry)
     port, port_title, _, port_note = _port(host, fpga.seen_ports().get(entry.pk))
@@ -229,6 +232,12 @@ def _page(request, entry):
         "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
         "notes": [(m[1] if (m := NO_EVENT.fullmatch(note)) else note, note) for note in built.notes],
         "label_input": _url(request, "fleet-label-input", entry.serial),
+        # the labels rpi-hwid makes from what the Pi sent, as images linking the PDF it prints (#141)
+        "label_images": [(m.title, f"{png}?{urlencode({'id': m.id})}", f"{pdf}?{urlencode({'id': m.id})}")
+                         for m in made] if png and pdf else [],
+        # a refusal other than a missing field (the fields are the rows above): rpi-hwid's own words
+        "label_refusals": [(kind, str(exc)) for kind, exc in refused
+                           if not isinstance(exc, labelart.labels.MissingFieldsError)],
         "record": jsonview.render(snapshots[0].document) if snapshots else "",
         "older": [(snap, jsonview.render(snap.document)) for snap in snapshots[1:]],
         "events": [(event, jsonview.compact(event.detail)) for event in events],

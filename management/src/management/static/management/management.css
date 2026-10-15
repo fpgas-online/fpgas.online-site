@@ -291,3 +291,9 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-notes { font-size: 0.9em; color: #444; }
 .badge.online { background: #c9f7c9; }
 .badge.offline { background: #f7c9c9; }
+
+/* the device page's labels (#141): each as rpi-hwid prints it, its size kept, a thin edge as on the sheet */
+.mgmt-labels { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.5rem 0 1rem; }
+.mgmt-labels figure { margin: 0; }
+.mgmt-labels img { display: block; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+.mgmt-labels figcaption { font-size: 0.85em; color: #555; margin-top: 0.25rem; }

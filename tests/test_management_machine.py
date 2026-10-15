@@ -240,3 +240,59 @@ def test_the_new_fpgas_verify_report_reads_the_same_on_the_pis_own_page():
                      r'fpgas.online-test-designs #343"><span class="mgmt-test-notrun">', boards)
     # the Pi's own page has a column per check its boards' types get: none for jtag on a TT FPGA
     assert 'data-label="jtag"' not in boards and 'data-label="wiring"' in boards
+
+
+# --- the labels, made on the server (#141) ------------------------------------------------------------------------
+
+DATA = __import__("pathlib").Path(__file__).parent / "data"
+
+
+def _with_label_input(monkeypatch, name):
+    """A Pi whose label input is one welland served on 16 Oct 2026 (/fleet/<serial>/rpi-hwid.json)."""
+    import json
+
+    from fleet import hwid
+
+    document = json.loads((DATA / name).read_text())
+    monkeypatch.setattr(hwid, "build", lambda machine: hwid.Built(document=document))
+    return pi("pi-sw2-p41", REAL["pi-sw2-p46"], serial=document["summary"]["serial"])
+
+
+@pytest.mark.django_db
+def test_a_label_rpi_hwid_can_make_is_on_the_page_as_an_image_linking_its_pdf(monkeypatch):
+    """Tim, 16 Oct 2026: "Why are labels still not being rendered on the device page?" The Acorn acorn-linden's
+    label is made from what it sent; its Pi's label still needs fields, said in the table below it."""
+    m = _with_label_input(monkeypatch, "label-input-acorn-linden.json")
+    html = page(m.serial)
+    labels = html.split("<h2>Labels</h2>", 1)[1].split("<h2>", 1)[0]
+    ident = "id=pi-sw2-p41%2Facorn%2Facorn-linden+0x0044a48664b0485c"
+    assert (f'<figure><a href="/fleet/{m.serial}/label.pdf?{ident}"><img src="/fleet/{m.serial}/label.png?{ident}" '
+            'width="240" height="144" alt="the label acorn-linden 0x0044a48664b0485c"></a>'
+            "<figcaption>acorn-linden 0x0044a48664b0485c</figcaption></figure>") in labels
+    assert "<code>header</code>" in labels  # the Pi label's gap, a row
+    c = Client(HTTP_HOST=WELLAND)
+    png = c.get(f"/fleet/{m.serial}/label.png?{ident}")
+    assert png.status_code == 200 and png["Content-Type"] == "image/png"
+    assert png.content.startswith(b"\x89PNG") and (int.from_bytes(png.content[16:20]), int.from_bytes(
+        png.content[20:24])) == (720, 432)  # 63.5 x 38.1 mm at 4 px a point
+    pdf = c.get(f"/fleet/{m.serial}/label.pdf?{ident}")
+    assert pdf.status_code == 200 and pdf["Content-Type"] == "application/pdf" and pdf.content.startswith(b"%PDF")
+    assert pdf["Content-Disposition"] == 'inline; filename="rpi-hwid.pdf"'  # a title with a space is not a file name
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("ident", ["", "id=pi-sw2-p41%2Frpi%2Fanything", "id=../../etc"])
+def test_a_label_rpi_hwid_does_not_make_is_404(monkeypatch, ident):
+    m = _with_label_input(monkeypatch, "label-input-acorn-linden.json")
+    assert Client(HTTP_HOST=WELLAND).get(f"/fleet/{m.serial}/label.png?{ident}").status_code == 404
+
+
+@pytest.mark.django_db
+def test_a_host_none_of_whose_labels_can_be_made_shows_no_image_and_every_gap(monkeypatch):
+    """The Arty on 0000000080863963: its board label needs the flash facts its check does not read, the Pi label its
+    header (fpgas.online-test-designs#76): no image, a row for each field."""
+    m = _with_label_input(monkeypatch, "label-input-arty-no-flash.json")
+    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("<h2>", 1)[0]
+    assert "<img" not in labels
+    for field in ("header", "flash_jedec", "flash_uid_state"):
+        assert f"<code>{field}</code>" in labels

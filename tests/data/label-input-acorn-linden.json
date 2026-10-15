@@ -1,0 +1,67 @@
+{
+ "host": "pi-sw2-p41",
+ "schema": "rpi-hwid/label-input",
+ "sources": {
+  "collected_by": "fpgas.online-site",
+  "fpga-board-identified": "3d57b380-181a-4bca-87c8-41ebec231337",
+  "registration": "fa000e11e897046ada94bef88ae6b6d27e4f7c0deff8bcf653ffbbd2a1b78491"
+ },
+ "summary": {
+  "cameras": null,
+  "compatible": "",
+  "cpu": null,
+  "dmi": null,
+  "ext5v_v": null,
+  "fan": null,
+  "fpga": [
+   {
+    "dna": "0x0044a48664b0485c",
+    "dna_agree": null,
+    "dna_conflict": null,
+    "dna_sources": [
+     "fpgas-verify"
+    ],
+    "flash": "S25FL256S",
+    "flash_error": null,
+    "flash_extended_id": "0x4d0180",
+    "flash_jedec": "0x010219",
+    "flash_sfdp": "none",
+    "flash_source": "pcie",
+    "flash_uid": "d7df3dbdbf2ef765af8d746332d1d186",
+    "flash_uid_bits": 128,
+    "flash_uid_note": null,
+    "flash_uid_state": "read",
+    "gateware": null,
+    "gateware_id": null,
+    "hw_rev": null,
+    "idcode": "0x13636093",
+    "kind": "acorn",
+    "mode": null,
+    "serial": null,
+    "soc_model": "cle-215+",
+    "trace_id": null
+   }
+  ],
+  "hat_uuid": null,
+  "header": null,
+  "macs": [
+   {
+    "kind": "eth",
+    "mac": "98:fe:54:13:e0:75",
+    "signal": null
+   }
+  ],
+  "max_current_ma": null,
+  "memory": "1 GB",
+  "model": "Raspberry Pi 5 Model B Rev 1.1",
+  "power_class": null,
+  "revision": "a04171",
+  "riscv": null,
+  "rtc_battery": null,
+  "sdr": [],
+  "serial": "55effc3376226b41",
+  "tinytapeout": [],
+  "usb_net": []
+ },
+ "version": 1
+}

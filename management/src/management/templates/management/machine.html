@@ -125,7 +125,9 @@
 {% endif %}
 
 <h2>Labels</h2>
-{% if labels or notes %}
+{# the labels rpi-hwid makes from what the Pi sent, as it prints them; each links its PDF (#141) #}
+{% if label_images %}<div class="mgmt-labels">{% for title, png, pdf in label_images %}<figure><a href="{{ pdf }}"><img src="{{ png }}" width="240" height="144" alt="the label {{ title }}"></a><figcaption>{{ title }}</figcaption></figure>{% endfor %}</div>{% endif %}
+{% if labels or notes or label_refusals %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable">
   <thead><tr><th scope="col" class="mgmt-checkhead" title="✗: rpi-hwid cannot make this label yet">State</th><th scope="col" title="the label rpi-hwid makes">Label</th><th scope="col" title="the field or event rpi-hwid still needs for it">Still needs</th><th scope="col" title="what sends it">Sent by</th></tr></thead>
   <tbody>
@@ -134,6 +136,9 @@
   {% endfor %}
   {% for label_name, field, owner, owner_title in labels %}
     <tr><td class="mgmt-mark" title="rpi-hwid still needs {{ field }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> rpi-hwid still needs {{ field }}</span></td><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
+  {% endfor %}
+  {% for kind, why in label_refusals %}
+    <tr><td class="mgmt-mark" title="{{ why }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ why }}</span></td><td>{{ kind }}</td><td title="{{ why }}">{{ why|truncatechars:60 }}</td><td title="rpi-hwid refuses to print a label with this gap">rpi-hwid</td></tr>
   {% endfor %}
   </tbody>
 </table></div>

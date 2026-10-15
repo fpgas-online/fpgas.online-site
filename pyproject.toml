@@ -19,8 +19,9 @@ dependencies = [
     # the "poe" cache in pib/settings.py (the PoE power-cycle rate limit)
     "redis>=4.6",
     # builds and renders rpi-hwid's labels (fleet/hwid.py); a hard dependency
-    "rpi-hwid[labels]>=0.0.post454",
+    "rpi-hwid[labels]>=0.0.post581",
     "fpgas-online-poe @ git+https://github.com/fpgas-online/fpgas.online-poe.git",
+    # draws rpi-hwid's label PDFs as images for the device page (fleet/labelart.py)
     "pypdfium2>=4.30",
 ]
 

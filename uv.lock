@@ -672,7 +672,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6" },
     { name = "redis", specifier = ">=4.6" },
     { name = "requests", specifier = ">=2.31" },
-    { name = "rpi-hwid", extras = ["labels"], specifier = ">=0.0.post454" },
+    { name = "rpi-hwid", extras = ["labels"], specifier = ">=0.0.post581" },
 ]
 
 [package.metadata.requires-dev]
