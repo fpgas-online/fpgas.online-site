@@ -70,7 +70,11 @@
 .mgmt-down { color: #666; }
 /* The PoE button on a board port (#67): its words say what a press does. */
 .mgmt-poe-button { font-size: 1.05em; line-height: 1.2; padding: 0 0.35rem; cursor: pointer; }
-/* the power symbol where the site does not switch the port: greyed, the reason on hover (#139) */
+/* what a press does by colour as well as on hover (the review of #143): green while the port is powered (a press
+   turns it off), red while it is off (a press turns it on) */
+.mgmt-poe-button.mgmt-poe-to-off { color: #1b7a1b; border: 1px solid #1b7a1b; border-radius: 3px; background: #fff; }
+.mgmt-poe-button.mgmt-poe-to-on { color: #b00020; border: 1px solid #b00020; border-radius: 3px; background: #fff; }
+/* the power symbol where the site does not switch the port: greyed, no border, the reason on hover (#139) */
 .mgmt-poe-none { font-size: 1.05em; padding: 0 0.35rem; color: #bbb; cursor: help; }
 .mgmt-poe-button:disabled { cursor: progress; }
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }

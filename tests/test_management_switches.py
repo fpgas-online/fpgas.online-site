@@ -732,8 +732,8 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert ('title="Power: turn the port&#x27;s PoE off or on; greyed where the site does not switch the port (only a '
-            'port a board has registered on is switched), the reason on hover"') in html
+    assert ('title="Power: ⏻ green turns the port&#x27;s PoE off, ⏻ red turns it on; greyed where the site does not '
+            'switch the port (only a board&#x27;s own port is switched), the reason on hover"') in html
 
 
 @pytest.mark.django_db
@@ -1347,3 +1347,16 @@ def test_the_hardware_columns_sort_empty_ports_after_the_ones_with_a_machine(rea
     leases = [int(re.search(r'class="c-lease" data-label="Lease" data-sort="(\d+)"', row_of(html, n)).group(1))
               for n in (1, 2, 3)]
     assert leases[1] < leases[0] == leases[2]
+
+
+def test_the_tinytapeout_sites_greyed_symbol_names_its_own_policy():
+    """pibfpgas.poe.board_ports on the Tiny Tapeout site switches a port a Pi reported a Tiny Tapeout board on, not a
+    registered one (the review of #143): its greyed symbol says so."""
+    icon, why = page.power_cell(True, False, "", None, False, "PoE on", tt_site=True)
+    assert icon == "⏻" and why.startswith("not switched: no Tiny Tapeout board was reported on this port")
+
+
+def test_the_poe_and_power_headers_name_the_marks_the_cells_use():
+    titles = page.head_titles()
+    assert "🔍 PoE on and searching" in titles["poe"] and "○" not in titles["poe"]
+    assert "⏻ green turns the port's PoE off, ⏻ red turns it on" in titles["power"]

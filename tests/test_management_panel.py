@@ -1,7 +1,7 @@
 """A switch's front panel on the switch page (#90, #130): each port where it is, drawn so that it needs no key (Tim, 15
 Oct 2026): its number, the hardware the gateway last saw on it, its /fleet/ State mark and fill (always the machine's
-own), the Net column's ✗ apart where the network reading is not as it should be, a lit link light while the link is up and
-a dashed one while it is down, ⚡ while PoE delivers; a switch-wide known issue one line above the drawing; each port's
+own), the Net column's ✗ apart where the network reading is not as it should be, a link light, green while the link is up and
+dark while it is down, ⚡ while PoE delivers; a switch-wide known issue one line above the drawing; each port's
 words in its title, linked to its row; a narrow drawing for a phone."""
 
 import json

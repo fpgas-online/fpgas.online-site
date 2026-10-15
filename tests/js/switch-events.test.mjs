@@ -61,7 +61,7 @@ test("a link-down record changes the row's Link mark, clears its Speed, and dash
   assert.equal(p.box.parentNode.attrs["aria-label"], p.box.kids.title.textContent);
 });
 
-test("a link-up record gives a solid edge and keeps the speed the cell shows until a reading says", () => {
+test("a link-up record lights the link light and keeps the speed the cell shows until a reading says", () => {
   const down = TITLE_UP.replace("link up 1G", "link down");
   const p = page({ up: false, speed: "", title: down });
   applyRecord(p.doc, record("up"));

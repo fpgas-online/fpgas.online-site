@@ -30,6 +30,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 from fleet.services import MISSING
 from fleet.timeago import ago
+from ttsite.middleware import serves_ttsite
 
 from .. import fpga, inventory_check, localtime, panel, states
 from ..states import FAILED, PASSED
@@ -472,7 +473,7 @@ def lldp_port(port, house=()):
     return label(getattr(port, "lldp_port_desc", None) or "", house)
 
 
-def power_cell(has_poe, can_power, action, role, no_inventory, poe_title):
+def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_site=False):
     """(icon, words) of a port's power control: words are what a press does where there is a button (`action`), else
     why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: there is
     no login, so a port is switched only where a board has registered on it), not a choice of this page."""
@@ -486,6 +487,9 @@ def power_cell(has_poe, can_power, action, role, no_inventory, poe_title):
         return POWER_ICON, "not switched: the switch inventory could not be read, so no port is known to be a board's"
     if role:
         return POWER_ICON, f"not switched from this page: the port's role is {role}"
+    if tt_site:  # pibfpgas.poe.board_ports on the Tiny Tapeout site: a port a Pi reported a Tiny Tapeout board on
+        return POWER_ICON, ("not switched: no Tiny Tapeout board was reported on this port, and this site switches "
+                            "only a port one was reported on")
     return POWER_ICON, ("not switched: no board has registered on this port, and the site switches only a port a "
                         "board has registered on")
 
@@ -522,7 +526,8 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
     action = POWER_ACTION.get(port.poe_state or "", "") if can_power and has_poe else ""
-    power_icon, power_title = power_cell(has_poe, can_power, action, role, spec is NO_INVENTORY, poe_title)
+    power_icon, power_title = power_cell(has_poe, can_power, action, role, spec is NO_INVENTORY, poe_title,
+                                         serves_ttsite(request))
     row = {
         "port": port.port,
         "port_title": f"the switch labels this port {own}" if own else "",
@@ -825,13 +830,14 @@ def head_titles():
         "net": "the port's network reading against what it should be: ✓ as it should be, ✗ not, why on hover "
                "(VLANs as the inventory says, PoE read and not at fault, the link up and as fast as the Pi on it, no "
                "error counter risen since the previous reading)",
-        "link": "↑ link up, ↓ link down; the MAC addresses the switch saw on the port on hover",
+        "link": "↑ link up, ↓ link down (in the drawing above: the port's light, green while the link is up); the MAC "
+                "addresses the switch saw on the port on hover",
         "speed": "the link's speed",
-        "poe": "⚡ PoE delivering power, ○ PoE on and nothing drawing power, ⊗ PoE off, ! PoE fault, – no PoE on "
+        "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: turn the port's PoE off or on; greyed where the site does not switch the port (only a port a "
-                 "board has registered on is switched), the reason on hover",
+        "power": "Power: ⏻ green turns the port's PoE off, ⏻ red turns it on; greyed where the site does not switch "
+                 "the port (only a board's own port is switched), the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",
         "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",
         "lldp": "the name the LLDP neighbour announces (its domain dropped); where the page may not show it, its role "
