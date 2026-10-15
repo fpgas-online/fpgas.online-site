@@ -140,9 +140,10 @@ class Line:
 # The column headers' titles: what each column is, said once (#129: "What is the differences between Checked and
 # operational?"). "operational" is a State; "Check ran" is a time.
 HEAD_TITLES = {
-    "state": "operational: offered to visitors (it checks in, and the boot check of the boot it is running passed); "
-             "needs attention: that check did not pass, or it stopped checking in; missing: not heard from for 6 h; "
-             "checking: that check has not finished",
+    "state": "operational: it checks in and the boot check of the boot it is running passed (for a host that "
+             "carries no board: found none), so a board on it is offered to visitors; needs attention: that check did "
+             "not pass, or it stopped checking in; missing: not heard from for 6 h; checking: that check has not "
+             "finished",
     "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
     "serial": "the Pi's serial number; links its own page",
     "port": "the switch port the gateway last leased it an address on", "board": "the FPGA board's type",
@@ -163,7 +164,9 @@ def boot_mark(host, checked_text=""):
     word = _check_word(host)
     if host.no_board_expected and host.state == "missing":
         word = "found no board, as expected: this host carries none"
-    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why else "")
+    # why the Pi is not offered goes with a check that did not pass; a passed check is not contradicted by it
+    passed = host.state == "pass" or (host.no_board_expected and host.state == "missing")
+    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why and not passed else "")
     if host.state == "pass" or (host.no_board_expected and host.state == "missing"):
         return Mark(PASSED[0], PASSED[1], title), PASSED[2]
     if host.state == "verifying":
@@ -392,6 +395,11 @@ def _page(request):
              and (not want_type or r.board_type == want_type)]
     groups = check_groups.grouped(check_names(hosts))
     columns = [name for _, names in groups for name in names]
+    # each check's header says its group and the board types that get it (the review of #134: a legend repeated
+    # on every header said nothing about the check)
+    check_titles = {name: f"{name} ({group}): " + (", ".join(check_groups.types_running(name)) or "no board type the "
+                                                   "site knows") + " get it. " + HEAD_TITLES["check"]
+                    for group, names in groups for name in names}
     planned = None
     # what needs a person first, then by switch and port (the table's own sort returns to this order)
     observed = fpga.seen_ports()
@@ -408,7 +416,8 @@ def _page(request):
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
         "tables": [(title, lines) for title, lines in (("", present), ("Missing", missing)) if lines],
-        "groups": [(group, len(names)) for group, names in groups], "columns": columns,
+        "groups": [(group, len(names), ", ".join(names)) for group, names in groups],
+        "columns": [(name, check_titles[name]) for name in columns],
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),
         "want_condition": want_condition, "want_type": want_type,

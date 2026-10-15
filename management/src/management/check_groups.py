@@ -51,16 +51,28 @@ PLANNED = {
                 {"spram": "fpgas.online-test-designs#343"}),
     "TT chip": (("sdk", "wiring"),
                 {"jtag": "a Tiny Tapeout chip is an ASIC, not an FPGA: nothing on it is configured over JTAG",
-                 "flash": "a Tiny Tapeout chip is an ASIC: it has no configuration flash",
+                 "flash": "a Tiny Tapeout chip is an ASIC: it has no configuration flash (the RP2040's own flash "
+                          "holds only its firmware)",
                  "uart": "the chip has no UART to the Pi: the Pi reaches the demo board's RP2040 over USB",
                  "ddr": "the demo board has no DRAM", "ethernet": "the demo board has no Ethernet"}, {}),
     "TT board, not identified": (("sdk",),
-                                 {"jtag": "neither a TT FPGA breakout nor a Tiny Tapeout chip has a JTAG port",
+                                 {"jtag": "neither a TT FPGA breakout (an iCE40UP5K, loaded through the RP2350) "
+                                          "nor a Tiny Tapeout chip has a JTAG port",
                                   "flash": "neither a TT FPGA breakout nor a Tiny Tapeout chip has a configuration "
                                            "flash",
                                   "ddr": "the demo board has no DRAM", "ethernet": "the demo board has no Ethernet"},
                                  {}),
 }
+
+
+# The checks every board is judged on (Tim, 15 Oct 2026: "*Anything* which has an FPGA should be getting jtag,
+# anything which has wires should be getting wiring, etc."): each type gets each of them or says why it does not apply.
+COMMON = ("jtag", "wiring", "flash", "ddr", "uart", "ethernet")
+
+
+def types_running(check):
+    """The board types that get a check, in PLANNED's order: "Acorn, PCIe card, Arty A7"."""
+    return [title for title, (checks, _, _) in PLANNED.items() if check in checks]
 
 
 def name(check):
