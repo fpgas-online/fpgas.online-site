@@ -43,7 +43,8 @@ def test_detail_shows_history_and_events(c):
                              detail={}, ts=timezone.now())
     html = c.get("/fleet/abc123/").content.decode()
     # the newest registration laid out, the earlier one collapsed; this boot's events in a table
-    assert html.count('<pre class="mgmt-json">') == 2 and html.count("<details") == 1
+    # the newest registration is collapsed too (#132: no page of JSON to read), the earlier one under it
+    assert html.count('<pre class="mgmt-json">') == 2 and html.count("<details") == 2
     assert "<td>ssh-up</td>" in html
 
 
@@ -51,7 +52,7 @@ def test_detail_shows_history_and_events(c):
 def test_detail_says_what_the_labels_still_need(c):
     register_document(DOC)
     html = c.get("/fleet/abc123/").content.decode()
-    assert "<h2>Labels</h2>" in html and '<th scope="col">Still needs</th>' in html
+    assert "<h2>Labels</h2>" in html and '>Still needs</th>' in html
     # each field rpi-hwid still needs, and who sends it (#93 item 4)
     for field, owner in (("revision", "registration"), ("header", "pi-identified")):
         assert re.search(rf'<td><code>{field}</code></td><td title="[^"]*">{owner}</td>', html)

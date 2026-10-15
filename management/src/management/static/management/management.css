@@ -169,6 +169,8 @@
 .mgmt-test-fail, .mgmt-test-fail a { color: #b00020; font-weight: 700; }
 .mgmt-test-none { color: #999; }
 .mgmt-test-notrun { color: #b36b00; font-weight: 700; }
+/* a mark that links its check's docs page keeps its state's colour, not a link's (#132) */
+.mgmt-test-pass a, .mgmt-test-fail a, .mgmt-test-notrun a, .mgmt-test-none a { color: inherit; }
 /* #127: the State is one character, coloured as the summary's badges, the word on hover and for a screen reader */
 .mgmt-table td.mgmt-c-state { text-align: center; font-weight: 700; cursor: help; }
 .mgmt-state-operational { color: #1b7a1b; }
@@ -178,6 +180,9 @@
 /* the Offered mark: the ✓ links the visitor page, the ✗ says why not on hover */
 .mgmt-hosts td.mgmt-c-offered a { text-decoration: none; }
 /* #127: Serial and ID in a fixed-width font, so their digits line up */
+/* a serial or an id, in a facts table too (the Pi's own page, #132) */
+.mgmt-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
                                                                       "Liberation Mono", monospace; }
 /* #127: the groups of the check columns, named once above them */

@@ -368,7 +368,8 @@ def test_the_events_table_lists_the_records_of_this_boot():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
     events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
-    row = re.search(r"<tr><td>[^<]*</td><td>network-state</td><td><code>(.*?)</code></td></tr>", events)
+    # the detail is collapsed (#132: no page of JSON to read), the whole of it inside
+    row = re.search(r"<tr><td>[^<]*</td><td>network-state</td><td><details><summary>detail</summary><code>(.*?)</code></details></td></tr>", events)
     assert row and "&quot;operational_state&quot;: &quot;routable&quot;" in row[1]
 
 

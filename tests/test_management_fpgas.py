@@ -434,7 +434,7 @@ def test_every_check_is_a_column_grouped_in_dependency_order_with_four_states(fl
     assert (rows["pi-sw2-p33"]["wiring"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
     # a check its type gets that its report does not have is ⊘ (#129), never –: the TT board's sdk
     assert rows["pi-sw2-p33"]["sdk"] == "⊘"
-    assert 'title="sdk was not reported by this board&#x27;s check (fpgas.online-test-designs#340)"' in html
+    assert 'title="sdk was not reported by this board&#x27;s check: its fpgas-verify does not report it yet"' in html
     assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
     # the state is in the cell's title, and said to a screen reader; a – says why it is not applicable
     assert ('data-label="jtag" title="jtag passed"><div class="mgmt-test-pass">✓<span class="mgmt-sr"> jtag passed'
@@ -648,7 +648,7 @@ def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
     assert '<a href="/fleet/02c0008164c2a1b0/">02c0008164c2a1b0</a>' in html
     assert 'data-label="Model" title="Orange Pi PC; registered as Xunlong Orange Pi PC">OPi PC</td>' in html
     # the registered model in full is on the host's own page, not only in a tooltip here
-    assert "<td>Xunlong Orange Pi PC</td>" in Client(HTTP_HOST="welland.fpgas.online").get(
+    assert 'title="Orange Pi PC; registered as Xunlong Orange Pi PC">OPi PC</td>' in Client(HTTP_HOST="welland.fpgas.online").get(
         "/fleet/02c0008164c2a1b0/").content.decode()
 
 
@@ -967,6 +967,36 @@ def test_a_planned_check_with_no_test_yet_names_its_issue(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert _by_serial(html)["pi-sw2-p30"]["ethernet"] == "⊘"
     assert 'title="ethernet did not run: no boot-check test yet (fpgas.online-test-designs#341)"' in html
+
+
+# A real fpga-verified detail from fpgas-verify's branch for fpgas.online-test-designs #339/#340 (PR #344), the check of
+# TT FPGA 4df39a7a6856f86f on welland at 20:46 on 15 Oct 2026 (fo-tools, runner.details() of a --no-publish run).
+NEW_VERIFY_TT_FPGA = {
+    "result": "pass", "board0": "tt tt-fpga pass", "board0_identity_chip": "fpga",
+    "board0_tests": "sdk=pass dip-switches=pass wiring=pass uart=pass",
+    "board0_not_run": "spram",
+    "board0_not_run_spram": "no boot-check test yet: fpgas.online-test-designs #343",
+    "board0_planned": "sdk dip-switches wiring uart spram",
+    "board0_groups": "sdk=board-specific dip-switches=board-specific wiring=basic uart=peripherals spram=memory",
+    "board0_not_applicable_ddr": "the demo board has no DRAM",
+    "board0_not_applicable_ethernet": "the demo board has no Ethernet",
+    "board0_not_applicable_jtag": "the iCE40UP5K has no JTAG port: it is loaded through the demo board's RP2350",
+    "board0_not_applicable_flash": "the FPGA breakout has no configuration flash: the RP2350 streams each design from "
+                                   "the Pi",
+}
+
+
+@pytest.mark.django_db
+def test_a_report_of_the_new_fpgas_verify_is_read_as_it_comes(fleet):
+    """The new fields read from a real report: what ran, the planned test with no test yet (⊘, verify's reason) and
+    the common checks that do not apply (–, verify's reasons)."""
+    pi("pi-sw2-p34", NEW_VERIFY_TT_FPGA, serial="1000000085948b10")
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["1000000085948b10"]
+    assert [row[c] for c in ("sdk", "dip-switches", "wiring", "uart", "spram")] == ["✓", "✓", "✓", "✓", "⊘"]
+    assert [row[c] for c in ("jtag", "flash", "ddr")] == ["–", "–", "–"]
+    assert 'title="spram did not run: no boot-check test yet: fpgas.online-test-designs #343"' in html
+    assert 'title="jtag not applicable to TT FPGA: the iCE40UP5K has no JTAG port: it is loaded through the demo board' in html
 
 
 @pytest.mark.django_db
