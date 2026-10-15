@@ -58,8 +58,11 @@ def test_the_page_names_the_host_by_its_label_and_says_how_it_is():
     html = page(m.serial)
     assert "<h1>Pi 5 4 GB 285df3f84af242d0</h1>" in html
     assert re.search(r'<span class="mgmt-state-operational">●</span> operational</td>', html)  # one set (#131)
-    assert ">sw2 p46</td>" in html and "<td>Raspberry Pi 5 Model B Rev 1.0</td>" in html
-    # under the Pi dashboard in the crumbs
+    # the same names and forms as the Pi's row on /fleet/ (#132): the port the gateway saw, the model short with the
+    # registered one on hover, the boot check as one character
+    assert 'title="the gateway leased it an address on this port at ' in html and ">sw2 p46</td>" in html
+    assert 'title="registered as Raspberry Pi 5 Model B Rev 1.0">Pi 5</td>' in html
+    assert re.search(r'Boot check</th><td title="passed, [^"]*"><span class="mgmt-test-pass">✓</span>', html)
     # under Raspberry Pis in the one navigation (#131); the page's heading names the host by its label
     assert '<a href="/fleet/" aria-current="page">Raspberry Pis</a>' in html and "Pi 5 4 GB 285df3f84af242d0" in html
 
@@ -72,13 +75,25 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
     m = pi("pi-sw1-p17", detail, serial="00000000cc479fd1")
     html = page(m.serial)
     boards = html.split("<h2 id=\"boards\">Boards</h2>", 1)[1].split("</table>", 1)[0]
-    assert "acorn-holly 0x00200c8664b04854" in boards and "<td>Fomu</td>" in boards
+    # a row a board: its type, the id on its label (its name on hover), its result and a mark per check, grouped as on
+    # /fleet/ (#132: "suffers from many of the issues I told you about on other pages")
+    assert '<td class="mgmt-c-id" data-label="ID" title="acorn-holly 0x00200c8664b04854">0x00200c8664b04854</td>' in boards
+    assert '<td class="mgmt-c-board" data-label="Board">Acorn</td>' in boards
+    assert '<td class="mgmt-c-board" data-label="Board" title="Fomu EVT">Fomu</td>' in boards
+    # on a phone each cell says its column (the review of #135: a row of bare marks at 390 px)
+    assert re.search(r'<td class="mgmt-mark" data-label="jtag" data-sort="\d"', boards)
     docs = "https://docs.fpgas.online/en/latest/boards/"
-    assert f'<a href="{docs}acorn/checks/pin-id.html">pin-id</a>: pass' in boards
-    assert f'<a href="{docs}acorn/checks/ddr-memory.html">ddr</a>: fail' in boards
-    assert f'<a href="{docs}acorn/checks/">sdk</a>: pass' in boards  # no page of its own: the board's checks
-    assert 'class="mgmt-test mgmt-test-fail"' in boards
+    # each mark links its check's docs page (by the name the check sent: pin-id), else the board's checks page
+    assert re.search(rf'title="wiring passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/pin-id.html">✓</a>',
+                     boards)
+    assert re.search(rf'title="ddr fail"><span class="mgmt-test-fail"><a href="{docs}acorn/checks/ddr-memory.html">✗</a>',
+                     boards)
+    assert re.search(rf'title="sdk passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/">✓</a>', boards)
+    # a check the Acorn gets and did not report is ⊘; one that does not apply is –, with no link
+    assert re.search(r'title="jtag was not reported[^"]*"><span class="mgmt-test-notrun"><a ', boards)
+    assert re.search(r'title="uart not applicable to Acorn: [^"]+"><span class="mgmt-test-none">–</span>', boards)
     assert f'<a href="{docs}fomu-evt/">board</a>' in boards
+    assert "mgmt-fit" in html.split('<h2 id="boards">', 1)[1].split("<table", 2)[1][:80]  # as wide as its values
 
 
 @pytest.mark.django_db
@@ -93,8 +108,23 @@ def test_the_check_is_shown_with_its_history_across_boots():
     html = page(m.serial)
     history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
     rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history, re.S)
-    assert len(rows) == 2 and "(this boot)" in rows[0] and "failed" in rows[0] and "passed" in rows[1]
-    assert "<code>b0</code>" in rows[1]
+    # a row a boot (the review of 15 Oct: a "running" row and a result row of one boot were two), its result a mark
+    assert len(rows) == 2
+    assert 'title="the boot it is running">●' in rows[0] and 'title="failed"><span class="mgmt-test-fail">✗' in rows[0]
+    assert 'title="an earlier boot">–' in rows[1] and 'title="passed"><span class="mgmt-test-pass">✓' in rows[1]
+    assert '<td class="mgmt-mono" title="b0">b0</td>' in rows[1]
+
+
+@pytest.mark.django_db
+def test_a_boot_with_a_running_check_and_its_report_is_one_row():
+    m = pi("pi-sw2-p33")
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verifying", ts=timezone.now(), detail={})
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=timezone.now(), detail=REAL["pi-sw2-p33"])
+    BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verifying", ts=timezone.now(), detail={})
+    history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history, re.S)
+    assert len(rows) == 2  # b2 running, b1 its report
+    assert 'title="running"><span class="mgmt-test-running">⟳' in rows[0] and "mgmt-test-fail" in rows[1]
 
 
 @pytest.mark.django_db
@@ -160,8 +190,8 @@ def test_a_check_report_with_no_result_says_so_and_every_table_sorts():
     BootEvent.objects.create(machine=m, boot_id="b0", stage="fpga-verified", ts=timezone.now(), detail={"x": 1})
     html = page(m.serial)
     history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
-    assert "<td>sent no result</td>" in history and "unknown" not in history
-    assert html.count("mgmt-sortable") == 4 and "management/table.js" in html
+    assert 'title="sent no result"><span class="mgmt-test-fail">✗' in history and "unknown" not in history
+    assert html.count("mgmt-sortable") == 4 and "management/table.js" in html  # boards, history, labels, events
 
 
 def test_a_label_field_no_known_event_sends_is_said_loud():
@@ -179,3 +209,34 @@ def test_a_host_with_no_check_and_no_events_says_so_outside_the_tables():
     html = page(m.serial)
     assert "<p>No boot check has reported.</p>" in html and "<p>No events recorded for this boot.</p>" in html
     assert "colspan" not in html  # no sentence rows inside a sortable table
+
+
+@pytest.mark.django_db
+def test_a_host_that_carries_no_board_has_the_same_verdict_in_its_history():
+    """The review of #135: the facts and /fleet/ said ✓ "as expected", the history said ✗ "found no board"."""
+    from tests.test_management_fpgas import _orange_pi
+
+    m = _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
+    history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    assert 'title="found no board, as expected: this host carries none"><span class="mgmt-test-pass">✓' in history
+    assert "mgmt-test-fail" not in history
+
+
+@pytest.mark.django_db
+def test_what_keeps_rpi_hwid_from_a_label_is_the_event_it_lacks_with_the_sentence_on_hover():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
+    assert ('<td title="no usable pi-identified event from this Pi"><code>pi-identified</code></td>' in labels)
+    assert ">no usable pi-identified event from this Pi<" not in labels  # never as a cell's text
+
+
+@pytest.mark.django_db
+def test_the_new_fpgas_verify_report_reads_the_same_on_the_pis_own_page():
+    from tests.test_management_fpgas import NEW_VERIFY_TT_FPGA
+
+    m = pi("pi-sw2-p34", NEW_VERIFY_TT_FPGA, serial="1000000085948b10")
+    boards = page(m.serial).split('<h2 id="boards">Boards</h2>', 1)[1].split("</table>", 1)[0]
+    assert re.search(r'data-label="spram" data-sort="1" title="spram did not run: no boot-check test yet: '
+                     r'fpgas.online-test-designs #343"><span class="mgmt-test-notrun">', boards)
+    # the Pi's own page has a column per check its boards' types get: none for jtag on a TT FPGA
+    assert 'data-label="jtag"' not in boards and 'data-label="wiring"' in boards

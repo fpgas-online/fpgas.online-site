@@ -278,7 +278,7 @@ def _not_run_title(board, name, unwritten):
     if name in board["not_run"] and board["failing"]:
         return f"{name} did not run: {', '.join(board['failing'])} did not pass"
     # the board's check ran but did not report this check (an older fpgas-verify: jtag was kept outside the tests)
-    return f"{name} was not reported by this board's check (fpgas.online-test-designs#340)"
+    return f"{name} was not reported by this board's check: its fpgas-verify does not report it yet"
 
 
 def _mark(board, name, planned=None):
