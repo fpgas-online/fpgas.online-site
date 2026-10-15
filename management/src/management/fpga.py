@@ -121,6 +121,26 @@ class PiFields:
         return int(value * scale)
 
 
+def _memory(facts):
+    kb = facts.get("mem_total_kb")
+    return nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
+
+
+def _other_board(facts, model, serial):
+    """PiFields of a host whose registered model rpi-hwid identifies as a board that is not a Raspberry Pi, else
+    None."""
+    if not isinstance(model, str) or not model.strip():
+        return None
+    memory = _memory(facts)
+    try:
+        ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
+    except (ValueError, KeyError):  # a Raspberry Pi model: its revision code is what names it
+        return None
+    if ident is None or ident.kind == "rpi":
+        return None
+    return PiFields(ident.short, memory or "", serial)
+
+
 def pi_fields(machine):
     """A host's label by rpi-hwid's own rules, as its values (PiFields): from the revision code its registration sent
     (decode_revision, the label header's "Pi <model>"), or for a host with no revision code, an Orange Pi, by
@@ -137,14 +157,18 @@ def pi_fields(machine):
         try:
             rev = decode_revision(code)
         except (ValueError, KeyError):
+            # not a Raspberry Pi's code: an Orange Pi's kernel says "0000" (welland's seven, 15 Oct 2026). Its
+            # registered model names it when rpi-hwid knows that model as another board; else the code is the fault.
+            other = _other_board(facts, model, serial)
+            if other is not None:
+                return other
             return PiFields("", "", serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable")
         return PiFields(f"Pi {rev.model}", rev.memory, serial)
     if model is None:
         return PiFields("", "", serial, "no model registered", "no model registered")
     if not isinstance(model, str) or not model.strip():
         return PiFields("", "", serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable")
-    kb = facts.get("mem_total_kb")
-    memory = nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
+    memory = _memory(facts)
     try:
         ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
     except (ValueError, KeyError):  # a Raspberry Pi by its model, with no revision code to decode

@@ -523,6 +523,10 @@ def test_the_reload_switch_keeps_the_filter_and_the_redirect_keeps_every_paramet
     ({"model": "Xunlong Orange Pi PC"}, "Orange Pi PC S1"),  # no memory registered: none said
     ({"revision_code": "a020d3"}, "Pi 3 Model B+ 1 GB S1"),  # the revision code: the label header's "Pi <model>"
     ({"revision_code": "zz"}, "S1 (revision 'zz' not readable)"),
+    # an Orange Pi's kernel gives revision 0000 (welland's seven, 15 Oct 2026): its model names it
+    ({"revision_code": "0000", "model": "Xunlong Orange Pi PC", "mem_total_kb": 1016548}, "Orange Pi PC 1 GB S1"),
+    # a Raspberry Pi's model with a code that is not one: the code is the fault
+    ({"revision_code": "0000", "model": "Raspberry Pi 4 Model B Rev 1.4"}, "S1 (revision '0000' not readable)"),
     ({"revision_code": 7}, "S1 (revision '7' not readable)"),
     ({"model": "Raspberry Pi 4 Model B Rev 1.4"}, "S1 (no revision code registered)"),
     ({"model": "Some Router"}, "S1 (model 'Some Router' not known to rpi-hwid)"),
