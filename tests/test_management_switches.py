@@ -1031,6 +1031,8 @@ def test_on_a_phone_a_port_is_a_block_of_its_hardware_state_link_and_poe():
         "vlan", "gw", "lldp-port", "macs", "rx", "tx", "rx-errors", "tx-errors", "label", "serial")),
         ".mgmt-ports td:empty"}
     assert "nth-child" not in phone  # a column is found by its class, so a new column cannot shift the layout
+    # an infrastructure port's role stays: it is what the port is
+    assert any(".mgmt-ports td.c-label.mgmt-role" in sels and "display: block" in body for sels, body in rules)
     assert any(".mgmt-ports td[data-label]::before" in sels and "attr(data-label)" in body for sels, body in rules)
     assert any(".mgmt-ports tr" in sels and "flex-wrap: wrap" in body for sels, body in rules)
 
@@ -1150,6 +1152,9 @@ def test_an_infrastructure_port_is_never_unregistered_and_shows_its_role_word(mo
     ports = ports_json()
     assert (ports[1]["role"], ports[1]["label"], ports[1]["unregistered"]) == ("infrastructure", "infrastructure", "")
     assert (ports[2]["label"], ports[2]["label_title"]) == ("switch trunk", "switch trunk: its role in the inventory")
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert '<td class="mgmt-label c-label mgmt-role" data-label="Label" title="switch trunk: its role' in row_of(html, 50)
+    assert '<td class="mgmt-label c-label" data-label="Label"' in row_of(html, 1)
 
 
 # --- #130: Net, the port's reading against what it should be ------------------------------------------------------

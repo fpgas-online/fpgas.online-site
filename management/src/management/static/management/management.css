@@ -75,7 +75,8 @@
 .mgmt-poe-msg:empty { display: none; }
 /* On a phone (#130) each port is a block: its number, then the hardware on it and its State, then its Net, link,
    PoE, the button and the neighbour, each value after its column's name; the VLAN, gateway, MAC, traffic, error and
-   label columns are left out (a wider screen shows them), and an empty value takes no room. */
+   label columns are left out (a wider screen shows them) but for an infrastructure port's role, and an empty value
+   takes no room. */
 @media (max-width: 40rem) {
   .mgmt-ports thead { display: none; }
   .mgmt-ports, .mgmt-ports tbody { display: block; }
@@ -88,6 +89,8 @@
   .mgmt-ports td.c-vlan, .mgmt-ports td.c-gw, .mgmt-ports td.c-lldp-port, .mgmt-ports td.c-macs, .mgmt-ports td.c-rx,
   .mgmt-ports td.c-tx, .mgmt-ports td.c-rx-errors, .mgmt-ports td.c-tx-errors, .mgmt-ports td.c-label,
   .mgmt-ports td.c-serial, .mgmt-ports td:empty { display: none; }
+  /* an infrastructure port's role is what the port is: it stays */
+  .mgmt-ports td.c-label.mgmt-role { display: block; }
   .mgmt-ports td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; font-weight: 400; }
   .mgmt-ports td div { display: inline; }
   .mgmt-ports td div + div::before { content: ", "; }

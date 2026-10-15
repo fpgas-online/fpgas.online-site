@@ -92,7 +92,7 @@
      ["c-tx-errors", "Tx err", p.tx_errors]].forEach(function (n) {
       var c = td("mgmt-n " + n[0], n[1]); c.textContent = n[2]; tr.appendChild(c);
     });
-    var lab = td("mgmt-label c-label", "Label", p.label_title); lab.textContent = p.label; tr.appendChild(lab);
+    var lab = td("mgmt-label c-label" + (p.role ? " mgmt-role" : ""), "Label", p.label_title); lab.textContent = p.label; tr.appendChild(lab);
   }
   function say(text) {
     var p = document.getElementById("mgmt-live");
@@ -277,7 +277,7 @@
         <td class="mgmt-n c-tx" data-label="Out">{{ p.tx }}</td>
         <td class="mgmt-n c-rx-errors" data-label="Rx err">{{ p.rx_errors }}</td>
         <td class="mgmt-n c-tx-errors" data-label="Tx err">{{ p.tx_errors }}</td>
-        <td class="mgmt-label c-label" data-label="Label" title="{{ p.label_title }}">{{ p.label }}</td>
+        <td class="mgmt-label c-label{% if p.role %} mgmt-role{% endif %}" data-label="Label" title="{{ p.label_title }}">{{ p.label }}</td>
       </tr>
     {% empty %}
       <tr><td colspan="22">No ports were read from this switch.</td></tr>
