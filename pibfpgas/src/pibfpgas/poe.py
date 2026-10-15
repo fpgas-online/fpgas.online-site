@@ -1,10 +1,22 @@
-"""Which switch ports the PoE endpoints (/snmp/status, /snmp/toggle, from the
-fpgas-online-poe package) may touch: a board's own port, and nothing beyond.
+"""Which switch ports the PoE endpoints (/snmp/status, /snmp/toggle,
+/snmp/power, from the fpgas-online-poe package) may touch.
 
 Visitors use the boards, and pressing Reset is part of that: no login, no
 session. A board needs its Reset most when it has hung, is restarting or is
-failing its check, so none of that is asked here. What is refused is a port
-that is not a board's.
+failing its check, so none of that is asked here.
+
+Tim, 16 Oct 2026: "All access ports should *always* be switchable." On any
+host of a site with a switches file (the per-port-VLAN switches), welland's
+and tinytapeout's alike, every access port is switched, a board registered
+or reported on it or not: an empty port, or a device that hung before it
+registered, is powered from /management/switches/ as a board's is. The
+package refuses every port the switches file does not make an access port
+(trunks, uplinks, ports outside the access range) before it asks here, and
+pibfpgas.checks refuses to run beside a package without that bound, so
+nothing beyond an access port is reachable.
+
+A flat site (one switch, no switches file) has nothing that says which of its
+ports are access ports, so there a port is switched only as follows.
 
 settings.SNMP_SWITCH_PORT_POLICY names board_port(); the endpoints ask it
 before they speak to a switch and refuse (403) what it does not allow. It
@@ -20,8 +32,8 @@ no list of ports to keep.
   needs its Reset. A Pi whose check has since named another kind of board is
   no longer this site's. No catalogue is asked: a list says nothing about
   where a board is.
-* On every other host: a port a board has registered on. Some machine in the
-  fleet registry has a hostname that names exactly that switch and port
+* On every other host: a port a board has registered on. Some machine
+  in the fleet registry has a hostname that names exactly that switch and port
   (pi-sw<s>-p<p>, or pi<p> at a flat site). Whether it is online, when it
   last checked in, how its FPGA check went and whether its page is listed
   are deliberately not asked: a hung board has stopped checking in, and is
@@ -29,19 +41,28 @@ no list of ports to keep.
   it names one port.
 
 A registration is what a board says about itself, and the fleet broker
-takes it from anything on the site LAN, so this alone would let a forged one
-name any port. The package bounds it: before it asks here it refuses every
-port the switches file does not make an access port (trunks, uplinks, ports
-outside the access range). A forged registration can therefore name another
-access port at most: another board, which any visitor may reset anyway, or
-an empty port. A flat site has no switches file and so no such bound.
+takes it from anything on the site LAN; on a flat site a forged one can name
+any port, as no switches file bounds it.
 """
 
 from fleet.models import Machine
+from snmp_switch.switches import configured_specs, is_access_port
 from ttsite.boards import reported_port, reported_ports
 from ttsite.middleware import serves_ttsite
 
 from .pis import Pi
+
+
+def _spec(switch):
+    """The switches file's description of switch `switch`, or None for a switch it does not describe."""
+    return next((spec for spec in configured_specs() if spec.index == switch), None)
+
+
+def _is_access_port(switch, port):
+    """Whether (switch, port) is an access port by the switches file. The package refuses every other port before it
+    asks this policy; the policy checks the same bound again, so it holds even if a later package asked first."""
+    spec = _spec(switch)
+    return spec is not None and is_access_port(spec, port)
 
 
 def registered_on(switch, port):
@@ -61,6 +82,8 @@ def board_port(request, switch, port):
     """Whether (switch, port) is a board's port on the site answering
     `request`. `switch` is the switch's index, or None at a flat site (one
     switch, Pis registered as pi<port>); `port` is an int."""
+    if switch is not None:  # every access port (Tim, 16 Oct 2026)
+        return _is_access_port(switch, port)
     if serves_ttsite(request):
         return reported_port(switch, port)
     return registered_on(switch, port)
@@ -80,6 +103,9 @@ def registered_ports(switch):
 def board_ports(request, switch, ports):
     """{port for port in ports if board_port(request, switch, port)}, answered from one pass over the registry
     instead of one per port: the switch dashboard asks for every port of every switch on each refresh."""
+    if switch is not None:
+        spec = _spec(switch)
+        return {port for port in ports if spec is not None and is_access_port(spec, port)}
     if serves_ttsite(request):
         reported = reported_ports()
         return {port for port in ports if (switch, port) in reported}

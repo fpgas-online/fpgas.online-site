@@ -438,9 +438,11 @@ def port_role(spec, port):
     return None if port <= spec.access_ports else INFRASTRUCTURE
 
 
-# The PoE button's action by the port's state: off while it delivers or searches, on while it is disabled. A port in
-# any other state (fault, not known) gets the greyed icon with the reason.
-POWER_ACTION = {"delivering": "off", "searching": "off", "disabled": "on"}
+# The PoE button's action by the port's state: on while it is disabled, off in every other state, a fault or a state
+# the switch did not give included (Tim, 16 Oct 2026: "All access ports should *always* be switchable": a port in a
+# fault is the one to switch off and on again).
+POWER_ACTION = {"disabled": "on"}
+POWER_DEFAULT = "off"
 # The power control is the power symbol on every PoE port (Tim, 16 Oct 2026, site #139: "The power button should be a
 # power button icon, not text", "Why does the PoE power button only appear on some switch ports?"): a button where a
 # press would be accepted, else the same symbol greyed with the reason on hover and for a screen reader.
@@ -451,9 +453,9 @@ POWER_URL = "/snmp/power"
 
 
 def _can_power(request, view, spec):
-    """{port numbers of `view` that get a PoE button}: the board ports, as the site's PoE policy (the one /snmp/power
-    enforces, pibfpgas.poe.board_port) says. ONE pass over the registry per switch, not one per port. A port the
-    inventory names as an uplink, trunk or other infrastructure is not asked at all."""
+    """{port numbers of `view` that get a PoE button}: every access port, as the site's PoE policy (the one /snmp/power
+    enforces, pibfpgas.poe.board_port) says; on a flat site, the registered ones, from ONE pass over the registry. A
+    port the inventory names as an uplink, trunk or other infrastructure is not asked at all."""
     from pibfpgas.poe import board_ports
 
     if spec is NO_INVENTORY:
@@ -475,14 +477,12 @@ def lldp_port(port, house=()):
 
 def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_site=False):
     """(icon, words) of a port's power control: words are what a press does where there is a button (`action`), else
-    why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: there is
-    no login, so a port is switched only where a board has registered on it), not a choice of this page."""
+    why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: every
+    access port of a site with a switches file; on a flat site, a port a board registered on), not this page's."""
     if not has_poe:
         return "", "no PoE on this port"
     if can_power and action:
         return POWER_ICON, f"turn PoE {action}"
-    if can_power:
-        return POWER_ICON, f"not switched while the PoE state is not on or off ({poe_title})"
     if no_inventory:
         return POWER_ICON, "not switched: the switch inventory could not be read, so no port is known to be a board's"
     if role:
@@ -525,7 +525,7 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # is on the port number's title for a board port; an infrastructure port's can name a private device, so it is
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
-    action = POWER_ACTION.get(port.poe_state or "", "") if can_power and has_poe else ""
+    action = POWER_ACTION.get(port.poe_state or "", POWER_DEFAULT) if can_power and has_poe else ""
     power_icon, power_title = power_cell(has_poe, can_power, action, role, spec is NO_INVENTORY, poe_title,
                                          serves_ttsite(request))
     row = {
@@ -836,8 +836,8 @@ def head_titles():
         "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) "
-                 "turns it on; greyed where the site does not switch the port (only a board's own port is switched), "
+        "power": "Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) "
+                 "turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), "
                  "the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",
         "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",

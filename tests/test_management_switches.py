@@ -90,6 +90,8 @@ def welland_inventory(monkeypatch):
     switch_1 = SimpleNamespace(index=1, access_ports=40, gateway_trunk_port=47, downstream_trunk_ports=(50,),
                                house_uplink_port=48)
     monkeypatch.setattr(page, "_inventory", lambda: {1: switch_1})
+    # the PoE policy reads the same switches file as the page (pibfpgas.poe re-checks the access-port bound, #147)
+    monkeypatch.setattr("pibfpgas.poe._spec", lambda switch: (page._inventory() or {}).get(switch))
 
 
 @pytest.fixture
@@ -625,9 +627,13 @@ def test_board_ports_agrees_with_board_port_and_asks_the_registry_once(host, swi
         machine(f"2000000000000{n:03d}", name)
     request = RequestFactory().get("/", HTTP_HOST=host)
     ports = range(0, 60)
-    with django_assert_num_queries(1):
+    # a site with a switches file switches every access port (coord-67/68): the registry is not asked; a flat site,
+    # which has no switches file to bound it, asks it once
+    with django_assert_num_queries(0 if switch is not None else 1):
         batch = board_ports(request, switch, ports)
     assert batch == {p for p in ports if board_port(request, switch, p)} and batch
+    if switch is not None:  # welland_inventory's switch 1: ports 1-40 but its trunk and uplink, none past 40
+        assert batch == set(range(1, 41))
 
 
 def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch):
@@ -641,8 +647,12 @@ def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch)
     named = [(None, Pi(port=p, switch=s), None, None) for s, p in ((1, 3), (2, 7), (1, 9))]
     monkeypatch.setattr(boards, "_named", lambda: iter(named))
     request = RequestFactory().get("/", HTTP_HOST=TT)
+    # every access port on a site with a switches file (Tim, 16 Oct 2026); a flat site's Tiny Tapeout host still
+    # switches only the ports a Pi reported a Tiny Tapeout board on (no file says which ports are access ports)
     batch = board_ports(request, 1, range(0, 20))
-    assert batch == {3, 9} == {p for p in range(0, 20) if board_port(request, 1, p)}
+    assert batch == set(range(1, 20)) == {p for p in range(0, 20) if board_port(request, 1, p)}  # port 0 is none
+    named[:] = [(None, Pi(port=p), None, None) for p in (3, 9)]
+    assert board_ports(request, None, range(0, 20)) == {3, 9} == {p for p in range(0, 20) if board_port(request, None, p)}
 
 
 def row_of(html, port, switch=1):
@@ -652,27 +662,24 @@ def row_of(html, port, switch=1):
 
 
 @pytest.mark.django_db
-def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
+def test_every_access_port_can_power_registered_or_not(reader):
+    """Tim, 16 Oct 2026 (coord-67, coord-68, and in this lane's window): "All access ports should *always* be
+    switchable." A port a board registered on, one whose device never registered, and an empty one each get the
+    button; what a press does is its title and its accessible name (#139: a power icon, not text)."""
     machine("3000000000000001", "pi-sw1-p1")  # port 1 is registered; port 2 and 3 are not
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert [p["can_power"] for p in ports] == [True, False, False]
-    assert [p["poe_action"] for p in ports] == ["off", "", ""]
+    assert [p["can_power"] for p in ports] == [True, True, True]
+    assert [p["poe_action"] for p in ports] == ["off", "off", "off"]
     html = c.get("/management/switches/").content.decode()
-    assert html.split("</head>")[1].count("<button") == 1  # the one button (the head's script only builds them)
-    # the button is the power symbol; what a press does is its title and its accessible name (#139: "The power button
-    # should be a power button icon, not text")
+    assert html.split("</head>")[1].count("<button") == 3  # the head's script only builds them
     assert ('class="mgmt-poe-button mgmt-poe-to-off" data-switch="1" data-port="1" data-action="off" '
             'data-powers="pi-sw1-p1" aria-label="turn PoE off on port 1" title="turn PoE off">⏻</button>') \
         in row_of(html, 1)
-    # every PoE port has the symbol (#139: "Why does the PoE power button only appear on some switch ports?"): an
-    # unregistered port's is greyed, the policy's reason on hover and for a screen reader, and it is not a button
-    why = ("not switched: no board has registered on this port, and the site switches only a port a board has "
-           "registered on")
     for port in (2, 3):
-        assert "<button" not in row_of(html, port) and "mgmt-poe-msg" not in row_of(html, port)
-        assert (f'<td class="c-power" title="{why}"><span class="mgmt-poe-none" aria-hidden="true">⏻</span>'
-                f'<span class="mgmt-sr">{why}</span></td>') in row_of(html, port)
+        assert (f'data-port="{port}" data-action="off"' in row_of(html, port)
+                and "mgmt-poe-none" not in row_of(html, port))
+    assert "no board has registered" not in html
 
 
 @pytest.mark.django_db
@@ -690,8 +697,9 @@ def test_an_infrastructure_port_never_gets_a_button_even_if_a_machine_claims_it(
 
 
 @pytest.mark.django_db
+# a fault or a state the switch did not give is switched off too: "All access ports should *always* be switchable"
 @pytest.mark.parametrize("state, action", [("delivering", "off"), ("searching", "off"), ("disabled", "on"),
-                                           ("fault", ""), ("other", ""), (None, "")])
+                                           ("fault", "off"), ("other", "off"), (None, "off")])
 def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
     views = make_views()
     views[0].ports[0].poe_state = state
@@ -701,12 +709,10 @@ def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
     port = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"][0]
     assert port["can_power"] is True and port["poe_action"] == action
     assert port["power_icon"] == "⏻"
-    want = f"turn PoE {action}" if action else ("not switched while the PoE state is not on or off ("
-                                                 f"{page.poe_cell(state)[2]})")
+    want = f"turn PoE {action}"
     assert port["power_title"] == want
     row = row_of(c.get("/management/switches/").content.decode(), 1)
-    assert (f'aria-label="{want} on port 1" title="{want}">⏻</button>' in row) == bool(action)
-    assert ("mgmt-poe-none" in row) == (not action)
+    assert f'aria-label="{want} on port 1" title="{want}">⏻</button>' in row and "mgmt-poe-none" not in row
 
 
 def test_every_poe_port_has_the_power_symbol_and_a_port_without_poe_says_why_it_has_none():
@@ -732,8 +738,8 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert ('title="Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) '
-            'turns it on; greyed where the site does not switch the port (only a board&#x27;s own port is switched), '
+    assert ('title="Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) '
+            'turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), '
             'the reason on hover"') in html
 
 
@@ -1360,7 +1366,7 @@ def test_the_tinytapeout_sites_greyed_symbol_names_its_own_policy():
 def test_the_poe_and_power_headers_name_the_marks_the_cells_use():
     titles = page.head_titles()
     assert "🔍 PoE on and searching" in titles["poe"] and "○" not in titles["poe"]
-    assert "a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off)" in titles["power"]
+    assert "a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off)" in titles["power"]
 
 
 def test_on_and_off_buttons_differ_in_shape_not_only_colour():

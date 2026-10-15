@@ -344,10 +344,11 @@ def test_a_switch_that_does_not_answer_is_a_failure_row(switches, browser):
 
 @pytest.mark.django_db
 def test_switches_that_cannot_be_read_at_all_are_one_failure_row(browser):
-    # the installed poe package has no switch reader here, or it failed: the reason is the row's value
+    # the locked poe package has the switch reader (poe main, as production runs it); with no switches file here it
+    # says so, and that reason is the row's title (the lock pinned an older poe with no reader until #147)
     row = find(table(), area="Switches")
     assert row["state"] == "needs attention" and row["item"] == "all switches" and row["href"] == "/management/switches/"
-    assert (row["value"], row["title"]) == ("✗", page.NOT_INSTALLED)  # a result is a mark, its words the title
+    assert (row["value"], row["title"]) == ("✗", "no switches are configured: set FPGAS_SWITCHES_CONFIG")
 
 
 @pytest.mark.django_db
