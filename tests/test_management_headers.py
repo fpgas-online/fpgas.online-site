@@ -47,8 +47,8 @@ def test_the_fpga_dashboard_headers_are_short(c):
                              ("missing", "missing"), ("unknown", "checking")):
         assert f'<th scope="col"><span class="badge mgmt-{condition}">{title}</span></th>' in html
     assert 'class="mgmt-key"' not in html
-    assert headers(html, 1) == ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Boot check", "Checked",
-                                "Offered", "Up", "Seen", "Notes"]  # no board reported a check: no check column
+    assert headers(html, 1) == ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Offered", "Up", "Seen",
+                                "Boot check", "Check ran", "Notes"]  # no board reported a check: no check column
     # the counts table is as wide as its counts
     assert 'class="mgmt-table mgmt-summary mgmt-fit mgmt-striped mgmt-sortable"' in html
 
@@ -65,7 +65,7 @@ def test_a_check_header_is_set_upright_so_its_column_is_as_wide_as_a_mark(c):
 
     pi("pi-sw2-p33", REAL["pi-sw2-p33"])
     html = c.get("/fleet/").content.decode()
-    assert '<th scope="col" class="mgmt-checkhead">pin-id</th>' in html
+    assert re.search(r'<th scope="col" class="mgmt-checkhead" title="pin-id: [^"]+">pin-id</th>', html)
     css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
     rule = next(body for sels, body in _rules(css) if ".mgmt-table th.mgmt-checkhead" in sels)
     assert "writing-mode: vertical-rl" in rule

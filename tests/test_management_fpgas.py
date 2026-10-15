@@ -312,7 +312,8 @@ def _cells(table_html):
 # the fixture's checks (two Acorns and a TT board of 4 Oct) in their groups, each group in dependency order (#127)
 EXPECTED_CHECKS = ["jtag", "flash", "spiflash", "ddr", "uart", "p2-uart", "p2-serial", "p2-gpio", "pcie-link", "pcie-bar0",
                    "rp1-pio", "scratch", "pin-id"]
-FIXED = ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Boot check", "Checked", "Offered", "Up", "Seen"]
+# #129: Boot check and Check ran beside the checks they belong to; Offered, Up and Seen before them
+FIXED = ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Offered", "Up", "Seen", "Boot check", "Check ran"]
 
 
 def _hosts_table(html, n=0):
@@ -369,16 +370,17 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     assert header[:len(FIXED)] == FIXED and header[-1] == "Notes"  # the checks between, a column each
     present, missing = _rows(html, 0), _rows(html, 1)
     by_port = _by_port(html)
-    # the Boot check cell holds the verdict word and nothing else: no test, no mark
-    assert by_port["sw2 p33"]["Boot check"] == "failed"
-    assert by_port["sw2 p46"]["Boot check"] == "passed" and by_port["sw2 p7"]["Boot check"] == "running"
+    # the Boot check is one character like every check (#129: "Boot check is still random text"), its words on hover
+    assert by_port["sw2 p33"]["Boot check"] == "✗"
+    assert by_port["sw2 p46"]["Boot check"] == "✓" and by_port["sw2 p7"]["Boot check"] == "⟳"
+    assert re.search(r'data-label="Boot check" data-sort="\d" title="failed, [^"]*: its boot check failed: pin-id fail',
+                     html)
     # State is one character (#127), the word in its title and for a screen reader
     assert (by_port["sw2 p46"]["State"], by_port["sw2 p33"]["State"], by_port["sw2 p7"]["State"]) == ("●", "!", "⟳")
     assert re.search(r'<td class="mgmt-c-state mgmt-state-unknown" data-sort="\d" data-label="State" '
                      r'title="checking: its boot check is running">⟳<span class="mgmt-sr"> checking</span></td>', html)
     for row in present + missing:
-        assert row["Boot check"] in ("passed", "failed", "running", "found no board", "could not finish",
-                                     "not started")
+        assert row["Boot check"] in ("✓", "✗", "⟳", "⊘")
         assert row["State"] in ("●", "!", "⟳", "○") and row["Offered"] in ("✓", "✗")
         assert "(" not in row["Serial"] and " " not in row["Serial"]  # the serial alone, never a sentence beside it
     # Board is the type only (#127); the id on its label is the ID, the board's name its title
@@ -419,9 +421,10 @@ def test_every_check_is_a_column_grouped_in_dependency_order_with_four_states(fl
     assert " tests</h2>" not in html and "mgmt-testgrid" not in html and html.count("<table") == 3
     checks = _header(html)[len(FIXED):-1]
     # grouped (#127): basic first (jtag before anything), then memory, peripherals, board specific; each named once
-    assert _groups(html) == [("basic", 1), ("memory", 3), ("peripherals", 4), ("board specific", 5)]
+    # "this boot" heads Boot check and Check ran, beside the check groups (#129)
+    assert _groups(html) == [("this boot", 2), ("basic", 1), ("memory", 3), ("peripherals", 4), ("board specific", 5)]
     assert checks == EXPECTED_CHECKS
-    assert len(set(checks)) == len(checks) == sum(n for _, n in _groups(html))
+    assert len(set(checks)) == len(checks) == sum(n for g, n in _groups(html) if g != "this boot")
     rows = _by_serial(html)
     # every cell is one of four marks: ✓ ran and passed, ✗ ran and failed, ⊘ did not run, – not applicable
     for row in rows.values():
@@ -860,9 +863,9 @@ def test_checked_is_when_the_boot_check_of_this_boot_reported(fleet, settings):
     BootEvent.objects.filter(machine__hostname="pi-sw2-p46").update(ts=timezone.now() - datetime.timedelta(hours=2))
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     rows = _by_serial(html)
-    assert rows["pi-sw2-p46"]["Checked"] == "2 h ago"
-    assert rows["pi-sw2-p7"]["Checked"].endswith("ago")  # a running check: when it started reporting
-    assert re.search(r'<td class="mgmt-c-checked" data-label="Checked" data-sort="\d+"><time ', html)
+    assert rows["pi-sw2-p46"]["Check ran"] == "2 h ago"
+    assert rows["pi-sw2-p7"]["Check ran"].endswith("ago")  # a running check: when it started reporting
+    assert re.search(r'<td class="mgmt-c-checked" data-label="Check ran" data-sort="\d+"><time ', html)
 
 
 @pytest.mark.django_db
