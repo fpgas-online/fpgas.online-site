@@ -127,6 +127,7 @@ function loadWith(table, store) {
   globalThis.sessionStorage = {
     getItem: (k) => (k in store ? store[k] : null),
     setItem: (k, v) => { store[k] = v; },
+    removeItem: (k) => { delete store[k]; },
   };
   globalThis.document = {
     createElement: () => {
@@ -150,7 +151,8 @@ test("a table drawn again is sorted as the reader left it, by the header's text,
   buttons[1].listeners.click();
   buttons[1].listeners.click();  // Seen, descending
   assert.equal(texts(first), "bx cz ay");
-  assert.deepEqual(JSON.parse(store["mgmt-sort:/fleet/?condition=attention"]),
+  // kept by the page's path: the same page with another filter (the query) keeps the order (the review of #142)
+  assert.deepEqual(JSON.parse(store["mgmt-sort:/fleet/"]),
                    { "Raspberry Pis": { column: "Seen", direction: "descending" } });
   // the page is drawn again (refresh or reload) with a new column in front: Seen is now the third column
   const again = namedTable([[cell("-"), cell("q"), cell("1")], [cell("-"), cell("r"), cell("9")], [cell("-"), cell("s"), cell("5")]],
@@ -165,7 +167,7 @@ test("a third click forgets the order, so the next drawing keeps the served orde
   const t = namedTable([[cell("b"), cell("x")], [cell("a"), cell("y")]], ["Serial", "Seen"]);
   const buttons = loadWith(t, store);
   buttons[0].listeners.click(); buttons[0].listeners.click(); buttons[0].listeners.click();
-  assert.deepEqual(JSON.parse(store["mgmt-sort:/fleet/?condition=attention"]), {});
+  assert.equal(store["mgmt-sort:/fleet/"], undefined);  // nothing left behind
   const again = namedTable([[cell("b"), cell("x")], [cell("a"), cell("y")]], ["Serial", "Seen"]);
   loadWith(again, store);
   assert.equal(texts(again), "bx ay");
@@ -184,4 +186,87 @@ test("a header's text leaves out its words for a screen reader", () => {
   const th = { childNodes: [{ nodeType: 3, nodeValue: "jtag " },
                             { nodeType: 1, classList: { contains: (c) => c === "mgmt-sr" }, childNodes: [{ nodeType: 3, nodeValue: "check" }] }] };
   assert.equal(headText(th), "jtag");
+});
+
+// The refresh in place (site #138), with a fake page: the swap, the failure line, the time-out and the focus.
+function fakePage(responses) {
+  const intervals = [], timeouts = [];
+  const live = { textContent: "", hidden: true };
+  const region = { replaced: null, querySelectorAll: () => [], replaceWith(n) { this.replaced = n; } };
+  const fresh = { querySelectorAll: () => [], children: [], marker: "fresh" };
+  globalThis.setInterval = (f) => intervals.push(f);
+  globalThis.setTimeout = (f, ms) => { timeouts.push({ f, ms }); return timeouts.length; };
+  globalThis.clearTimeout = () => {};
+  globalThis.location = { pathname: "/fleet/", search: "", href: "http://x/fleet/?condition=attention" };
+  globalThis.sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  globalThis.document = {
+    activeElement: null,
+    querySelectorAll: () => [],
+    getElementById: (id) => (id === "mgmt-live" ? live : null),
+    importNode: (n) => n,
+  };
+  globalThis.DOMParser = class { parseFromString() { return { querySelector: () => fresh }; } };
+  const fetched = [];
+  globalThis.fetch = (url, opts) => { fetched.push({ url, opts }); return responses.shift()(opts); };
+  const path = join(here, "..", "..", "management", "src", "management", "static", "management", "table.js");
+  delete require.cache[require.resolve(path)];
+  const { refreshEvery } = require(path);
+  refreshEvery(region, 60);
+  return { intervals, timeouts, live, region, fresh, fetched };
+}
+const settle = () => new Promise((r) => setImmediate(r));
+
+test("a refresh fetches the page as it is (its filter too) and swaps the marked part", async () => {
+  const p = fakePage([() => Promise.resolve({ ok: true, text: () => Promise.resolve("<html>") })]);
+  p.intervals[0]();
+  await settle(); await settle(); await settle();
+  assert.equal(p.fetched[0].url, "http://x/fleet/?condition=attention");
+  assert.equal(p.region.replaced, p.fresh);
+  assert.equal(p.live.hidden, true);
+});
+
+test("a refresh that fails says so and leaves the tables as they were", async () => {
+  const p = fakePage([() => Promise.resolve({ ok: false, status: 502 })]);
+  p.intervals[0]();
+  await settle(); await settle(); await settle();
+  assert.equal(p.region.replaced, null);
+  assert.equal(p.live.hidden, false);
+  assert.match(p.live.textContent, /^This page could not be refreshed \(HTTP 502\)\. The tables below were read \d+ min ago\.$/);
+});
+
+test("a refresh that does not answer is cut off after 20 s and said, and the next tick tries again", async () => {
+  const p = fakePage([
+    (opts) => new Promise((_, reject) => opts.signal.addEventListener("abort", () => {
+      const e = new Error("aborted"); e.name = "AbortError"; reject(e);
+    })),
+    () => Promise.resolve({ ok: true, text: () => Promise.resolve("<html>") }),
+  ]);
+  p.intervals[0]();
+  p.intervals[0]();  // a tick while the first still waits does nothing
+  assert.equal(p.fetched.length, 1);
+  assert.equal(p.timeouts[0].ms, 20000);
+  p.timeouts[0].f();  // 20 s pass
+  await settle(); await settle(); await settle();
+  assert.match(p.live.textContent, /the site did not answer within 20 s/);
+  p.intervals[0]();
+  await settle(); await settle(); await settle();
+  assert.equal(p.fetched.length, 2);
+  assert.equal(p.region.replaced, p.fresh);
+  assert.equal(p.live.hidden, true);
+});
+
+test("the focused element is found again in the fresh part by its place, kind and text", () => {
+  const { pathOf, atPath } = require(join(here, "..", "..", "management", "src", "management", "static", "management", "table.js"));
+  const tree = (text) => {
+    const button = { tagName: "BUTTON", textContent: text, children: [] };
+    const th = { tagName: "TH", textContent: text, children: [button] };
+    const root = { children: [th] };
+    button.parentNode = th; th.parentNode = root;
+    return { root, button };
+  };
+  const old = tree("Seen"), fresh = tree("Seen"), other = tree("Up");
+  const path = pathOf(old.root, old.button);
+  assert.deepEqual(path, [0, 0]);
+  assert.equal(atPath(fresh.root, path, "BUTTON", "Seen"), fresh.button);
+  assert.equal(atPath(other.root, path, "BUTTON", "Seen"), null);  // the column changed: no focus is guessed
 });

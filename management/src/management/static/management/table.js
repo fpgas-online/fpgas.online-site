@@ -11,11 +11,13 @@
  * its headers stay plain text. A page that rebuilds a table's body calls MgmtTable.resort(table) to keep the order.
  *
  * The order the reader chose is kept (Tim, 16 Oct 2026, site #138: "The page seems to reload and drop the sort order
- * every few seconds."): it is remembered per page by the table's name and the column's header text, so a table
- * drawn again (a refresh in place below, a reload of the page) is sorted the same way again. A page whose live part
+ * every few seconds."): it is remembered per page (its path: a filter in the query keeps it) by the table's name and
+ * the column's header text, so a table drawn again (a refresh in place below, a reload, the same page filtered) is
+ * sorted the same way again. A page whose live part
  * is marked data-mgmt-refresh="<seconds>" is refreshed in place: the same URL (its filter included) is fetched, the
- * marked part is swapped for the new one, its tables sorted as the reader had them and scrolled where they were. A
- * refresh that fails says so in #mgmt-live and leaves the tables as they were.
+ * marked part is swapped for the new one, its tables sorted as the reader had them and scrolled where they were, and
+ * the element that had the keyboard focus focused again. A refresh that fails, or does not answer within
+ * REFRESH_TIMEOUT seconds, says so in #mgmt-live and leaves the tables as they were.
  */
 (function () {
   function value(cell) {
@@ -77,13 +79,16 @@
      is not there (a private window, blocked site data) only loses the reload case. */
   var chosen = {};
   var storeKey = null;
-  if (typeof location !== "undefined" && location) { storeKey = "mgmt-sort:" + location.pathname + location.search; }
+  if (typeof location !== "undefined" && location) { storeKey = "mgmt-sort:" + location.pathname; }
   try {
     if (storeKey && typeof sessionStorage !== "undefined") { chosen = JSON.parse(sessionStorage.getItem(storeKey)) || {}; }
   } catch (e) { chosen = {}; }
   function remember() {
     try {
-      if (storeKey && typeof sessionStorage !== "undefined") { sessionStorage.setItem(storeKey, JSON.stringify(chosen)); }
+      if (storeKey && typeof sessionStorage !== "undefined") {
+        if (Object.keys(chosen).length) { sessionStorage.setItem(storeKey, JSON.stringify(chosen)); }
+        else { sessionStorage.removeItem(storeKey); }
+      }
     } catch (e) { /* the order is still kept in memory for the refreshes of this page */ }
   }
 
@@ -151,13 +156,35 @@
     if (p) { p.textContent = text; p.hidden = !text; }
   }
 
+  /* Where `node` is under `root`: its child indices, so the same place can be found in a fresh copy of the part. */
+  function pathOf(root, node) {
+    var path = [];
+    while (node && node !== root) {
+      if (!node.parentNode) { return null; }
+      path.unshift(Array.prototype.indexOf.call(node.parentNode.children, node));
+      node = node.parentNode;
+    }
+    return node === root ? path : null;
+  }
+
+  /* The element at `path` under `root` when it is the same kind of element with the same text, else null. */
+  function atPath(root, path, tag, text) {
+    var node = root;
+    for (var i = 0; node && i < path.length; i++) { node = node.children[path[i]]; }
+    return node && node.tagName === tag && node.textContent === text ? node : null;
+  }
+
+  var REFRESH_TIMEOUT = 20;  /* seconds a refresh may take before the page says it did not answer */
+
   /* Refresh the marked part of the page in place every `seconds` (site #138). */
   function refreshEvery(region, seconds) {
     var busy = false, drawn = new Date();  /* when the tables on screen were read */
     function tick() {
       if (busy) { return; }
       busy = true;
-      fetch(location.href, {headers: {"Accept": "text/html"}, cache: "no-store"})
+      var abort = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var timer = setTimeout(function () { if (abort) { abort.abort(); } }, REFRESH_TIMEOUT * 1000);
+      fetch(location.href, {headers: {"Accept": "text/html"}, cache: "no-store", signal: abort ? abort.signal : undefined})
         .then(function (r) {
           if (!r.ok) { throw new Error("HTTP " + r.status); }
           return r.text();
@@ -170,6 +197,9 @@
           Array.prototype.forEach.call(region.querySelectorAll(".mgmt-scroll"), function (s, i) {
             scrolled[s.getAttribute("aria-label") || i] = [s.scrollLeft, s.scrollTop];
           });
+          /* the keyboard focus, by its place in the part, its kind and its text */
+          var focused = document.activeElement, focusPath = focused ? pathOf(region, focused) : null;
+          var focusTag = focused && focused.tagName, focusText = focused && focused.textContent;
           fresh = document.importNode(fresh, true);
           region.replaceWith(fresh);
           region = fresh;
@@ -178,20 +208,26 @@
             var at = scrolled[s.getAttribute("aria-label") || i];
             if (at) { s.scrollLeft = at[0]; s.scrollTop = at[1]; }
           });
+          if (focusPath) {
+            var again = atPath(region, focusPath, focusTag, focusText);
+            if (again) { again.focus({preventScroll: true}); }
+          }
           drawn = new Date();
           say("");
         })
         .catch(function (e) {
-          say("This page could not be refreshed (" + e.message + "). The tables below were read " +
+          var why = e && e.name === "AbortError" ? "the site did not answer within " + REFRESH_TIMEOUT + " s" : e.message;
+          say("This page could not be refreshed (" + why + "). The tables below were read " +
               Math.round((new Date() - drawn) / 60000) + " min ago.");
         })
-        .then(function () { busy = false; });
+        .then(function () { clearTimeout(timer); busy = false; });
     }
     setInterval(tick, seconds * 1000);
   }
 
   if (typeof module !== "undefined") {
-    module.exports = {compare: compare, order: order, value: value, resort: resort, headText: headText};
+    module.exports = {compare: compare, order: order, value: value, resort: resort, headText: headText,
+                      refreshEvery: refreshEvery, pathOf: pathOf, atPath: atPath};
   }
   if (typeof window !== "undefined") { window.MgmtTable = {resort: resort}; }
   if (typeof document !== "undefined") {
