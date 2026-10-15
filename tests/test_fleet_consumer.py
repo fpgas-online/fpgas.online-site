@@ -411,8 +411,10 @@ def test_a_retained_registration_of_a_known_machine_leaves_last_seen():
 
 @pytest.mark.django_db
 def test_a_retained_registration_of_a_new_machine_creates_it():
+    before = timezone.now()
     assert consumer.dispatch(PI + "registration", json.dumps(DOC).encode(), retained=True) == "registration"
-    assert Machine.objects.get(serial="abc").last_seen is not None  # required: the time the site first heard of it
+    # last_seen is required: a machine new to the site gets the time the site first heard of it
+    assert before <= Machine.objects.get(serial="abc").last_seen <= timezone.now()
 
 
 @pytest.mark.django_db
@@ -437,3 +439,35 @@ def test_the_mqtt_callback_passes_the_retain_flag(monkeypatch, retain):
                         lambda topic, payload, retained=False: seen.append((topic, payload, retained)))
     fleet_consumer.on_message(None, None, SimpleNamespace(topic=PI + "status", payload=b"{}", retain=retain))
     assert seen == [(PI + "status", b"{}", bool(retain))]
+
+
+def test_the_command_wires_the_callback_and_a_real_paho_message_carries_retain(monkeypatch, settings):
+    """handle() hands the module's on_message to paho, and paho's own MQTTMessage carries the flag it passes."""
+    import paho.mqtt.client as mqtt
+    from fleet.management.commands import fleet_consumer
+
+    made = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            made.append(self)
+
+        def connect(self, host, port):
+            pass
+
+        def loop_forever(self, **kwargs):
+            pass
+
+    settings.FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}
+    monkeypatch.setattr(fleet_consumer.mqtt, "Client", FakeClient)
+    fleet_consumer.Command().handle()
+    assert made[0].on_message is fleet_consumer.on_message
+
+    seen = []
+    monkeypatch.setattr(fleet_consumer.consumer, "dispatch",
+                        lambda topic, payload, retained=False: seen.append(retained))
+    msg = mqtt.MQTTMessage(topic=(PI + "status").encode())
+    msg.payload = b"{}"
+    msg.retain = True
+    fleet_consumer.on_message(None, None, msg)
+    assert seen == [True]
