@@ -335,7 +335,7 @@ def _header(html):
 def _groups(html):
     """[(group, its number of columns)] of the Pi table's group row, or [] when it has none."""
     head = _hosts_table(html).split("</thead>", 1)[0]
-    return [(name, int(n)) for n, name in re.findall(r'<th scope="colgroup" colspan="(\d+)" class="mgmt-group">(.*?)</th>',
+    return [(name, int(n)) for n, name in re.findall(r'<th scope="colgroup" colspan="(\d+)" class="mgmt-group"[^>]*>(.*?)</th>',
                                                        head)]
 
 
