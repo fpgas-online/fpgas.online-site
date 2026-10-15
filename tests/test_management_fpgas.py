@@ -837,7 +837,7 @@ def test_a_xilinx_pcie_card_is_a_pcie_card_and_an_unknown_board_name_is_a_note(f
 def test_a_fail_whose_reason_names_no_test_says_the_test_and_result_first():
     from management.views.fpgas import _mark
 
-    board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "not_run": [], "failing": ["jtag"],
+    board = {"label": "acorn-holly 0x1", "tests": [("jtag", "fail")], "not_run": [], "not_run_parts": [], "failing": ["jtag"],
              "result": "fail", "title": "Acorn", "type": "Acorn", "reason": "the board did not answer"}
     assert _mark(board, "jtag", {})[0].title == "jtag fail: the board did not answer"
     assert _mark(dict(board, reason=""), "jtag", {})[0].title == "jtag fail"
@@ -874,3 +874,34 @@ def test_the_fleet_page_says_times_are_the_zone_in_the_exact_form_the_gateway_ve
     settings.MANAGEMENT_TIME_ZONE = zone
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert f"Times are {zone}." in html
+
+
+@pytest.mark.django_db
+def test_a_part_of_a_test_left_out_is_said_in_that_tests_cell(fleet):
+    """fpgas-verify's not_run may name a part of a test that ran ("scratch over BAR0"): said, never dropped."""
+    pi("pi-sw2-p30", {"result": "fail", "board0": "acorn cle-215+ fail", "board0_tests": "scratch=pass",
+                      "board0_not_run": "scratch over BAR0"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert _by_serial(html)["pi-sw2-p30"]["scratch"] == "✓"
+    assert 'title="scratch passed (scratch over BAR0 not run)"' in html
+
+
+@pytest.mark.django_db
+def test_did_not_run_says_only_what_the_check_said(fleet):
+    """A board that stopped before its tests and gave no reason: the title is its result, nothing invented."""
+    pi("pi-sw2-p30", {"result": "error", "board0": "acorn cle-215+ error"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert 'title="jtag did not run: the check of this board gave error"' in html
+    assert "did not run: an earlier check did not pass" not in html
+
+
+@pytest.mark.django_db
+def test_a_stopped_board_with_no_board_of_its_type_to_compare_says_so(fleet):
+    """No other board of its type and variant reported its checks: the cells stay – (nothing is known) and Notes says
+    the checks are not reported, loud (fpgas.online-test-designs#339)."""
+    pi("pi-sw1-p38", {"result": "fail", "board0": "xilinx-pcie - fail"})
+    pi("pi-sw2-p30", {"result": "error", "board0": "acorn other-variant error"})
+    rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
+    assert "PCIe card: checks not reported" in rows["pi-sw1-p38"]["Notes"]
+    # a variant is its own type: the CLE-215+ Acorns' checks are not this one's
+    assert rows["pi-sw2-p30"]["jtag"] == "–" and "Acorn OTHER-VARIANT: checks not reported" in rows["pi-sw2-p30"]["Notes"]

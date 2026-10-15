@@ -230,14 +230,23 @@ def board_tests(detail, index):
     return [(_text(name, 40), _text(result, 20)) for name, _, result in (w.partition("=") for w in words) if result]
 
 
-def not_run_tests(detail, index):
-    """The tests a board's check left out because something earlier did not pass (fpgas-verify's `board<i>_not_run`:
-    names joined by ", "), in its order: "should have run, did not" on the Pi table (site #127). A name with a
-    space ("scratch over BAR0") is part of a test that ran, not a test of its own: it stays out of the columns."""
+def _not_run_names(detail, index):
     names = detail.get(f"board{index}_not_run", "")
     if not isinstance(names, str):
         return []
-    return [_text(n.strip(), 40) for n in names.split(",") if n.strip() and " " not in n.strip()]
+    return [_text(n.strip(), 60) for n in names.split(",") if n.strip()]
+
+
+def not_run_tests(detail, index):
+    """The tests a board's check left out because something earlier did not pass (fpgas-verify's `board<i>_not_run`:
+    names joined by ", "), in its order: "should have run, did not" on the Pi table (site #127)."""
+    return [n for n in _not_run_names(detail, index) if " " not in n]
+
+
+def not_run_parts(detail, index):
+    """The parts of tests that ran which the check left out ("scratch over BAR0": a name with a space, the test's
+    name first): said in that test's cell, never dropped (the review of #128)."""
+    return [n for n in _not_run_names(detail, index) if " " in n]
 
 
 def failing_tests(detail, index):
@@ -354,7 +363,7 @@ def hosts(now=None):
                            "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
                            "failing": failing_tests(detail, i), "tests": board_tests(detail, i),
-                           "not_run": not_run_tests(detail, i),
+                           "not_run": not_run_tests(detail, i), "not_run_parts": not_run_parts(detail, i),
                            # the type as a visitor reads it, its variant with it (#127): "Acorn CLE-215+", "TT FPGA"
                            "type": f"{board_title(b)} {variant.upper()}" if variant else board_title(b)})
         kinds = []

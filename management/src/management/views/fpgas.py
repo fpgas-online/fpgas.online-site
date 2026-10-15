@@ -173,15 +173,20 @@ def check_names(hosts):
 
 
 def planned_by_type(hosts):
-    """{board type: the checks a board of that type runs}, as the fleet's boards of that type reported them (ran or
-    left out). For a board whose check stopped before any test (no tests, no not_run, not passed) these are the
-    checks it should have run: what other boards of its type ran, never a guess (fpgas.online-test-designs#339 asks
-    the check to say so itself)."""
+    """{board type and variant ("Acorn CLE-215+"): the checks a board of it runs}, as the fleet's boards of that type
+    and variant reported them (ran or left out). For a board whose check stopped before any test (no tests, no
+    not_run, not passed) these are the checks it should have run: what other boards of its type and variant ran,
+    never a guess (fpgas.online-test-designs#339 asks the check to say so itself)."""
     planned = {}
     for host in hosts:
         for b in host.boards:
-            planned.setdefault(b["title"], {}).update(dict.fromkeys([*(n for n, _ in b["tests"]), *b["not_run"]]))
-    return {title: list(names) for title, names in planned.items()}
+            planned.setdefault(b["type"], {}).update(dict.fromkeys([*(n for n, _ in b["tests"]), *b["not_run"]]))
+    return {kind: list(names) for kind, names in planned.items()}
+
+
+def _stopped(board):
+    """Whether a board's check stopped before any test: no test ran, none was left out, and it did not pass."""
+    return not board["tests"] and not board["not_run"] and board["result"] != "pass"
 
 
 def test_reason(board, name, whole=True):
@@ -204,16 +209,18 @@ def test_reason(board, name, whole=True):
 
 def _mark(board, name, planned):
     result = dict(board["tests"]).get(name)
+    # parts of this test the check left out ("scratch over BAR0"), said with it (the review of #128)
+    parts = [p for p in board["not_run_parts"] if p.startswith(f"{name} ")]
+    left_out = f" ({', '.join(parts)} not run)" if parts else ""
     if result == "pass":
-        return Mark(PASSED[0], PASSED[1], f"{name} passed"), PASSED[2]
+        return Mark(PASSED[0], PASSED[1], f"{name} passed{left_out}"), PASSED[2]
     if result is not None:
         # every result but "pass" is a failure (fpgas-verify: only "pass" means the board is as it should be)
         reason = test_reason(board, name)
         said = f"{name} {result}"  # the check's own words start so ("pin-id fail: 0/18 pins match"): not said twice
         title = reason if reason.startswith(said) else said + (f": {reason}" if reason else "")
-        return Mark(FAILED[0], FAILED[1], title), FAILED[2]
-    stopped = not board["tests"] and not board["not_run"] and board["result"] != "pass"
-    if name in board["not_run"] or (stopped and name in planned.get(board["title"], ())):
+        return Mark(FAILED[0], FAILED[1], title + left_out), FAILED[2]
+    if name in board["not_run"] or (_stopped(board) and name in planned.get(board["type"], ())):
         # the check's own words for this test ("ddr not run: it needs jtag to pass first"); else the checks of this
         # board that did not pass; else (a check that stopped before its tests) the board's reason
         own = test_reason(board, name, whole=False)
@@ -221,8 +228,10 @@ def _mark(board, name, planned):
             title = own
         elif board["failing"]:
             title = f"{name} did not run: {', '.join(board['failing'])} did not pass"
-        else:
-            title = f"{name} did not run: " + (board["reason"] or "an earlier check did not pass")
+        elif board["reason"]:
+            title = f"{name} did not run: {board['reason']}"
+        else:  # what the check said of the board, nothing invented (the review of #128)
+            title = f"{name} did not run: the check of this board gave {board['result'] or 'no result'}"
         return Mark(NOT_RUN[0], NOT_RUN[1], title), NOT_RUN[2]
     return Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable to {board['type']}"), NOT_APPLICABLE[2]
 
@@ -260,6 +269,10 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
     port, port_title, sort_port, port_note = _port(host, observed)
     if port_note:
         notes.append(port_note)
+    # a board whose check stopped before its tests, with no board of its type to say which it runs: loud, not dashes
+    # alone (fpgas.online-test-designs#339 asks the check to list them)
+    notes.extend(f"{b['type']}: checks not reported" for b in host.boards
+                 if _stopped(b) and not (planned or {}).get(b["type"]))
     registered = fpga.registered_model(host.machine)
     model_title = "; ".join(t for t in (fields.model if fields.model != fields.short else "",
                                          f"registered as {registered}" if registered else "") if t)
