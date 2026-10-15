@@ -1,9 +1,13 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}{% if reload %}<meta http-equiv="refresh" content="60">{% endif %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
+{# the tables refresh in place, keeping the reader's sort, filter and scroll (table.js, site #138); only a browser
+   without JavaScript, which cannot sort, reloads the whole page #}
+{% block extra_head %}{% if reload %}<noscript><meta http-equiv="refresh" content="60"></noscript>{% endif %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
 {% block body %}
 <h1>Raspberry Pis</h1>
+<p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
+<div{% if reload %} data-mgmt-refresh="60"{% endif %}>
 
 {# the count columns' headers are the State badges the rows below carry: the header explains itself (the coordinator, 11 Oct 2026); the totals row is the table's foot, so a sort keeps it last #}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-summary mgmt-fit mgmt-striped mgmt-sortable">
@@ -55,6 +59,7 @@
 </table></div>
 {% empty %}<p>No Raspberry Pi{% if filtered %} matches{% else %} has registered{% endif %}.</p>
 {% endfor %}
+</div>
 
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
@@ -65,7 +70,7 @@
   <li>Up: the uptime it last reported. Seen: its last status beat. Times are {{ zone }}. The exact time is in each one's title.</li>
   <li>Then a column per check across the fleet, grouped (basic, memory, peripherals, board specific) and in the order one needs another: ✓ ran and passed, ✗ ran and failed (the reason on hover; it links the Pi's page), ⊘ did not run because an earlier check did not pass, – not applicable to this board; a Pi with two boards has a mark per board, in the Board cell's order. Notes: what the page could not read (a revision, a clock, a lease).</li>
   <li>Every column sorts: a click on its header, again to reverse, a third time for the served order (what needs a person first).</li>
-  <li>{% if reload %}The page reloads every minute: <a href="{{ reload_off }}">stop</a>.{% else %}The page does not reload: <a href="{{ reload_on }}">reload every minute</a>.{% endif %}</li>
+  <li>{% if reload %}The tables refresh every minute in place, keeping your sort, filter and scroll: <a href="{{ reload_off }}">stop</a>.{% else %}The tables do not refresh: <a href="{{ reload_on }}">refresh every minute</a>.{% endif %}</li>
 </ul>
 </details>
 {% endblock %}

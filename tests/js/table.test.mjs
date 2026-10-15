@@ -113,3 +113,75 @@ test("a body rebuilt after the page loaded is sorted as the headers say (resort)
   buttons[0].listeners.click();  // the served order of the new body
   assert.equal(fresh.body.rows.map((r) => r.cells[0].textContent).join(""), "zxy");
 });
+
+// site #138: the order the reader chose survives the table being drawn again (a refresh in place, a reload).
+function namedTable(data, names) {
+  const t = fakeTable(data);
+  t.heads.forEach((th, i) => { th.childNodes = [{ nodeType: 3, nodeValue: ` ${names[i]} ` }]; });
+  t.closest = () => ({ getAttribute: () => "Raspberry Pis" });
+  return t;
+}
+function loadWith(table, store) {
+  const buttons = [];
+  globalThis.location = { pathname: "/fleet/", search: "?condition=attention" };
+  globalThis.sessionStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = v; },
+  };
+  globalThis.document = {
+    createElement: () => {
+      const b = { listeners: {}, firstChild: null, appendChild(c) { b.child = c; }, addEventListener(e, f) { b.listeners[e] = f; } };
+      buttons.push(b);
+      return b;
+    },
+    querySelectorAll: () => [table],
+  };
+  const path = join(here, "..", "..", "management", "src", "management", "static", "management", "table.js");
+  delete require.cache[require.resolve(path)];
+  require(path);
+  return buttons;
+}
+const texts = (t) => t.body.rows.map((r) => r.cells[0].textContent + r.cells[1].textContent).join(" ");
+
+test("a table drawn again is sorted as the reader left it, by the header's text, even with a column added", () => {
+  const store = {};
+  const first = namedTable([[cell("b"), cell("x", 3)], [cell("a"), cell("y", 1)], [cell("c"), cell("z", 2)]], ["Serial", "Seen"]);
+  const buttons = loadWith(first, store);
+  buttons[1].listeners.click();
+  buttons[1].listeners.click();  // Seen, descending
+  assert.equal(texts(first), "bx cz ay");
+  assert.deepEqual(JSON.parse(store["mgmt-sort:/fleet/?condition=attention"]),
+                   { "Raspberry Pis": { column: "Seen", direction: "descending" } });
+  // the page is drawn again (refresh or reload) with a new column in front: Seen is now the third column
+  const again = namedTable([[cell("-"), cell("q"), cell("1")], [cell("-"), cell("r"), cell("9")], [cell("-"), cell("s"), cell("5")]],
+                           ["New", "Serial", "Seen"]);
+  loadWith(again, store);
+  assert.deepEqual(again.heads.map((h) => h.attrs["aria-sort"]), ["none", "none", "descending"]);
+  assert.equal(again.body.rows.map((r) => r.cells[2].textContent).join(""), "951");
+});
+
+test("a third click forgets the order, so the next drawing keeps the served order", () => {
+  const store = {};
+  const t = namedTable([[cell("b"), cell("x")], [cell("a"), cell("y")]], ["Serial", "Seen"]);
+  const buttons = loadWith(t, store);
+  buttons[0].listeners.click(); buttons[0].listeners.click(); buttons[0].listeners.click();
+  assert.deepEqual(JSON.parse(store["mgmt-sort:/fleet/?condition=attention"]), {});
+  const again = namedTable([[cell("b"), cell("x")], [cell("a"), cell("y")]], ["Serial", "Seen"]);
+  loadWith(again, store);
+  assert.equal(texts(again), "bx ay");
+});
+
+test("storage that throws (a private window) still sorts and keeps no order across a reload", () => {
+  const t = namedTable([[cell("b"), cell("x")], [cell("a"), cell("y")]], ["Serial", "Seen"]);
+  const buttons = loadWith(t, {});
+  globalThis.sessionStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  buttons[0].listeners.click();
+  assert.equal(texts(t), "ay bx");
+});
+
+test("a header's text leaves out its words for a screen reader", () => {
+  const { headText } = require(join(here, "..", "..", "management", "src", "management", "static", "management", "table.js"));
+  const th = { childNodes: [{ nodeType: 3, nodeValue: "jtag " },
+                            { nodeType: 1, classList: { contains: (c) => c === "mgmt-sr" }, childNodes: [{ nodeType: 3, nodeValue: "check" }] }] };
+  assert.equal(headText(th), "jtag");
+});
