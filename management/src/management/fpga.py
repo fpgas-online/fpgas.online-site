@@ -72,38 +72,77 @@ def registered_model(machine):
     return _text(model, MAX_TEXT) if isinstance(model, str) else ""
 
 
-def pi_label_parts(machine):
-    """(label, why, note) of a host: its label by rpi-hwid's own rules ("Pi 5 2 GB 285df3f84af242d0", from the revision
-    code its registration sent: decode_revision, the label header's "Pi <model>"; a host with no revision code, an
-    Orange Pi, by rpi-hwid's identify(): "Orange Pi PC 02c0008164c2a1b0"). What keeps a host from its label is
-    `why` in full ("revision 'zz' not readable") and `note` as a short value ("revision unreadable"); both are ""
-    for a host with a label. The label of such a host is its serial alone."""
+@dataclass(frozen=True)
+class PiFields:
+    """A host's label as its values, each its own column on the Pi dashboard (Tim, 15 Oct 2026: "Model names in the
+    same column as serial numbers"): the model as the label's header names it ("Pi 5", "Pi 3 Model B+", "Orange Pi
+    PC"), the memory ("2 GB", "" where the registration gave none), the serial. `why` and `note` say what keeps the
+    host from its label (both "" for a host with one); such a host has no model and no memory, only its serial."""
+    model: str
+    memory: str
+    serial: str
+    why: str = ""
+    note: str = ""
+
+    @property
+    def label(self):
+        """"Pi 5 2 GB 285df3f84af242d0", or the serial alone for a host with no label."""
+        return " ".join(part for part in (self.model, self.memory, self.serial) if part)
+
+    @property
+    def memory_mb(self):
+        """The memory as a number of MB, for sorting ("512 MB" before "1 GB"); 0 for none."""
+        if not self.memory:
+            return 0
+        number, _, unit = self.memory.partition(" ")
+        scale = {"MB": 1, "GB": 1024, "TB": 1024 * 1024}.get(unit)
+        try:
+            value = float(number)
+        except ValueError:
+            value = None
+        if scale is None or value is None:
+            raise ValueError(f"memory {self.memory!r} is not '<number> MB|GB|TB'")
+        return int(value * scale)
+
+
+def pi_fields(machine):
+    """A host's label by rpi-hwid's own rules, as its values (PiFields): from the revision code its registration sent
+    (decode_revision, the label header's "Pi <model>"), or for a host with no revision code, an Orange Pi, by
+    rpi-hwid's identify() ("Orange Pi PC"). What keeps a host from its label is `why` in full ("revision 'zz' not
+    readable") and `note` as a short value ("revision unreadable")."""
     doc = machine.latest_snapshot.document if machine.latest_snapshot else {}
     facts = doc.get("machine") if isinstance(doc, dict) else None
     facts = facts if isinstance(facts, dict) else {}
     code, model = facts.get("revision_code"), facts.get("model")
     serial = machine.serial
     if code is not None and (not isinstance(code, str) or not code):
-        return serial, f"revision {_text(str(code), 20)!r} not readable", "revision unreadable"
+        return PiFields("", "", serial, f"revision {_text(str(code), 20)!r} not readable", "revision unreadable")
     if code:
         try:
             rev = decode_revision(code)
         except (ValueError, KeyError):
-            return serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable"
-        return f"Pi {rev.model} {rev.memory} {serial}", "", ""
+            return PiFields("", "", serial, f"revision {_text(code, 20)!r} not readable", "revision unreadable")
+        return PiFields(f"Pi {rev.model}", rev.memory, serial)
     if model is None:
-        return serial, "no model registered", "no model registered"
+        return PiFields("", "", serial, "no model registered", "no model registered")
     if not isinstance(model, str) or not model.strip():
-        return serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable"
+        return PiFields("", "", serial, f"model {_text(str(model), 40)!r} not readable", "model unreadable")
     kb = facts.get("mem_total_kb")
     memory = nominal_memory(kb) if isinstance(kb, int) and not isinstance(kb, bool) and kb > 0 else None
     try:
         ident = identify(Summary(model=model.strip(), serial=serial, revision="", memory=memory))
     except (ValueError, KeyError):  # a Raspberry Pi by its model, with no revision code to decode
-        return serial, "no revision code registered", "no revision code"
+        return PiFields("", "", serial, "no revision code registered", "no revision code")
     if ident is None:
-        return serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown"
-    return " ".join(part for part in (ident.short, memory, serial) if part), "", ""
+        return PiFields("", "", serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown")
+    return PiFields(ident.short, memory or "", serial)
+
+
+def pi_label_parts(machine):
+    """(label, why, note) of a host: its label ("Pi 5 2 GB 285df3f84af242d0", "Orange Pi PC 02c0008164c2a1b0"), or
+    its serial alone with what keeps it from its label (pi_fields)."""
+    fields = pi_fields(machine)
+    return fields.label, fields.why, fields.note
 
 
 def pi_label(machine):
