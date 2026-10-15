@@ -308,8 +308,9 @@ def _cells(table_html):
             for tr in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
 
 
-FIXED = ["State", "Model", "Memory", "Serial", "Port", "Board", "ID", "Boot check", "Checked", "Offered", "Why not",
-         "Up", "Seen", "Notes"]
+# the checks follow Seen, a column each; Notes is last (the checks are what a reader scans for, #123)
+FIXED = ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Boot check", "Checked", "Offered", "Why not",
+         "Up", "Seen"]
 
 
 def _hosts_table(html):
@@ -348,7 +349,7 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     header = _header(html)
     # a value per column (Tim, 15 Oct 2026): the label's model, memory and serial apart, the checks between
-    assert header[:len(FIXED)] == FIXED  # the checks follow, a column each
+    assert header[:len(FIXED)] == FIXED and header[-1] == "Notes"  # the checks between, a column each
     rows = _rows(html)
     by_port = _by_port(html)
     # the Boot check cell holds the verdict word and nothing else: no test, no mark
@@ -378,7 +379,7 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     # Seen is the time only
     assert by_port["sw2 p4"]["Seen"] == "7 h ago" and by_port["sw2 p46"]["Seen"].endswith("ago")
     # these Pis registered no model: Model and Memory are empty, Notes says why in a short value
-    assert (by_port["sw2 p46"]["Model"], by_port["sw2 p46"]["Memory"]) == ("", "")
+    assert (by_port["sw2 p46"]["Model"], by_port["sw2 p46"]["RAM"]) == ("", "")
     assert by_port["sw2 p46"]["Notes"] == "no model registered"
     # what needs a person first, then by switch and port
     assert [r["State"] for r in rows] == ["needs attention", "needs attention", "missing", "checking", "operational",
@@ -392,7 +393,7 @@ def test_every_check_is_a_column_of_the_one_table_pass_fail_or_not_applicable(fl
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     # no table per board type: one table, its check columns grouped by type, each type's in its check's order
     assert " tests</h2>" not in html and "mgmt-testgrid" not in html and html.count("<table") == 2
-    checks = _header(html)[len(FIXED):]
+    checks = _header(html)[len(FIXED):-1]
     assert checks[:4] == ["pcie-link", "pcie-bar0", "rp1-pio", "jtag"]  # the Acorn's, first by type
     assert checks[-3:] == ["pin-id", "uart", "spiflash"]  # then the TT board's
     assert len(set(checks)) == len(checks)
@@ -680,7 +681,7 @@ def test_a_revision_that_cannot_be_read_is_a_short_note_and_the_label_is_the_ser
     assert fpga.pi_label_parts(m) == ("285df3f84af242d0", "revision 'zz' not readable", "revision unreadable")
     assert fpga.pi_label(m) == "285df3f84af242d0 (revision 'zz' not readable)"  # the registry JSON's one string
     row = _rows(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[0]
-    assert (row["Model"], row["Memory"], row["Serial"]) == ("", "", "285df3f84af242d0")
+    assert (row["Model"], row["RAM"], row["Serial"]) == ("", "", "285df3f84af242d0")
     assert row["Notes"] == "revision unreadable"
     assert "not readable" not in Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
 
@@ -731,8 +732,8 @@ def test_memory_is_its_own_column_and_sorts_as_megabytes():
         m.save()
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     rows = _by_serial(html)
-    assert (rows["s-a"]["Model"], rows["s-a"]["Memory"]) == ("Pi 3B+", "1 GB")
-    assert (rows["s-c"]["Model"], rows["s-c"]["Memory"]) == ("Pi Zero 2 W", "512 MB")
+    assert (rows["s-a"]["Model"], rows["s-a"]["RAM"]) == ("Pi 3B+", "1 GB")
+    assert (rows["s-c"]["Model"], rows["s-c"]["RAM"]) == ("Pi Zero 2 W", "512 MB")
     assert 'data-label="Memory" data-sort="1024">1 GB</td>' in html and 'data-sort="512">512 MB</td>' in html
     assert 'title="Pi 3 Model B+">Pi 3B+</td>' in html  # the label's own words on hover
 
