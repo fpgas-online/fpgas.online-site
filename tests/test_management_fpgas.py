@@ -967,3 +967,18 @@ def test_a_planned_check_with_no_test_yet_names_its_issue(fleet):
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     assert _by_serial(html)["pi-sw2-p30"]["ethernet"] == "⊘"
     assert 'title="ethernet did not run: no boot-check test yet (fpgas.online-test-designs#341)"' in html
+
+
+@pytest.mark.django_db
+def test_a_pi_whose_revision_cannot_be_read_is_never_taken_for_a_host_without_a_board():
+    """The review of #134 (finding 9): carries_no_board is only for a host rpi-hwid identifies as another board; a Pi
+    whose label cannot be made is still a Pi, and finding no board still needs attention."""
+    from fleet.models import HardwareSnapshot
+
+    m = pi("pi-sw2-p21", {"result": "missing"}, serial="10000000bbbb0021")
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="z", document={
+        "machine": {"serial": m.serial, "revision_code": "zz"}})
+    m.save()
+    assert fpga.carries_no_board(m) is False
+    assert _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[
+        "10000000bbbb0021"]["State"] == "!"
