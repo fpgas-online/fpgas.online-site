@@ -9,9 +9,10 @@ from management import check_groups
 
 
 def test_jtag_comes_first_and_groups_keep_their_order():
-    names = ["pcie-link", "ddr", "uart", "jtag", "flash", "pin-id"]
-    assert check_groups.grouped(names) == [("basic", ["jtag"]), ("memory", ["flash", "ddr"]), ("peripherals", ["uart"]),
-                                           ("board specific", ["pcie-link", "pin-id"])]
+    names = ["pcie-link", "ddr", "uart", "jtag", "flash", "wiring"]
+    assert check_groups.grouped(names) == [("basic", ["jtag", "wiring"]), ("memory", ["flash", "ddr"]),
+                                           ("peripherals", ["uart"]),
+                                           ("board specific", ["pcie-link"])]
 
 
 def test_a_check_no_group_names_is_shown_last_under_not_grouped_never_hidden():
@@ -24,7 +25,7 @@ def test_every_check_fpgas_verify_runs_at_welland_has_a_group():
     seen = ["pcie-link", "pcie-bar0", "rp1-pio", "jtag", "flash", "ddr", "p2-uart", "p2-serial", "scratch", "p2-gpio",
             "uart", "spiflash", "ethernet", "pin-id", "header", "foboot", "foboot-after", "sdk", "dip-switches",
             "wiring"]
-    assert all(name in check_groups.GROUP_OF for name in seen)
+    assert all(check_groups.name(name) in check_groups.GROUP_OF for name in seen)
 
 
 def _css():

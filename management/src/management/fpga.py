@@ -16,6 +16,7 @@ from rpi_hwid.model import Summary
 from rpi_hwid.probe import nominal_memory
 from rpi_hwid.revision import decode_revision
 
+from . import check_groups
 from .states import WORDS
 
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them. "xilinx-pcie" is its name
@@ -99,6 +100,7 @@ class PiFields:
     serial: str
     why: str = ""
     note: str = ""
+    kind: str = "rpi"  # rpi-hwid's kind of host: "rpi" for a Raspberry Pi, else what identify() says ("h3" ...)
 
     @property
     def short(self):
@@ -145,7 +147,7 @@ def _other_board(facts, model, serial):
         return None
     if ident is None or ident.kind == "rpi":
         return None
-    return PiFields(ident.short, memory or "", serial)
+    return PiFields(ident.short, memory or "", serial, kind=ident.kind)
 
 
 def pi_fields(machine):
@@ -182,7 +184,7 @@ def pi_fields(machine):
         return PiFields("", "", serial, "no revision code registered", "no revision code")
     if ident is None:
         return PiFields("", "", serial, f"model {_text(model.strip(), 40)!r} not known to rpi-hwid", "model unknown")
-    return PiFields(ident.short, memory or "", serial)
+    return PiFields(ident.short, memory or "", serial, kind=ident.kind)
 
 
 def pi_label_parts(machine):
@@ -223,12 +225,13 @@ def board_indices(detail):
     return found[:MAX_BOARDS]
 
 
-def board_tests(detail, index):
+def board_tests(detail, index, alias=True):
     """[(name, result)] of a board's tests, in the check's order, from `board<i>_tests` ("sdk=pass
     dip-switches=fail"); a word without "=" is not a test."""
     tests = detail.get(f"board{index}_tests", "")
     words = tests.split() if isinstance(tests, str) else []
-    return [(_text(name, 40), _text(result, 20)) for name, _, result in (w.partition("=") for w in words) if result]
+    return [(check_groups.name(_text(name, 40)) if alias else _text(name, 40), _text(result, 20))
+            for name, _, result in (w.partition("=") for w in words) if result]
 
 
 def _not_run_names(detail, index):
@@ -241,7 +244,24 @@ def _not_run_names(detail, index):
 def not_run_tests(detail, index):
     """The tests a board's check left out because something earlier did not pass (fpgas-verify's `board<i>_not_run`:
     names joined by ", "), in its order: "should have run, did not" on the Pi table (site #127)."""
-    return [n for n in _not_run_names(detail, index) if " " not in n]
+    return [check_groups.name(n) for n in _not_run_names(detail, index) if " " not in n]
+
+
+def planned_tests(detail, index):
+    """The checks the board's type gets, as its own report says (fpgas-verify's `board<i>_planned`, space-separated,
+    in run order; fpgas.online-test-designs#339), or None for a report that does not say (an older verify)."""
+    planned = detail.get(f"board{index}_planned")
+    if not isinstance(planned, str):
+        return None
+    return [check_groups.name(_text(n, 40)) for n in planned.split()]
+
+
+def keyed_reasons(detail, index, key):
+    """{check: reason} of the report's `board<i>_<key>_<check>` entries (`not_run`: why a planned check did not run;
+    `not_applicable`: why a common check does not apply to this type), cut as every text a Pi sends."""
+    prefix = f"board{index}_{key}_"
+    return {check_groups.name(k[len(prefix):][:40]): _text(v) for k, v in detail.items()
+            if isinstance(k, str) and k.startswith(prefix) and isinstance(v, str)}
 
 
 def not_run_parts(detail, index):
@@ -277,6 +297,7 @@ class Host:
     checked_in: bool = False
     pi: Pi | None = None
     registered_kinds: list = field(default_factory=list)  # the board kinds its registration names, as it named them
+    no_board_expected: bool = False  # carries_no_board(): a host whose check finding no board is as it should be
 
     @property
     def board_text(self):
@@ -336,6 +357,19 @@ class Host:
         return said + (f": {reasons}" if reasons else "")
 
 
+# The type of a host that carries no FPGA board (the Orange Pi PCs, USB-booted from the hub Pi): its own row in the
+# summary, never "no board" as a board type.
+NO_FPGA = "no FPGA"
+
+
+def carries_no_board(machine):
+    """Whether a host carries no FPGA board by design: one switch (the coordinator's default for coord-65, Tim's
+    answer may change it): a host rpi-hwid identifies as a board that is not a Raspberry Pi (welland's Orange Pi PCs);
+    every Raspberry Pi on a fleet port is there to carry a board."""
+    fields = pi_fields(machine)
+    return not fields.why and fields.kind != "rpi"
+
+
 def hosts(now=None):
     """Every registered machine, by switch and port, with its check of the boot it is running."""
     now = now or timezone.now()
@@ -364,7 +398,12 @@ def hosts(now=None):
                            "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),
                            "failing": failing_tests(detail, i), "tests": board_tests(detail, i),
+                           # as the Pi sent them, old names and all: /fleet/registry.json's contract
+                           "reported_tests": board_tests(detail, i, alias=False),
                            "not_run": not_run_tests(detail, i), "not_run_parts": not_run_parts(detail, i),
+                           "planned": planned_tests(detail, i),
+                           "not_run_reasons": keyed_reasons(detail, i, "not_run"),
+                           "not_applicable": keyed_reasons(detail, i, "not_applicable"),
                            # the type as a visitor reads it, its variant with it (#127): "Acorn CLE-215+", "TT FPGA"
                            "type": f"{board_title(b)} {variant.upper()}" if variant else board_title(b)})
         kinds = []
@@ -374,10 +413,17 @@ def hosts(now=None):
             kinds = _snapshot_kinds(m.latest_snapshot.document if m.latest_snapshot else {})
             board_type = " + ".join(dict.fromkeys(SNAPSHOT_KINDS.get(k, OTHER) for k in kinds if k)) or NO_BOARD
         has_checked_in = m.serial in live
-        rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
+        no_board = not boards and not kinds and carries_no_board(m)
+        if no_board:
+            board_type = NO_FPGA
+        # a host that carries no board and whose check found none is as it should be (the coordinator's default for
+        # coord-65, 15 Oct 2026): judged as a check that passed, never "needs attention" for the absence of a board
+        judged = "pass" if no_board and state == "missing" else state
+        rows.append(Host(machine=m, condition=condition(judged, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,
                          registered_kinds=list(dict.fromkeys(_text(k, 40) for k in kinds if k)),
-                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None))
+                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None,
+                         no_board_expected=no_board))
     return sorted(rows, key=lambda r: r.place)
 
 

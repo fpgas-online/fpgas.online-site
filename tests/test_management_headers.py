@@ -65,7 +65,7 @@ def test_a_check_header_is_set_upright_so_its_column_is_as_wide_as_a_mark(c):
 
     pi("pi-sw2-p33", REAL["pi-sw2-p33"])
     html = c.get("/fleet/").content.decode()
-    assert re.search(r'<th scope="col" class="mgmt-checkhead" title="pin-id: [^"]+">pin-id</th>', html)
+    assert re.search(r'<th scope="col" class="mgmt-checkhead" title="wiring: [^"]+">wiring</th>', html)
     css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
     rule = next(body for sels, body in _rules(css) if ".mgmt-table th.mgmt-checkhead" in sels)
     assert "writing-mode: vertical-rl" in rule

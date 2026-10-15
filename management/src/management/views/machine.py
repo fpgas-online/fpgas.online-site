@@ -85,7 +85,7 @@ def _boards(host):
     for b in host.boards:
         docs = BOARD_DOCS.get(_docs_key(b))
         page, checks, per_test = (DOCS + docs[0], DOCS + docs[1] if docs[1] else "", docs[2]) if docs else ("", "", {})
-        tests = [(name, result, DOCS + per_test[name] if name in per_test else checks) for name, result in b["tests"]]
+        tests = [(name, result, DOCS + per_test[name] if name in per_test else checks) for name, result in b["reported_tests"]]  # as sent: the docs pages are named so (#132 reworks this table)
         boards.append(Board(b["label"], b["title"], b["result"], b["reason"], tests, page, checks))
     return boards
 

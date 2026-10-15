@@ -131,6 +131,7 @@ class Line:
     sort_checked: int
     severity: int
     offered: bool
+    offered_na: bool  # a host that carries no board is not offered and need not be: – (coord-65's default)
     offered_title: str  # "offered" or "not offered: <why>" (#127: "the 'why not' being a popup / shown on hover")
     notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page an offered Pi's ✓ links to
@@ -160,8 +161,10 @@ def boot_mark(host, checked_text=""):
     pass (failed, could not finish, found no board, unreadable, or a result the page does not know), ⟳ running,
     ⊘ not started; its words, and why the Pi is not offered, in the title."""
     word = _check_word(host)
+    if host.no_board_expected and host.state == "missing":
+        word = "found no board, as expected: this host carries none"
     title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why else "")
-    if host.state == "pass":
+    if host.state == "pass" or (host.no_board_expected and host.state == "missing"):
         return Mark(PASSED[0], PASSED[1], title), PASSED[2]
     if host.state == "verifying":
         return Mark("⟳", "mgmt-test-running", title), NOT_RUN[2]
@@ -218,22 +221,21 @@ def _visitor_pages(request):
     return pages
 
 
+def plan(board):
+    """(the checks the board's type gets, {check: why not applicable}, {check: the issue of a test not written yet}):
+    from the board's own report where it says (fpgas-verify's board<i>_planned and board<i>_not_applicable_<check>,
+    fpgas.online-test-designs#339/#340), else from the site's copy of verify's lists (check_groups.PLANNED); ((), {},
+    {}) for a type neither knows."""
+    known = check_groups.planned(board["title"]) or ((), {}, {})
+    checks = board["planned"] if board["planned"] is not None else list(known[0])
+    return checks, board["not_applicable"] or dict(known[1]), dict(known[2])
+
+
 def check_names(hosts):
-    """Every check name the shown Pis' boards ran or left out, in the order their checks gave them."""
+    """Every check the shown Pis' boards get, ran or left out, in the order their checks gave them (#129: a check a
+    board type should get is a column even before any board reports it)."""
     return list(dict.fromkeys(name for host in hosts for b in host.boards
-                              for name in [*(n for n, _ in b["tests"]), *b["not_run"]]))
-
-
-def planned_by_type(hosts):
-    """{board type and variant ("Acorn CLE-215+"): the checks a board of it runs}, as the fleet's boards of that type
-    and variant reported them (ran or left out). For a board whose check stopped before any test (no tests, no
-    not_run, not passed) these are the checks it should have run: what other boards of its type and variant ran,
-    never a guess (fpgas.online-test-designs#339 asks the check to say so itself)."""
-    planned = {}
-    for host in hosts:
-        for b in host.boards:
-            planned.setdefault(b["type"], {}).update(dict.fromkeys([*(n for n, _ in b["tests"]), *b["not_run"]]))
-    return {kind: list(names) for kind, names in planned.items()}
+                              for name in [*plan(b)[0], *(n for n, _ in b["tests"]), *b["not_run"]]))
 
 
 def _stopped(board):
@@ -243,13 +245,13 @@ def _stopped(board):
 
 def test_reason(board, name, whole=True):
     """What the board's check said about one test: the parts of its reason that start with the test's name ("pin-id
-    fail: the test exited 1", "ddr not run: it needs jtag to pass first"), the reason split at "; " as the check joins
-    it, a part that names no test going with the one before. A reason that names no test of the board is the board's
-    reason, whole."""
+    fail: the test exited 1", "ddr not run: it needs jtag to pass first"; an old name counts as its new one), the
+    reason split at "; " as the check joins it, a part that names no test going with the one before. A reason that
+    names no test of the board is the board's reason, whole."""
     names = {test for test, _ in board["tests"]} | set(board["not_run"])
     groups, current = {}, None
     for part in board["reason"].split("; ") if board["reason"] else ():
-        first = part.split(" ", 1)[0].rstrip(":")
+        first = check_groups.name(part.split(" ", 1)[0].rstrip(":"))
         if first in names:
             current = first
         if current is not None:
@@ -259,7 +261,24 @@ def test_reason(board, name, whole=True):
     return board["reason"] if whole else ""
 
 
-def _mark(board, name, planned):
+def _not_run_title(board, name, unwritten):
+    """Why a check the board should get did not run, from the most specific thing the data says."""
+    if name in board["not_run_reasons"]:
+        return f"{name} did not run: {board['not_run_reasons'][name]}"
+    own = test_reason(board, name, whole=False)
+    if own and " not run" in own.split(":", 1)[0]:
+        return own
+    if name in unwritten:
+        return f"{name} did not run: no boot-check test yet ({unwritten[name]})"
+    if _stopped(board):
+        return f"{name} did not run: " + (board["reason"] or f"the check of this board gave {board['result']}")
+    if name in board["not_run"] and board["failing"]:
+        return f"{name} did not run: {', '.join(board['failing'])} did not pass"
+    # the board's check ran but did not report this check (an older fpgas-verify: jtag was kept outside the tests)
+    return f"{name} was not reported by this board's check (fpgas.online-test-designs#340)"
+
+
+def _mark(board, name, planned=None):
     result = dict(board["tests"]).get(name)
     # parts of this test the check left out ("scratch over BAR0"), said with it (the review of #128)
     parts = [p for p in board["not_run_parts"] if p.startswith(f"{name} ")]
@@ -269,31 +288,29 @@ def _mark(board, name, planned):
     if result is not None:
         # every result but "pass" is a failure (fpgas-verify: only "pass" means the board is as it should be)
         reason = test_reason(board, name)
-        said = f"{name} {result}"  # the check's own words start so ("pin-id fail: 0/18 pins match"): not said twice
-        title = reason if reason.startswith(said) else said + (f": {reason}" if reason else "")
+        # the check's own words start so ("pin-id fail: 0/18 pins match", an old name counting as its new one): not
+        # said twice
+        first, _, rest = reason.partition(" ")
+        own = check_groups.name(first) == name and rest.startswith(result)
+        title = reason if own else f"{name} {result}" + (f": {reason}" if reason else "")
         return Mark(FAILED[0], FAILED[1], title + left_out), FAILED[2]
-    if name in board["not_run"] or (_stopped(board) and name in planned.get(board["type"], ())):
-        # the check's own words for this test ("ddr not run: it needs jtag to pass first"); else the checks of this
-        # board that did not pass; else (a check that stopped before its tests) the board's reason
-        own = test_reason(board, name, whole=False)
-        if own.startswith(f"{name} not run"):
-            title = own
-        elif board["failing"]:
-            title = f"{name} did not run: {', '.join(board['failing'])} did not pass"
-        elif board["reason"]:
-            title = f"{name} did not run: {board['reason']}"
-        else:  # what the check said of the board, nothing invented (the review of #128)
-            title = f"{name} did not run: the check of this board gave {board['result'] or 'no result'}"
-        return Mark(NOT_RUN[0], NOT_RUN[1], title), NOT_RUN[2]
-    return Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable to {board['type']}"), NOT_APPLICABLE[2]
+    checks, not_applicable, unwritten = plan(board)
+    # a check the board's type gets and that did not run is ⊘, never – (Tim, 15 Oct 2026: "*Anything* which has an
+    # FPGA should be getting jtag, anything which has wires should be getting wiring")
+    if name in board["not_run"] or name in checks:
+        return Mark(NOT_RUN[0], NOT_RUN[1], _not_run_title(board, name, unwritten)), NOT_RUN[2]
+    why = not_applicable.get(name)
+    return Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1],
+                f"{name} not applicable to {board['type']}" + (f": {why}" if why else "")), NOT_APPLICABLE[2]
 
 
-def check_cell(host, name, link, planned):
+def check_cell(host, name, link, planned=None):
     """A Pi's cell in the column of check `name`: a mark per board; one – for a Pi whose check named no board."""
     if not host.boards:
-        mark = Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable: no board checked this boot")
+        why = "it carries no board" if host.no_board_expected else "no board checked this boot"
+        mark = Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable: {why}")
         return CheckCell(name, [mark], NOT_APPLICABLE[2], "")
-    marks, sorts = zip(*(_mark(b, name, planned) for b in host.boards))
+    marks, sorts = zip(*(_mark(b, name) for b in host.boards))
     worst = min(sorts)
     return CheckCell(name, list(marks), worst, link if worst == FAIL_SORT else "")
 
@@ -323,8 +340,7 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
         notes.append(port_note)
     # a board whose check stopped before its tests, with no board of its type to say which it runs: loud, not dashes
     # alone (fpgas.online-test-designs#339 asks the check to list them)
-    notes.extend(f"{b['type']}: checks not reported" for b in host.boards
-                 if _stopped(b) and not (planned or {}).get(b["type"]))
+    notes.extend(f"{b['type']}: checks not reported" for b in host.boards if _stopped(b) and not plan(b)[0])
     registered = fpga.registered_model(host.machine)
     model_title = "; ".join(t for t in (fields.model if fields.model != fields.short else "",
                                          f"registered as {registered}" if registered else "") if t)
@@ -355,7 +371,9 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
                 [check_cell(host, name, link, planned or {}) for name in columns],
                 host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
                 int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],
-                offered, "offered" if offered else f"not offered: {why}", notes, page)
+                offered, host.no_board_expected,
+                "offered" if offered else ("not applicable: this host carries no board" if host.no_board_expected
+                                           else f"not offered: {why}"), notes, page)
 
 
 def _page(request):
@@ -372,7 +390,7 @@ def _page(request):
              and (not want_type or r.board_type == want_type)]
     groups = check_groups.grouped(check_names(hosts))
     columns = [name for _, names in groups for name in names]
-    planned = planned_by_type(rows)
+    planned = None
     # what needs a person first, then by switch and port (the table's own sort returns to this order)
     observed = fpga.seen_ports()
     shown = sorted((_line(r, now, pages, columns, fleet, observed.get(r.machine.pk), planned) for r in hosts),
@@ -457,7 +475,7 @@ def registry_json(request):
             "condition": CONDITION_KEYS[host.condition],
             "offered": host.condition == OPERATIONAL,
             "boards": [{"label": b["label"], "type": b["title"], "id": b["id"] or None, "result": b["result"],
-                        "tests": dict(b["tests"])} for b in host.boards],
+                        "tests": dict(b["reported_tests"])} for b in host.boards],
             "check": {"result": host.state or None, "at": host.checked.isoformat() if host.checked else None},
             "last_seen": m.last_seen.isoformat() if m.last_seen else None,
             "cameras": _cameras(m),

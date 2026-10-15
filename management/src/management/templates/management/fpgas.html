@@ -42,7 +42,7 @@
       <td class="mgmt-c-port" data-label="Port" data-sort="{{ line.sort_port }}" title="{{ line.port_title }}">{{ line.port }}</td>
       <td class="mgmt-c-board" data-label="Board">{% for type, ident, label in line.boards %}<div>{{ type }}</div>{% endfor %}</td>
       <td class="mgmt-c-id" data-label="ID">{% for type, ident, label in line.boards %}<div{% if label %} title="{{ label }}"{% endif %}>{{ ident|default:"–" }}</div>{% endfor %}</td>
-      <td class="mgmt-c-offered mgmt-mark" data-label="Offered" data-sort="{{ line.offered|yesno:'1,0' }}" title="{{ line.offered_title }}">{% if line.offered %}<a class="mgmt-test-pass" href="{{ line.page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ line.offered_title }}</span></td>
+      <td class="mgmt-c-offered mgmt-mark" data-label="Offered" data-sort="{{ line.offered|yesno:'1,0' }}" title="{{ line.offered_title }}">{% if line.offered %}<a class="mgmt-test-pass" href="{{ line.page }}">✓</a>{% elif line.offered_na %}<span class="mgmt-test-none">–</span>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ line.offered_title }}</span></td>
       <td class="mgmt-c-up" data-label="Up" data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
       <td class="mgmt-c-seen" data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
       <td class="mgmt-c-check mgmt-mark" data-label="Boot check" data-sort="{{ line.boot.sort }}" title="{{ line.boot.title }}"><span class="{{ line.boot.cls }}">{{ line.boot.mark }}</span><span class="mgmt-sr"> {{ line.boot.title }}</span></td>

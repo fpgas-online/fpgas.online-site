@@ -86,14 +86,14 @@ def test_every_registered_pi_is_counted_once_and_the_summary_adds_up(fleet):
 def test_a_failed_check_shows_the_failing_tests_by_name_and_its_reason(fleet):
     row = next(r for r in fpga.hosts() if r.machine.hostname == "pi-sw2-p33")
     assert row.state == "fail" and row.board_type.startswith("TT")
-    assert row.boards[0]["failing"] == ["pin-id", "spiflash"]
+    assert row.boards[0]["failing"] == ["wiring", "flash"]  # the old names (pin-id, spiflash) as the new ones
     assert row.why == "its boot check failed: pin-id fail: the test exited 1; spiflash fail: the test exited 1"
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
     # every check is a column of the one Pi table; a failed one is ✗ in its own column, its reason the ✗'s title
     # (Tim, 15 Oct 2026: "Make the error message be the popup when mousing over the x") and the ✗ links the Pi's page
     failing = _by_serial(html)["pi-sw2-p33"]
-    assert (failing["pin-id"], failing["spiflash"], failing["uart"]) == ("✗", "✗", "✓")
-    assert ('data-label="pin-id" title="pin-id fail: the test exited 1"><div class="mgmt-test-fail">'
+    assert (failing["wiring"], failing["flash"], failing["uart"]) == ("✗", "✗", "✓")
+    assert ('data-label="wiring" title="pin-id fail: the test exited 1"><div class="mgmt-test-fail">'
             '<a href="/fleet/pi-sw2-p33/#boards">✗</a>') in html
     assert 'title="spiflash fail: the test exited 1"' in html
     assert "Reason" not in _header(html)
@@ -310,8 +310,8 @@ def _cells(table_html):
 
 # the checks follow Seen, a column each; Notes is last (the checks are what a reader scans for, #123)
 # the fixture's checks (two Acorns and a TT board of 4 Oct) in their groups, each group in dependency order (#127)
-EXPECTED_CHECKS = ["jtag", "flash", "spiflash", "ddr", "uart", "p2-uart", "p2-serial", "p2-gpio", "pcie-link", "pcie-bar0",
-                   "rp1-pio", "scratch", "pin-id"]
+EXPECTED_CHECKS = ["jtag", "wiring", "flash", "ddr", "uart", "p2-uart", "p2-serial", "p2-gpio", "pcie-link",
+                   "pcie-bar0", "rp1-pio", "scratch", "sdk"]  # sdk: what a TT board not identified gets (#129)
 # #129: Boot check and Check ran beside the checks they belong to; Offered, Up and Seen before them
 FIXED = ["State", "Model", "RAM", "Serial", "Port", "Board", "ID", "Offered", "Up", "Seen", "Boot check", "Check ran"]
 
@@ -392,7 +392,7 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
     # Offered is one mark, the reason on hover (#127: "Offered should be a tick with the 'why not' being a popup")
     assert "Why not" not in header
     assert by_port["sw2 p46"]["Offered"] == "✓" and by_port["sw2 p33"]["Offered"] == "✗"
-    assert 'title="not offered: stopped checking in"' in html and 'title="not offered: pin-id, spiflash"' in html
+    assert 'title="not offered: stopped checking in"' in html and 'title="not offered: wiring, flash"' in html
     # Seen is the time only
     assert by_port["sw2 p4"]["Seen"] == "7 h ago" and by_port["sw2 p46"]["Seen"].endswith("ago")
     # these Pis registered no model: Model and RAM are empty, Notes says why in a short value
@@ -422,23 +422,27 @@ def test_every_check_is_a_column_grouped_in_dependency_order_with_four_states(fl
     checks = _header(html)[len(FIXED):-1]
     # grouped (#127): basic first (jtag before anything), then memory, peripherals, board specific; each named once
     # "this boot" heads Boot check and Check ran, beside the check groups (#129)
-    assert _groups(html) == [("this boot", 2), ("basic", 1), ("memory", 3), ("peripherals", 4), ("board specific", 5)]
+    assert _groups(html) == [("this boot", 2), ("basic", 2), ("memory", 2), ("peripherals", 4), ("board specific", 5)]
     assert checks == EXPECTED_CHECKS
     assert len(set(checks)) == len(checks) == sum(n for g, n in _groups(html) if g != "this boot")
     rows = _by_serial(html)
     # every cell is one of four marks: ✓ ran and passed, ✗ ran and failed, ⊘ did not run, – not applicable
     for row in rows.values():
         assert {row[name] for name in checks} <= {"✓", "✗", "⊘", "–"}
-    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["pin-id"] == "–"
-    assert (rows["pi-sw2-p33"]["pin-id"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
+    assert rows["pi-sw2-p46"]["jtag"] == "✓" and rows["pi-sw2-p46"]["wiring"] == "–"
+    assert (rows["pi-sw2-p33"]["wiring"], rows["pi-sw2-p33"]["jtag"]) == ("✗", "–")
+    # a check its type gets that its report does not have is ⊘ (#129), never –: the TT board's sdk
+    assert rows["pi-sw2-p33"]["sdk"] == "⊘"
+    assert 'title="sdk was not reported by this board&#x27;s check (fpgas.online-test-designs#340)"' in html
     assert {rows["pi-sw2-p7"][name] for name in checks} == {"–"}  # a Pi whose check named no board this boot
     # the state is in the cell's title, and said to a screen reader; a – says why it is not applicable
     assert ('data-label="jtag" title="jtag passed"><div class="mgmt-test-pass">✓<span class="mgmt-sr"> jtag passed'
             '</span></div>') in html
-    assert 'title="pin-id not applicable to Acorn CLE-215+"' in html
+    # – carries why the check does not apply to the type (verify's words)
+    assert 'title="wiring not applicable to Acorn CLE-215+: its two cables are each tested by name' in html
     assert 'title="jtag not applicable: no board checked this boot"' in html
     # a cell sorts failures first, then checks that did not run, then passes, then the Pis it does not apply to
-    assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="pin-id" title="[^"]*"><div class="mgmt-test-fail"', html)
+    assert re.search(r'<td class="mgmt-mark" data-sort="0" data-label="wiring" title="[^"]*"><div class="mgmt-test-fail"', html)
     assert re.search(r'<td class="mgmt-mark" data-sort="2" data-label="jtag" title="[^"]*"><div class="mgmt-test-pass"', html)
     assert re.search(r'<td class="mgmt-mark" data-sort="3" data-label="jtag" title="[^"]*"><div class="mgmt-test-none"', html)
     # a passing or not applicable mark is not a link: only a ✗ leads to the reason's page
@@ -471,7 +475,7 @@ def test_a_board_whose_check_stopped_before_its_tests_did_not_run_what_its_type_
                       "board0_reason": "no bitstreams: fpgas-online-acorn-bitstreams is not installed"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     row = _by_serial(html)["pi-sw2-p30"]
-    assert row["jtag"] == "⊘" and row["pin-id"] == "–"  # the Acorns ran jtag; no Acorn runs pin-id
+    assert row["jtag"] == "⊘" and row["wiring"] == "–"  # an Acorn gets jtag; wiring does not apply to it
     assert 'title="jtag did not run: no bitstreams: fpgas-online-acorn-bitstreams is not installed"' in html
 
 
@@ -718,19 +722,20 @@ def test_with_two_boards_each_test_names_its_board(fleet):
                       "board1": "tt tt-fpga fail", "board1_identity_chip": "fpga", "board1_tests": "pin-id=fail",
                       "board1_reason": "pin-id fail: pin 3 stuck low"})
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    # a name two types share (pin-id) is one column; a Pi with two boards has a mark per board, in the Board order
-    assert _header(html).count("pin-id") == 1
+    # a name two types share (pin-id, now wiring) is one column; a Pi with two boards has a mark per board
+    assert _header(html).count("wiring") == 1 and "pin-id" not in _header(html)
     rows = _by_serial(html)
     assert rows["pi-sw2-p30"]["Board"].split("\n") == ["Acorn", "TT FPGA"]  # the types (#127)
     assert rows["pi-sw2-p30"]["ID"].split("\n") == ["–", "–"]  # neither check read an id
-    assert rows["pi-sw2-p30"]["pin-id"] == "✓\n✓" and rows["pi-sw2-p30"]["jtag"] == "–\n–"
-    assert rows["pi-sw2-p32"]["pin-id"] == "✓\n✗" and rows["pi-sw2-p32"]["jtag"] == "✓\n–"
+    # the Acorn gets jtag and did not report it (⊘); jtag does not apply to a TT FPGA (–)
+    assert rows["pi-sw2-p30"]["wiring"] == "✓\n✓" and rows["pi-sw2-p30"]["jtag"] == "⊘\n–"
+    assert rows["pi-sw2-p32"]["wiring"] == "✓\n✗" and rows["pi-sw2-p32"]["jtag"] == "✓\n–"
     # the cell sorts as its worst mark, and its ✗ says which check failed and why
     # the cell's title says each board's result a line, in the Board cell's order (#123: on the cell, not the mark)
-    assert re.search(r'data-sort="0" data-label="pin-id" title="pin-id passed\npin-id fail: pin 3 stuck low">'
-                     r'<div class="mgmt-test-pass">✓<span class="mgmt-sr"> pin-id passed</span></div>'
+    assert re.search(r'data-sort="0" data-label="wiring" title="wiring passed\npin-id fail: pin 3 stuck low">'
+                     r'<div class="mgmt-test-pass">✓<span class="mgmt-sr"> wiring passed</span></div>'
                      r'<div class="mgmt-test-fail"><a href="/fleet/pi-sw2-p32/#boards">✗</a>', html)
-    assert 'title="jtag passed\njtag not applicable to TT FPGA"' in html
+    assert 'title="jtag passed\njtag not applicable to TT FPGA: the iCE40UP5K has no JTAG port' in html
 
 
 @pytest.mark.django_db
@@ -899,12 +904,12 @@ def test_did_not_run_says_only_what_the_check_said(fleet):
 
 
 @pytest.mark.django_db
-def test_a_stopped_board_with_no_board_of_its_type_to_compare_says_so(fleet):
-    """No other board of its type and variant reported its checks: the cells stay – (nothing is known) and Notes says
-    the checks are not reported, loud (fpgas.online-test-designs#339)."""
-    pi("pi-sw1-p38", {"result": "fail", "board0": "xilinx-pcie - fail"})
+def test_a_stopped_board_of_a_type_the_site_does_not_know_says_its_checks_are_not_reported(fleet):
+    """A board whose check stopped before its tests and whose type has no planned list (neither its report nor the
+    site's copy of verify's lists says which checks it gets): its cells stay – (nothing is known) and Notes says so,
+    loud (fpgas.online-test-designs#339). A known type's checks are ⊘ whatever its variant."""
+    pi("pi-sw1-p39", {"result": "fail", "board0": "gizmo - fail"})
     pi("pi-sw2-p30", {"result": "error", "board0": "acorn other-variant error"})
     rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
-    assert "PCIe card: checks not reported" in rows["pi-sw1-p38"]["Notes"]
-    # a variant is its own type: the CLE-215+ Acorns' checks are not this one's
-    assert rows["pi-sw2-p30"]["jtag"] == "–" and "Acorn OTHER-VARIANT: checks not reported" in rows["pi-sw2-p30"]["Notes"]
+    assert "other: checks not reported" in rows["pi-sw1-p39"]["Notes"]
+    assert rows["pi-sw2-p30"]["jtag"] == "⊘" and "checks not reported" not in rows["pi-sw2-p30"]["Notes"]
