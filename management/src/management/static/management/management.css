@@ -69,7 +69,14 @@
 .mgmt-up { color: #1b7a1b; }
 .mgmt-down { color: #666; }
 /* The PoE button on a board port (#67): its words say what a press does. */
-.mgmt-poe-button { font-size: 0.85em; padding: 0 0.45rem; cursor: pointer; }
+.mgmt-poe-button { font-size: 1.05em; line-height: 1.2; padding: 0 0.35rem; cursor: pointer; }
+/* what a press does, by shape as well as colour (the review of #143, the coordinator's hold: colour alone is not one
+   form a state): a powered port's button is filled (white ⏻ on green; a press turns it off), an unpowered port's is
+   hollow (red ⏻ in a red outline; a press turns it on) */
+.mgmt-poe-button.mgmt-poe-to-off { color: #fff; background: #1b7a1b; border: 1px solid #1b7a1b; border-radius: 3px; }
+.mgmt-poe-button.mgmt-poe-to-on { color: #b00020; background: #fff; border: 1px solid #b00020; border-radius: 3px; }
+/* the power symbol where the site does not switch the port: greyed, no border, the reason on hover (#139) */
+.mgmt-poe-none { font-size: 1.05em; padding: 0 0.35rem; color: #bbb; cursor: help; }
 .mgmt-poe-button:disabled { cursor: progress; }
 .mgmt-poe-msg { margin-left: 0.4rem; font-size: 0.85em; }
 .mgmt-poe-msg:empty { display: none; }
@@ -226,7 +233,7 @@ td.mgmt-c-state-word span { font-weight: 700; }
 }
 
 /* A switch's front panel (#90, #130), drawn so it needs no key: a port's fill is its State (the /fleet/ badges'
-   colours), its mark the /fleet/ State mark, its edge solid while the link is up and dashed while down, ⚡ while PoE
+   colours), its mark the /fleet/ State mark, its link light lit green while the link is up, ⚡ while PoE
    delivers; the hardware on it in two short lines. An empty port is faint, so the used ports stand out. */
 /* the drawing scales to the width it has (viewBox), never wider than drawn; a phone gets the narrow drawing, the
    same boxes in bands of seven columns, so its text stays readable */
@@ -237,7 +244,11 @@ td.mgmt-c-state-word span { font-weight: 700; }
   .mgmt-panel-narrow { display: block; }
 }
 .mgmt-port rect { stroke: #333; stroke-width: 1.5; fill: #fff; }
-.mgmt-port.mgmt-edge-down rect { stroke: #888; stroke-dasharray: 4 3; }
+/* the port's link light, as on the switch's own face (#139: link is not shown by the box's edge): lit green while the
+   link is up, dark while it is down */
+.mgmt-port rect.mgmt-led { stroke-width: 1; }
+.mgmt-link-up rect.mgmt-led { fill: #2fbf4a; stroke: #1b7a1b; }
+.mgmt-link-down rect.mgmt-led { fill: #555; stroke: #333; }
 .mgmt-port text { pointer-events: none; }
 .mgmt-pnum { font-size: 11px; fill: #222; }
 .mgmt-bolt { font-size: 11px; fill: #b36b00; }
