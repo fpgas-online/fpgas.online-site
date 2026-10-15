@@ -310,10 +310,10 @@ def _fleet_hosts():
 
 
 GATEWAY = "gateway"
-# Every LLDP neighbour is shown by the name it announces (Tim, 16 Oct 2026, site #148: "Why is the device's LLDP
-# information hidden for port 11 on switch 2?"): an unregistered device on a port is the one a reader needs to name.
-# Two names stay off the public page, each said by its role: the gateway's own host names ("gateway"), and the device
-# beyond the house uplink ("house uplink"), which is not fpgas.online's (RULES: fpgas.online names no upstream host).
+# What LLDP reports of a neighbour is shown as reported, for every neighbour, the gateway and the house uplink's device
+# included (Tim, 16 Oct 2026, site #148: "Why is the device's LLDP information hidden for port 11 on switch 2?", then
+# "Why are you hiding the gateway lldp information too? Stop hiding the lldp information."). The switch's own port
+# labels (label()) are its configuration, not LLDP, and keep their rule.
 # The VLAN names the page shows (vlan_cell): a board's or a switch's name; every other VLAN name is its number.
 SHOWN_NAME = re.compile(r"^(pi-sw\d+-p\d+|sw-[\w-]+)$", re.IGNORECASE)
 
@@ -332,21 +332,10 @@ def _gateway_names():
     return names
 
 
-def _host(name, house=()):
-    """A host name as the page shows it: its domain dropped, "gateway" for the gateway's own names, the house uplink's
-    device as "house uplink"."""
-    short = name.split(".")[0]
-    if name.lower() in _gateway_names() or short.lower() in _gateway_names():
-        return GATEWAY
-    return label(short, house)
-
-
-def neighbour(name, house=()):
-    """An LLDP neighbour's system name for the public page: the host name it announces, its domain dropped, whoever it
-    is (#148); "gateway" and "house uplink" for those two."""
-    if not name:
-        return ""
-    return _host(name, house)
+def neighbour(name):
+    """An LLDP neighbour's system name as the cell shows it: the host name it announces, its domain dropped (the whole
+    name is in the cell's title), whoever it is (#148)."""
+    return name.split(".")[0] if name else ""
 
 
 HOUSE_UPLINK = "house uplink"
@@ -382,10 +371,8 @@ def label(text, house=()):
 
 
 def switch_name(name):
-    """A switch's own sysName under the same rule as a neighbour's: its domain dropped, "gateway" for the gateway's."""
-    if not name:
-        return ""
-    return _host(name)
+    """A switch's own sysName as it reports it, its domain dropped, as a neighbour's (#148)."""
+    return neighbour(name)
 
 
 INFRASTRUCTURE = "infrastructure"
@@ -463,15 +450,15 @@ def _can_power(request, view, spec):
     return board_ports(request, view.index, ports) if ports else set()
 
 
-def lldp_port(port, house=()):
+def lldp_port(port):
     """The port the neighbour reports: its port id, or, where that is its MAC (lldpd's default on the Pis, which
     the MACs column already shows), its port description, the interface name (fpgas-online/fpgas.online-infra#268
     makes the Pis announce the name as the id itself)."""
     ident = port.lldp_port or ""
     if not MAC_ID.match(ident):
-        return label(ident, house)
+        return ident
     # a poe older than fpgas-online/fpgas.online-poe#19 has no lldp_port_desc: the cell is empty, as before #89
-    return label(getattr(port, "lldp_port_desc", None) or "", house)
+    return getattr(port, "lldp_port_desc", None) or ""
 
 
 def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_site=False):
@@ -503,7 +490,7 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
     role = port_role(spec, port.port) if spec is not NO_INVENTORY else None
-    neighbour_name = neighbour(name, house)
+    neighbour_name = neighbour(name)
     poe, poe_cls, poe_title, poe_sort = poe_cell(port.poe_state, has_poe)
     vlan, vlan_title = vlan_cell(port, vlan_names)
     # the gateway's interface for the port's VLAN belongs to a board port; an infrastructure port carries many
@@ -576,12 +563,11 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "lldp_name": neighbour_name,
         # what LLDP says of the neighbour, on hover: whose name it is and its chassis id (#148); its port has a column
         "lldp_title": "; ".join(t for t in (
-            "the gateway" if neighbour_name == GATEWAY else HOUSE_UPLINK if neighbour_name == HOUSE_UPLINK
-            else "the name it announces" if name else "",
-            f"chassis {label(getattr(port, 'lldp_chassis', None) or '', house)}"
+            (f"the name it announces: {name}" if name != neighbour_name else "the name it announces") if name else "",
+            f"chassis {getattr(port, 'lldp_chassis', None) or ''}"
             if name and getattr(port, "lldp_chassis", None) else "") if t),
         "lldp_url": _fleet_url(request, serial) if serial else "",
-        "lldp_port": lldp_port(port, house),
+        "lldp_port": lldp_port(port),
         "rx": rate(port.rx_bps),
         "tx": rate(port.tx_bps),
         "rx_errors": _count(port.rx_errors),
