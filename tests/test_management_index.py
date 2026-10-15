@@ -319,7 +319,7 @@ def test_the_newest_boot_check_is_the_one_boot_checks_row(fleet, switches, brows
     rows = table()
     newest = find(rows, area="Boot checks", item="newest check")
     # the value is the result alone; which Pi it was is the title, its page the link
-    assert (newest["value"], newest["state"]) == ("pass", "ok")
+    assert (newest["value"], newest["state"]) == ("passed", "ok")  # the words the browser test row uses too (#126 review)
     assert newest["title"] == "10000000f77b8415 (no model registered) on sw2 p10"
     assert newest["href"] == "/fleet/10000000f77b8415/"
     # the Pi whose check failed is counted under Boards; it is not counted again under Boot checks

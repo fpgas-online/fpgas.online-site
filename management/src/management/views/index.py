@@ -44,6 +44,8 @@ AREAS = ("Boards", "Switches", "Boot checks", "Browser test")
 CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,39}")
 # Results of a boot check (fpga-verified detail["result"]) that mean the Pi is not offered and why.
 BAD_RESULTS = {"fail": "failed", "error": "could not finish", "missing": "found no board", "unknown": "unreadable"}
+# A boot check result as the Value column says it: the words the browser test row uses too ("passed", "failed").
+RESULT_WORDS = {"pass": "passed", **BAD_RESULTS}
 MAX_VALUE = 200  # characters of a row's value; the rest is in its title
 TITLE_PORTS = 20  # failing ports named in a switch row's title
 # A switch row's item for each kind of failure (management.inventory_check.KINDS).
@@ -269,7 +271,8 @@ def _boot_checks(request, now):
     # the newest check only: whether checks are running at all. A Pi whose check failed is counted in Boards already.
     # The value is the result, a value; which Pi it was is its title, and its link the Pi's page.
     return [_row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
-                 "newest check", result, _url(request, "fleet-detail", machine.serial), name, event.ts)]
+                 "newest check", RESULT_WORDS.get(result, f"gave {result}"), _url(request, "fleet-detail", machine.serial),
+                 name, event.ts)]
 
 
 # --- Browser test ---------------------------------------------------------------------------------------------
