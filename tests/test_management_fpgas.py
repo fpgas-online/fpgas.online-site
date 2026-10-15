@@ -384,7 +384,8 @@ def test_each_pi_is_one_row_of_one_value_per_cell(fleet):
         assert row["State"] in ("●", "!", "⟳", "○") and row["Offered"] in ("✓", "✗")
         assert "(" not in row["Serial"] and " " not in row["Serial"]  # the serial alone, never a sentence beside it
     # Board is the type only (#127); the id on its label is the ID, the board's name its title
-    assert by_port["sw2 p46"]["Serial"] == "pi-sw2-p46" and by_port["sw2 p46"]["Board"] == "Acorn CLE-215+"
+    assert by_port["sw2 p46"]["Serial"] == "pi-sw2-p46" and by_port["sw2 p46"]["Board"] == "Acorn"
+    assert '<div title="Acorn CLE-215+">Acorn</div>' in html  # the variant on hover
     assert '<a href="/fleet/pi-sw2-p46/">pi-sw2-p46</a>' in html  # the serial links the Pi's page
     assert (by_port["sw2 p33"]["Board"], by_port["sw2 p33"]["ID"]) == ("TT board, not identified", "4df39a7a6856f86f")
     assert by_port["sw2 p46"]["ID"] == "0x0054b48664b04854"
@@ -913,3 +914,56 @@ def test_a_stopped_board_of_a_type_the_site_does_not_know_says_its_checks_are_no
     rows = _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())
     assert "other: checks not reported" in rows["pi-sw1-p39"]["Notes"]
     assert rows["pi-sw2-p30"]["jtag"] == "⊘" and "checks not reported" not in rows["pi-sw2-p30"]["Notes"]
+
+
+def _orange_pi(hostname, serial, detail):
+    from fleet.models import HardwareSnapshot
+
+    m = pi(hostname, detail, serial=serial)
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint=serial, document={
+        "machine": {"serial": serial, "revision_code": "0000", "model": "Xunlong Orange Pi PC", "mem_total_kb": 1016548}})
+    m.save()
+    return m
+
+
+@pytest.mark.django_db
+def test_a_host_that_carries_no_board_is_its_own_type_and_operational_when_its_check_finds_none(fleet):
+    """The coordinator's default for coord-65 (15 Oct 2026): welland's Orange Pi PCs carry no FPGA by design; they are
+    their own type, ● when the check finds no board, Offered – (not applicable), never needs attention for it."""
+    _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
+    rows = fpga.hosts()
+    host = next(r for r in rows if r.machine.serial == "02c000810b122044")
+    assert (host.board_type, host.condition, host.no_board_expected) == (fpga.NO_FPGA, "operational", True)
+    assert any(t == fpga.NO_FPGA and counts["operational"] == 1 for t, counts, _ in fpga.summary(rows)[0])
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["02c000810b122044"]
+    assert (row["State"], row["Board"], row["Offered"], row["Boot check"]) == ("●", "no FPGA", "–", "✓")
+    assert 'title="not applicable: this host carries no board"' in html
+    assert "found no board, as expected: this host carries none" in html
+    # a Raspberry Pi that finds no board still needs attention
+    pi("pi-sw2-p19", {"result": "missing"}, serial="10000000aaaa0019")
+    assert _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[
+        "10000000aaaa0019"]["State"] == "!"
+
+
+@pytest.mark.django_db
+def test_the_boards_own_planned_list_and_reasons_win_over_the_sites_copy(fleet):
+    """fpgas-verify's coming fields (fpgas.online-test-designs #339/#340): board<i>_planned, the reason a planned test
+    did not run (board<i>_not_run_<test>) and why a common check does not apply (board<i>_not_applicable_<check>)."""
+    pi("pi-sw2-p30", {"result": "fail", "board0": "arty a7-35 fail", "board0_tests": "jtag=pass uart=fail",
+                      "board0_planned": "jtag uart ddr", "board0_not_run": "ddr",
+                      "board0_not_run_ddr": "it needs uart to pass first",
+                      "board0_not_applicable_wiring": "a test cable, not a Pmod, on this bench"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    row = _by_serial(html)["pi-sw2-p30"]
+    assert (row["jtag"], row["uart"], row["ddr"], row["wiring"], row["flash"]) == ("✓", "✗", "⊘", "–", "–")
+    assert 'title="ddr did not run: it needs uart to pass first"' in html
+    assert 'title="wiring not applicable to Arty A7 A7-35: a test cable, not a Pmod, on this bench"' in html
+
+
+@pytest.mark.django_db
+def test_a_planned_check_with_no_test_yet_names_its_issue(fleet):
+    pi("pi-sw2-p30", {"result": "pass", "board0": "netv2 a7-35 pass", "board0_tests": "jtag=pass uart=pass"})
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    assert _by_serial(html)["pi-sw2-p30"]["ethernet"] == "⊘"
+    assert 'title="ethernet did not run: no boot-check test yet (fpgas.online-test-designs#341)"' in html

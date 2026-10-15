@@ -366,8 +366,10 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
     link = f"{detail}{host.machine.serial}/#boards" if detail else ""
     return Line(host, STATE_MARKS[host.condition], fields.short, model_title, fields.memory, memory_mb, fields.serial,
                 port, port_title, sort_port, _boot,
-                [(b["type"], b["label_id"], b["label"]) for b in host.boards]
-                or [(kind, "", "") for kind in host.registered_kinds or [host.board_type]],
+                # the type alone (Tim, #127: "just the type of FPGA board"; the review of 15 Oct: "Arty A7 A7-35"
+                # said the type twice): its variant on hover
+                [(b["title"], b["type"], b["label_id"], b["label"]) for b in host.boards]
+                or [(kind, "", "", "") for kind in host.registered_kinds or [host.board_type]],
                 [check_cell(host, name, link, planned or {}) for name in columns],
                 host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
                 int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],
