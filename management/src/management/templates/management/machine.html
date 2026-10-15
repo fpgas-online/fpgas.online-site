@@ -13,7 +13,7 @@
     <tr><th scope="row" title="{{ head_titles.ram }}">RAM</th><td>{{ memory|default:"–" }}</td></tr>
     <tr><th scope="row" title="{{ head_titles.serial }}">Serial</th><td class="mgmt-mono">{{ machine.serial }}</td></tr>
     <tr><th scope="row" title="{{ head_titles.port }}">Port</th><td{% if port_title %} title="{{ port_title }}"{% endif %}>{{ port|default:"–" }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.offered }}">Offered</th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% elif host.no_board_expected %}<span class="mgmt-test-none">–</span>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.offered }}">Offered</th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
     <tr><th scope="row" title="{{ head_titles.up }}">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>
     <tr><th scope="row" title="{{ head_titles.seen }}">Seen</th><td>{{ seen }}</td></tr>
     <tr><th scope="row" title="{{ head_titles.boot_check }}">Boot check</th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
@@ -47,7 +47,7 @@
   </tbody>
 </table></div>
 {% else %}
-<p>No board named by the check of this boot{% if host.no_board_expected %}: this host carries none{% elif host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
+<p>No board named by the check of this boot{% if host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
 {% endif %}
 
 <h2>Boot checks</h2>
