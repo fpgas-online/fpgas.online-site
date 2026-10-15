@@ -167,7 +167,7 @@ def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = row_of(html, 3)
     assert '<span class="mgmt-glyph">↓</span><span class="mgmt-sr"> link down</span>' in row
-    assert 'title="PoE on, nothing drawing power">○<span class="mgmt-sr"> PoE on, nothing drawing power</span>' in row
+    assert 'title="PoE on, searching: nothing drawing power">🔍<span class="mgmt-sr"> PoE on, searching: nothing drawing power</span>' in row
     # no machine on it: the hardware cells, the speed and the watts are empty, not a dash or a word
     for column in ("c-model", "c-board", "c-serial", "c-lease", "c-speed", "c-watts"):
         assert re.search(rf'<td class="[^"]*{column}"[^>]*></td>', row), column
@@ -355,14 +355,14 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
     assert (ports[0]["poe"], ports[0]["poe_title"], ports[0]["watts"]) == ("⚡", "PoE delivering power", "3.5")
-    assert (ports[2]["poe"], ports[2]["poe_title"], ports[2]["watts"]) == ("○", "PoE on, nothing drawing power", "")
+    assert (ports[2]["poe"], ports[2]["poe_title"], ports[2]["watts"]) == ("🔍", "PoE on, searching: nothing drawing power", "")
 
 
 def test_poe_cells_are_one_character_states_and_the_watts_a_column_of_their_own():
     """One form per column (#130): the PoE state as one character, its words on hover; the watts apart."""
     marks = {state: page.poe_cell(state)[:3] for state in ("delivering", "searching", "disabled", "fault")}
     assert marks == {"delivering": ("⚡", "mgmt-poe-on", "PoE delivering power"),
-                     "searching": ("○", "mgmt-poe-idle", "PoE on, nothing drawing power"),
+                     "searching": ("🔍", "mgmt-poe-idle", "PoE on, searching: nothing drawing power"),
                      "disabled": ("⊗", "mgmt-poe-off", "PoE off"),
                      "fault": ("!", "mgmt-state-attention", "PoE fault")}
     assert page.poe_cell(None, has_poe=False)[:3] == ("–", "mgmt-test-none", "no PoE on this port")
@@ -660,11 +660,19 @@ def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
     assert [p["poe_action"] for p in ports] == ["off", "", ""]
     html = c.get("/management/switches/").content.decode()
     assert html.split("</head>")[1].count("<button") == 1  # the one button (the head's script only builds them)
-    # the button says what a press does, so it does not read as the port's state (the review of 15 Oct 2026)
-    assert ('class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">'
-            'turn off</button>') in row_of(html, 1)
-    for port in (2, 3):  # a non-board port: the cell is as it was, no button and no hint of one
-        assert "button" not in row_of(html, port) and "mgmt-poe-msg" not in row_of(html, port)
+    # the button is the power symbol; what a press does is its title and its accessible name (#139: "The power button
+    # should be a power button icon, not text")
+    assert ('class="mgmt-poe-button mgmt-poe-to-off" data-switch="1" data-port="1" data-action="off" '
+            'data-powers="pi-sw1-p1" aria-label="turn PoE off on port 1" title="turn PoE off">⏻</button>') \
+        in row_of(html, 1)
+    # every PoE port has the symbol (#139: "Why does the PoE power button only appear on some switch ports?"): an
+    # unregistered port's is greyed, the policy's reason on hover and for a screen reader, and it is not a button
+    why = ("not switched: no board has registered on this port, and the site switches only a port a board has "
+           "registered on")
+    for port in (2, 3):
+        assert "<button" not in row_of(html, port) and "mgmt-poe-msg" not in row_of(html, port)
+        assert (f'<td class="c-power" title="{why}"><span class="mgmt-poe-none" aria-hidden="true">⏻</span>'
+                f'<span class="mgmt-sr">{why}</span></td>') in row_of(html, port)
 
 
 @pytest.mark.django_db
@@ -677,7 +685,8 @@ def test_an_infrastructure_port_never_gets_a_button_even_if_a_machine_claims_it(
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[2]["port"] == 48 and ports[2]["can_power"] is False
-    assert "button" not in row_of(c.get("/management/switches/").content.decode(), 48)
+    row = row_of(c.get("/management/switches/").content.decode(), 48)
+    assert "<button" not in row and "not switched from this page: this port is the house uplink" in row
 
 
 @pytest.mark.django_db
@@ -691,8 +700,22 @@ def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
     c = Client(HTTP_HOST=HOSTS[0])
     port = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"][0]
     assert port["can_power"] is True and port["poe_action"] == action
-    assert port["poe_button"] == (f"turn {action}" if action else "")
-    assert (f">turn {action}</button>" in row_of(c.get("/management/switches/").content.decode(), 1)) == bool(action)
+    assert port["power_icon"] == "⏻"
+    want = f"turn PoE {action}" if action else ("not switched while the PoE state is not on or off ("
+                                                 f"{page.poe_cell(state)[2]})")
+    assert port["power_title"] == want
+    row = row_of(c.get("/management/switches/").content.decode(), 1)
+    assert (f'aria-label="{want} on port 1" title="{want}">⏻</button>' in row) == bool(action)
+    assert ("mgmt-poe-none" in row) == (not action)
+
+
+def test_every_poe_port_has_the_power_symbol_and_a_port_without_poe_says_why_it_has_none():
+    assert page.power_cell(False, True, "off", None, False, "") == ("", "no PoE on this port")
+    assert page.power_cell(True, True, "on", None, False, "PoE off") == ("⏻", "turn PoE on")
+    no_inventory = page.power_cell(True, False, "", None, True, "PoE off")
+    assert no_inventory[0] == "⏻" and "inventory could not be read" in no_inventory[1]
+    assert page.power_cell(True, False, "", "gateway trunk", False, "")[1] == \
+        "not switched from this page: this port is the gateway trunk"
 
 
 @pytest.mark.django_db
@@ -709,7 +732,8 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert 'title="Power: turn the board&#x27;s PoE off or on (board ports only)"' in html
+    assert ('title="Power: turn the port&#x27;s PoE off or on; greyed where the site does not switch the port (only a '
+            'port a board has registered on is switched), the reason on hover"') in html
 
 
 @pytest.mark.django_db
@@ -725,8 +749,8 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
 def test_a_poe_cell_is_one_mark_with_its_words_and_the_watts_beside_it(reader):
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
-    assert ('<td class="mgmt-mark c-poe mgmt-poe-idle" data-label="PoE" data-sort="2" title="PoE on, nothing drawing '
-            'power">○<span class="mgmt-sr"> PoE on, nothing drawing power</span></td>') in row_of(html, 3)
+    assert ('<td class="mgmt-mark c-poe mgmt-poe-idle" data-label="PoE" data-sort="2" title="PoE on, searching: nothing drawing '
+            'power">🔍<span class="mgmt-sr"> PoE on, searching: nothing drawing power</span></td>') in row_of(html, 3)
     assert ('<td class="mgmt-mark c-poe mgmt-poe-on" data-label="PoE" data-sort="1" title="PoE delivering power">⚡'
             '<span class="mgmt-sr"> PoE delivering power</span></td>\n        <td class="mgmt-n c-watts" '
             'data-label="W">3.5</td>') in row_of(html, 1)
@@ -937,9 +961,10 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     row = row_of(html, 1)
     poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[8:11]
     assert "⚡" in poe and "button" not in poe and watts == "3.5"
-    assert power.startswith('<button type="button" class="mgmt-poe-button"') and 'class="mgmt-poe-msg"' in power
+    assert power.startswith('<button type="button" class="mgmt-poe-button mgmt-poe-to-off"') and \
+        'class="mgmt-poe-msg"' in power
     script = html.split("<script>")[1].split("</script>")[0]
-    assert 'var power = td("c-power")' in script and "poe.appendChild(powerButton" not in script
+    assert 'var power = td("c-power", "", p.power_title)' in script and "poe.appendChild(powerButton" not in script
 
 
 @pytest.mark.django_db

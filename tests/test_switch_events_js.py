@@ -35,6 +35,6 @@ def test_the_dashboard_loads_the_script_and_keeps_what_it_draws_on(reader):  # n
     row = html.split('<tr id="switch-1-port-1">')[1].split("</tr>")[0]
     assert 'class="mgmt-mark c-link mgmt-up"' in row and '<span class="mgmt-glyph">↑</span>' in row
     assert '<td class="c-speed"' in row
-    assert '<g id="switch-1-panel-1" class="mgmt-port mgmt-box-' in html and "mgmt-edge-up" in html
+    assert '<g id="switch-1-panel-1" class="mgmt-port mgmt-box-' in html and "mgmt-link-up" in html
     # the polling fallback is still there
     assert "setInterval(tick, 15 * 1000)" in html

@@ -110,7 +110,9 @@ def when(iso):
 POE_MARKS = {
     "delivering": ("⚡", "mgmt-poe-on", "PoE delivering power", 1),
     "fault": ("!", "mgmt-state-attention", "PoE fault", 0),
-    "searching": ("○", "mgmt-poe-idle", "PoE on, nothing drawing power", 2),
+    # a magnifying glass: the port is looking for a device to power (Tim, 16 Oct 2026, site #139: "The searching PoE
+    # state should be a magnifying glass"; ○ was also /fleet/'s "missing")
+    "searching": ("🔍", "mgmt-poe-idle", "PoE on, searching: nothing drawing power", 2),
     "disabled": ("⊗", "mgmt-poe-off", "PoE off", 3),
 }
 NO_POE = ("–", "mgmt-test-none", "no PoE on this port", 4)
@@ -392,7 +394,7 @@ INFRASTRUCTURE = "infrastructure"
 # A switch the inventory should describe but does not (the configuration could not be read, or has no entry for
 # it): its ports are shown with no label and no PoE button, rather than guess which are boards (fail closed).
 NO_INVENTORY = object()
-NO_INVENTORY_NOTE = "the switch inventory could not be read: port labels and PoE buttons are hidden"
+NO_INVENTORY_NOTE = "the switch inventory could not be read: port labels are hidden and no PoE button is live"
 
 
 def _inventory():
@@ -436,8 +438,12 @@ def port_role(spec, port):
 
 
 # The PoE button's action by the port's state: off while it delivers or searches, on while it is disabled. A port in
-# any other state (fault, not known, no PoE) gets no button.
+# any other state (fault, not known) gets the greyed icon with the reason.
 POWER_ACTION = {"delivering": "off", "searching": "off", "disabled": "on"}
+# The power control is the power symbol on every PoE port (Tim, 16 Oct 2026, site #139: "The power button should be a
+# power button icon, not text", "Why does the PoE power button only appear on some switch ports?"): a button where a
+# press would be accepted, else the same symbol greyed with the reason on hover and for a screen reader.
+POWER_ICON = "⏻"
 # Both urlconfs include snmp_switch.urls under snmp/; its paths have no names to reverse, as the board pages' own
 # "/snmp/toggle" has none.
 POWER_URL = "/snmp/power"
@@ -464,6 +470,24 @@ def lldp_port(port, house=()):
         return label(ident, house)
     # a poe older than fpgas-online/fpgas.online-poe#19 has no lldp_port_desc: the cell is empty, as before #89
     return label(getattr(port, "lldp_port_desc", None) or "", house)
+
+
+def power_cell(has_poe, can_power, action, role, no_inventory, poe_title):
+    """(icon, words) of a port's power control: words are what a press does where there is a button (`action`), else
+    why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: there is
+    no login, so a port is switched only where a board has registered on it), not a choice of this page."""
+    if not has_poe:
+        return "", "no PoE on this port"
+    if can_power and action:
+        return POWER_ICON, f"turn PoE {action}"
+    if can_power:
+        return POWER_ICON, f"not switched while the PoE state is not on or off ({poe_title})"
+    if no_inventory:
+        return POWER_ICON, "not switched: the switch inventory could not be read, so no port is known to be a board's"
+    if role:
+        return POWER_ICON, f"not switched from this page: this port is the {role}"
+    return POWER_ICON, ("not switched: no board has registered on this port, and the site switches only a port a "
+                        "board has registered on")
 
 
 def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, house=(), machines=(),
@@ -497,6 +521,8 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # is on the port number's title for a board port; an infrastructure port's can name a private device, so it is
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
+    action = POWER_ACTION.get(port.poe_state or "", "") if can_power and has_poe else ""
+    power_icon, power_title = power_cell(has_poe, can_power, action, role, spec is NO_INVENTORY, poe_title)
     row = {
         "port": port.port,
         "port_title": f"the switch labels this port {own}" if own else "",
@@ -538,10 +564,10 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "watts": watts(port.poe_state, port.poe_watts),
         "can_power": can_power,
         # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
-        "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
-        # the button's words say what a press does, so it does not read as the port's state (the review of 15 Oct)
-        "poe_button": {"off": "turn off", "on": "turn on"}.get(
-            POWER_ACTION.get(port.poe_state or "", "") if can_power else "", ""),
+        "poe_action": action,
+        # the power symbol on every PoE port; its words say what a press does, or why this port has no button
+        "power_icon": power_icon,
+        "power_title": power_title,
         # what the button's confirm() names as powered: the newest machine on the port, else the LLDP neighbour
         "powers": machines[0]["label"] if machines else neighbour_name,
         "lldp_name": neighbour_name,
@@ -804,7 +830,8 @@ def head_titles():
         "poe": "⚡ PoE delivering power, ○ PoE on and nothing drawing power, ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: turn the board's PoE off or on (board ports only)",
+        "power": "Power: turn the port's PoE off or on; greyed where the site does not switch the port (only a port a "
+                 "board has registered on is switched), the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",
         "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",
         "lldp": "the name the LLDP neighbour announces (its domain dropped); where the page may not show it, its role "
