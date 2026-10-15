@@ -43,7 +43,8 @@ def test_detail_shows_history_and_events(c):
                              detail={}, ts=timezone.now())
     html = c.get("/fleet/abc123/").content.decode()
     # the newest registration laid out, the earlier one collapsed; this boot's events in a table
-    assert html.count('<pre class="mgmt-json">') == 2 and html.count("<details") == 1
+    # the newest registration is collapsed too (#132: no page of JSON to read), the earlier one under it
+    assert html.count('<pre class="mgmt-json">') == 2 and html.count("<details") == 2
     assert "<td>ssh-up</td>" in html
 
 

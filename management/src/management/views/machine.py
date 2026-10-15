@@ -85,7 +85,8 @@ class Board:
 
 # the mark of a board's result in its Boards row and in the history: one character, its words on hover
 def _result_mark(result, reason=""):
-    word = CHECK_WORDS.get(result) or (f"gave {result}" if result else "sent no result")
+    # a report with no result says so (its detail is in the events), never "not started" or "unknown"
+    word = (CHECK_WORDS.get(result) or f"gave {result}") if result else "sent no result"
     title = word + (f": {reason}" if reason else "")
     if result == "pass":
         return Mark("✓", "mgmt-test-pass", title)

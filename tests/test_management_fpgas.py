@@ -648,7 +648,7 @@ def test_a_host_with_no_revision_code_is_named_by_its_registered_model():
     assert '<a href="/fleet/02c0008164c2a1b0/">02c0008164c2a1b0</a>' in html
     assert 'data-label="Model" title="Orange Pi PC; registered as Xunlong Orange Pi PC">OPi PC</td>' in html
     # the registered model in full is on the host's own page, not only in a tooltip here
-    assert "<td>Xunlong Orange Pi PC</td>" in Client(HTTP_HOST="welland.fpgas.online").get(
+    assert 'title="Orange Pi PC; registered as Xunlong Orange Pi PC">OPi PC</td>' in Client(HTTP_HOST="welland.fpgas.online").get(
         "/fleet/02c0008164c2a1b0/").content.decode()
 
 
