@@ -17,7 +17,7 @@ from fleet.timeago import ago_time, duration
 from pibfpgas.pis import listed
 from ttsite.middleware import serves_ttsite
 
-from .. import e2e, fpga, localtime, network
+from .. import check_groups, e2e, fpga, localtime, network
 from .index import _board_reason, _url
 
 # The State column's order when sorted: what needs a person first.
@@ -54,22 +54,28 @@ def pis(request):
 
 @dataclass
 class Mark:
-    """One board's result of one check, as its cell shows it: ✓ passed, ✗ did not pass, – the board does not run it
-    (Tim, 15 Oct 2026: "success/fail/not applicable"; rule 21: marks that need no legend). `title` is the result in
-    words, and for a ✗ the check's reason (Tim, 15 Oct 2026: "Make the error message be the popup when mousing over
-    the x"); a screen reader is given the same."""
+    """One board's state of one check, as its cell shows it, one character (Tim, 15 Oct 2026, site #127: "The
+    checks columns should *still* be one character wide despite these different states"): ✓ ran and passed, ✗ ran
+    and failed, ⊘ should have run but did not (an earlier check did not pass), – not applicable to this board.
+    `title` says it in words, with the check's own reason (the popup on hover); a screen reader is given the same."""
     mark: str
     cls: str
     title: str
 
 
-# A cell's sort key, the worst of its marks: failures first, then passes, then the Pis that do not run the check.
-FAIL_SORT, PASS_SORT, NONE_SORT = 0, 1, 2
+# The four states (#127): (mark, css class, sort key). A cell sorts as its worst mark: failures first, then the checks
+# that did not run, then passes, then the Pis a check does not apply to.
+PASSED, FAILED, NOT_RUN, NOT_APPLICABLE = ("✓", "mgmt-test-pass", 2), ("✗", "mgmt-test-fail", 0), \
+    ("⊘", "mgmt-test-notrun", 1), ("–", "mgmt-test-none", 3)
+FAIL_SORT = FAILED[2]
+# The State column, one character (#127: "The 'State' column should be 1 character wide"), the word in its title and
+# for a screen reader: a mark per condition that needs no legend beside the summary's badges of the same colours.
+STATE_MARKS = {OPERATIONAL: "●", ATTENTION: "!", UNKNOWN: "⟳", MISSING: "○"}
 
 
 @dataclass
 class CheckCell:
-    """A Pi's cell in a check's column: a mark per board, in the order of the Board cell's labels (one a line)."""
+    """A Pi's cell in a check's column: a mark per board, in the order of the Board cell's lines."""
     name: str  # the check, for the cell's label on a phone
     marks: list
     sort: int
@@ -77,28 +83,28 @@ class CheckCell:
 
     @property
     def title(self):
-        """The cell's title, so hovering anywhere in it shows the result (#123: it was on the mark only): the mark's
-        title, or one line per board in the Board cell's order."""
+        """The cell's title, so hovering anywhere in it shows the state (#123): one line per board."""
         return "\n".join(m.title for m in self.marks)
 
 
 @dataclass
 class Line:
-    """A Pi's row as the page shows it: one value per field, each field its own column (#116, #121)."""
+    """A Pi's row as the page shows it: one value per field, each field its own column (#116, #121, #127)."""
     host: fpga.Host
+    state: str  # the condition as one mark (STATE_MARKS); its word is host.condition_title
     model: str  # "Pi 3B+", "OPi PC" (the label's header, short); "" for a host with no label (Notes says why)
     model_title: str  # the label's words and the model string the host registered, for the Model cell's title
     memory: str  # "2 GB", ""
     memory_mb: int
     serial: str
-    port: str  # "sw1 p10": the port the gateway last leased it an address on, else the one its host name names
+    port: str  # "sw1 p10": the port the gateway last leased it an address on; "" when it has no lease record
     port_title: str  # where the port comes from, and when
     sort_port: str  # switch and port as numbers, zero-padded: sw2 p4 before sw2 p33
     check: str  # the boot check's verdict, one word or phrase: "passed", "failed", "found no board"
     check_title: str  # why it is not offered, in the check's words, "" when it is
-    boards: list  # [(name, id)] of each board ("acorn-holly", "0x0020..."), or the kinds its registration names
-                  # with "": one per line in the Board and ID cells
-    checks: list  # a CheckCell per column of `columns`
+    boards: list  # [(type, id, label)] of each board ("Acorn CLE-215+", "0x0020...", "acorn-holly 0x0020..."), or
+                  # the kinds its registration names: one per line in the Board and ID cells
+    checks: list  # a CheckCell per check column
     uptime: str  # "3 d 4 h", or ""
     sort_uptime: int  # seconds, 0 for none
     seen: str  # <time> html, or "" when the time cannot be shown
@@ -106,10 +112,10 @@ class Line:
     checked: str  # when the boot check of this boot reported: <time> html, or ""
     sort_checked: int
     severity: int
-    offered: str  # "yes" or "no"
-    why_not: str  # only what State and Boot check do not say ("stopped checking in", "no visitor page"), else ""
+    offered: bool
+    offered_title: str  # "offered" or "not offered: <why>" (#127: "the 'why not' being a popup / shown on hover")
     notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
-    page: str  # the visitor page "yes" links to
+    page: str  # the visitor page an offered Pi's ✓ links to
 
 
 def _check_word(host):
@@ -160,23 +166,30 @@ def _visitor_pages(request):
     return pages
 
 
-def check_columns(hosts):
-    """The check names of the shown Pis, a column each across the fleet (Tim, 15 Oct 2026: "all devices checks ...
-    in the same primary table"): grouped by board type in the summary's order, each type's checks in the order its
-    checks gave them; a name two types share (pin-id) is one column."""
-    by_type = {}
+def check_names(hosts):
+    """Every check name the shown Pis' boards ran or left out, in the order their checks gave them."""
+    return list(dict.fromkeys(name for host in hosts for b in host.boards
+                              for name in [*(n for n, _ in b["tests"]), *b["not_run"]]))
+
+
+def planned_by_type(hosts):
+    """{board type: the checks a board of that type runs}, as the fleet's boards of that type reported them (ran or
+    left out). For a board whose check stopped before any test (no tests, no not_run, not passed) these are the
+    checks it should have run: what other boards of its type ran, never a guess (fpgas.online-test-designs#339 asks
+    the check to say so itself)."""
+    planned = {}
     for host in hosts:
         for b in host.boards:
-            names = by_type.setdefault(b["title"], [])
-            names.extend(name for name, _ in b["tests"] if name not in names)
-    return list(dict.fromkeys(name for title in sorted(by_type) for name in by_type[title]))
+            planned.setdefault(b["title"], {}).update(dict.fromkeys([*(n for n, _ in b["tests"]), *b["not_run"]]))
+    return {title: list(names) for title, names in planned.items()}
 
 
-def test_reason(board, name):
+def test_reason(board, name, whole=True):
     """What the board's check said about one test: the parts of its reason that start with the test's name ("pin-id
-    fail: the test exited 1"), the reason split at "; " as the check joins it, a part that names no test going with
-    the one before. A reason that names no test of the board is the board's reason, whole."""
-    names = {test for test, _ in board["tests"]}
+    fail: the test exited 1", "ddr not run: it needs jtag to pass first"), the reason split at "; " as the check joins
+    it, a part that names no test going with the one before. A reason that names no test of the board is the board's
+    reason, whole."""
+    names = {test for test, _ in board["tests"]} | set(board["not_run"])
     groups, current = {}, None
     for part in board["reason"].split("; ") if board["reason"] else ():
         first = part.split(" ", 1)[0].rstrip(":")
@@ -186,27 +199,40 @@ def test_reason(board, name):
             groups.setdefault(current, []).append(part)
     if name in groups:
         return "; ".join(groups[name])
-    return board["reason"]
+    return board["reason"] if whole else ""
 
 
-def _mark(board, name):
+def _mark(board, name, planned):
     result = dict(board["tests"]).get(name)
-    if result is None:
-        return Mark("–", "mgmt-test-none", f"{name} not run on {board['label']}"), NONE_SORT
     if result == "pass":
-        return Mark("✓", "mgmt-test-pass", f"{name} pass"), PASS_SORT
-    # every result but "pass" is a failure (fpgas-verify: only "pass" means the board is as it should be)
-    reason = test_reason(board, name)
-    said = f"{name} {result}"  # the check's own words start so ("pin-id fail: 0/18 pins match"): not said twice
-    title = reason if reason.startswith(said) else f"{said}" + (f": {reason}" if reason else "")
-    return Mark("✗", "mgmt-test-fail", title), FAIL_SORT
+        return Mark(PASSED[0], PASSED[1], f"{name} passed"), PASSED[2]
+    if result is not None:
+        # every result but "pass" is a failure (fpgas-verify: only "pass" means the board is as it should be)
+        reason = test_reason(board, name)
+        said = f"{name} {result}"  # the check's own words start so ("pin-id fail: 0/18 pins match"): not said twice
+        title = reason if reason.startswith(said) else said + (f": {reason}" if reason else "")
+        return Mark(FAILED[0], FAILED[1], title), FAILED[2]
+    stopped = not board["tests"] and not board["not_run"] and board["result"] != "pass"
+    if name in board["not_run"] or (stopped and name in planned.get(board["title"], ())):
+        # the check's own words for this test ("ddr not run: it needs jtag to pass first"); else the checks of this
+        # board that did not pass; else (a check that stopped before its tests) the board's reason
+        own = test_reason(board, name, whole=False)
+        if own.startswith(f"{name} not run"):
+            title = own
+        elif board["failing"]:
+            title = f"{name} did not run: {', '.join(board['failing'])} did not pass"
+        else:
+            title = f"{name} did not run: " + (board["reason"] or "an earlier check did not pass")
+        return Mark(NOT_RUN[0], NOT_RUN[1], title), NOT_RUN[2]
+    return Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable to {board['type']}"), NOT_APPLICABLE[2]
 
 
-def check_cell(host, name, link):
+def check_cell(host, name, link, planned):
     """A Pi's cell in the column of check `name`: a mark per board; one – for a Pi whose check named no board."""
     if not host.boards:
-        return CheckCell(name, [Mark("–", "mgmt-test-none", f"{name} not run: no board checked this boot")], NONE_SORT, "")
-    marks, sorts = zip(*(_mark(b, name) for b in host.boards))
+        mark = Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable: no board checked this boot")
+        return CheckCell(name, [mark], NOT_APPLICABLE[2], "")
+    marks, sorts = zip(*(_mark(b, name, planned) for b in host.boards))
     worst = min(sorts)
     return CheckCell(name, list(marks), worst, link if worst == FAIL_SORT else "")
 
@@ -226,20 +252,7 @@ def _port(host, observed):
             f"{observed.switch:03d}{observed.port:03d}", note)
 
 
-# Why a Pi is not offered, as the Why not column says it: only what the State badge and the Boot check verdict do
-# not already say (#123: "boot check failed" beside "failed" was the same fact twice, and made rows four lines tall).
-# A failed or unfinished check is the Boot check's word and its ✗ marks; missing is the State's, and Seen says since
-# when; a running check is the Boot check's word.
-WHY_NOT_SHOWN = ("stopped checking in", "no visitor page")
-
-
-def _why_not(offered, why):
-    if offered or why in WHY_NOT_SHOWN:
-        return why
-    return ""
-
-
-def _line(host, now, pages, columns, detail, observed=None):
+def _line(host, now, pages, columns, detail, observed=None, planned=None):
     fields = fpga.pi_fields(host.machine)
     notes = [fields.note] if fields.note else []
     # a board name the page does not know is said, loud, in Notes: the Board cell's "other" is not a value
@@ -267,22 +280,16 @@ def _line(host, now, pages, columns, detail, observed=None):
         checked = ""
         notes.append(f"check {duration(host.checked - now)} ahead" if host.checked > now else str(exc))
     offered, why, page = _offer(host, now, pages)
-    try:
-        if not offered and host.condition != OPERATIONAL:
-            _board_reason(host, now)  # a value the page does not know: said, loud, in Why not
-        why_not = _why_not(offered, why)
-    except ValueError as exc:
-        why_not = str(exc)
     seconds = host.machine.last_uptime_s if host.uptime else 0
     link = f"{detail}{host.machine.serial}/#boards" if detail else ""
-    return Line(host, fields.short, model_title, fields.memory, memory_mb, fields.serial,
+    return Line(host, STATE_MARKS[host.condition], fields.short, model_title, fields.memory, memory_mb, fields.serial,
                 port, port_title, sort_port, _check_word(host), host.why,
-                [(b["name"], b["label_id"]) for b in host.boards]
-                or [(kind, "") for kind in host.registered_kinds or [host.board_type]],
-                [check_cell(host, name, link) for name in columns],
+                [(b["type"], b["label_id"], b["label"]) for b in host.boards]
+                or [(kind, "", "") for kind in host.registered_kinds or [host.board_type]],
+                [check_cell(host, name, link, planned or {}) for name in columns],
                 host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
                 int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],
-                "yes" if offered else "no", why_not, notes, page)
+                offered, "offered" if offered else f"not offered: {why}", notes, page)
 
 
 def _page(request):
@@ -297,11 +304,16 @@ def _page(request):
     fleet = _url(request, "fleet-list")  # each Pi's fleet page, where this host has them (not tinytapeout's urlconf)
     hosts = [r for r in rows if (not want_condition or r.condition == want_condition)
              and (not want_type or r.board_type == want_type)]
-    columns = check_columns(hosts)
+    groups = check_groups.grouped(check_names(hosts))
+    columns = [name for _, names in groups for name in names]
+    planned = planned_by_type(rows)
     # what needs a person first, then by switch and port (the table's own sort returns to this order)
     observed = fpga.seen_ports()
-    shown = sorted((_line(r, now, pages, columns, fleet, observed.get(r.machine.pk)) for r in hosts),
+    shown = sorted((_line(r, now, pages, columns, fleet, observed.get(r.machine.pk), planned) for r in hosts),
                    key=lambda line: (line.severity, line.host.place))
+    # the Pis that are here, and below them the missing ones (#127: "Move the missing into a seperate table")
+    present = [line for line in shown if line.host.condition != MISSING]
+    missing = [line for line in shown if line.host.condition == MISSING]
     # the reload switch keeps the filter
     stay = request.GET.copy()
     stay.pop("reload", None)
@@ -309,7 +321,8 @@ def _page(request):
     off["reload"] = "off"
     return render(request, "management/fpgas.html", {
         "summary": table, "total": total, "everything": everything, "rows": shown,
-        "columns": columns,
+        "tables": [(title, lines) for title, lines in (("", present), ("Missing", missing)) if lines],
+        "groups": [(group, len(names)) for group, names in groups], "columns": columns,
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),
         "want_condition": want_condition, "want_type": want_type,
