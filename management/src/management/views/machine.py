@@ -89,11 +89,9 @@ class Board:
 
 
 # the mark of a board's result in its Boards row and in the history: one character, its words on hover
-def _result_mark(result, reason="", no_board_expected=False):
+def _result_mark(result, reason=""):
     # a report with no result says so (its detail is in the events), never "not started" or "unknown"
     word = (CHECK_WORDS.get(result) or f"gave {result}") if result else "sent no result"
-    if no_board_expected and result == "missing":  # the same verdict as the facts and /fleet/ (the review of #135)
-        return Mark("✓", "mgmt-test-pass", "found no board, as expected: this host carries none")
     title = word + (f": {reason}" if reason else "")
     if result == "pass":
         return Mark("✓", "mgmt-test-pass", title)
@@ -137,7 +135,7 @@ class Check:
     boards: list  # [(type, Mark)] a board a line
 
 
-def _history(machine, no_board_expected=False):
+def _history(machine):
     """[Check] of the host's boot checks, newest first, one row a boot: its report, or "running" while it has none."""
     events = BootEvent.objects.filter(machine=machine, stage__in=FPGA_STAGES).order_by("-id")[:HISTORY * 2]
     rows = {}
@@ -148,7 +146,7 @@ def _history(machine, no_board_expected=False):
         if event.stage == "fpga-verifying":
             mark, boards = Mark("⟳", "mgmt-test-running", "running"), []
         else:
-            mark = _result_mark(str(detail.get("result", "")), no_board_expected=no_board_expected)
+            mark = _result_mark(str(detail.get("result", "")))
             boards = [(fpga.board_title(b), _result_mark(_t(b["result"]), _t(b.get("reason", ""))))
                       for b in fpga._reported_boards(detail)] if detail else []
         rows[event.boot_id] = Check(event.boot_id, event.boot_id == machine.last_boot_id, _when(event.ts), event.id,
@@ -221,13 +219,12 @@ def _page(request, entry):
         # its host name says", a remembered name under the same word)
         "port": port, "port_title": port_title, "port_note": port_note,
         "condition": CONDITION_KEYS[host.condition], "boot": boot,
-        "offered": offered, "offered_title": "offered" if offered else (
-            "not applicable: this host carries no board" if host.no_board_expected else f"not offered: {why}"),
+        "offered": offered, "offered_title": "offered" if offered else f"not offered: {why}",
         "page": page,
         "seen": _when(entry.last_seen), "first_seen": _when(entry.first_seen), "checked": _when(host.checked),
         "groups": [(group, len(members)) for group, members in groups], "boards": boards,
         "columns": [name for _, members in groups for name in members],
-        "head_titles": HEAD_TITLES, "history": _history(entry, host.no_board_expected),
+        "head_titles": HEAD_TITLES, "history": _history(entry),
         # one row per field, the label repeated, so the table sorts (rule 22)
         "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
         "notes": [(m[1] if (m := NO_EVENT.fullmatch(note)) else note, note) for note in built.notes],

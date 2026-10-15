@@ -131,7 +131,6 @@ class Line:
     sort_checked: int
     severity: int
     offered: bool
-    offered_na: bool  # a host that carries no board is not offered and need not be: – (coord-65's default)
     offered_title: str  # "offered" or "not offered: <why>" (#127: "the 'why not' being a popup / shown on hover")
     notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page an offered Pi's ✓ links to
@@ -140,9 +139,9 @@ class Line:
 # The column headers' titles: what each column is, said once (#129: "What is the differences between Checked and
 # operational?"). "operational" is a State; "Check ran" is a time.
 HEAD_TITLES = {
-    "state": "operational: it checks in and the boot check of the boot it is running passed (for a host that "
-             "carries no board: found none), so a board on it is offered to visitors; needs attention: that check did "
-             "not pass, or it stopped checking in; missing: not heard from for 6 h; checking: that check has not "
+    "state": "operational: it checks in and the boot check of the boot it is running passed, so a board on it "
+             "is offered to visitors; needs attention: that check did not pass (it failed, could not finish, or found "
+             "no board), or it stopped checking in; missing: not heard from for 6 h; checking: that check has not "
              "finished",
     "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
     "serial": "the Pi's serial number; links its own page",
@@ -162,12 +161,12 @@ def boot_mark(host, checked_text=""):
     pass (failed, could not finish, found no board, unreadable, or a result the page does not know), ⟳ running,
     ⊘ not started; its words, and why the Pi is not offered, in the title."""
     word = _check_word(host)
-    if host.no_board_expected and host.state == "missing":
-        word = "found no board, as expected: this host carries none"
     # why the Pi is not offered goes with a check that did not pass; a passed check is not contradicted by it
-    passed = host.state == "pass" or (host.no_board_expected and host.state == "missing")
-    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if host.why and not passed else "")
-    if host.state == "pass" or (host.no_board_expected and host.state == "missing"):
+    passed = host.state == "pass"
+    # the why, unless it only says the word again ("found no board": "no board found")
+    said = host.why and not passed and not (host.state == "missing" and host.why == "no board found")
+    title = word + (f", {checked_text}" if checked_text else "") + (f": {host.why}" if said else "")
+    if passed:
         return Mark(PASSED[0], PASSED[1], title), PASSED[2]
     if host.state == "verifying":
         return Mark("⟳", "mgmt-test-running", title), NOT_RUN[2]
@@ -310,7 +309,7 @@ def _mark(board, name, planned=None):
 def check_cell(host, name, link, planned=None):
     """A Pi's cell in the column of check `name`: a mark per board; one – for a Pi whose check named no board."""
     if not host.boards:
-        why = "it carries no board" if host.no_board_expected else "no board checked this boot"
+        why = "no board found" if host.state == "missing" else "no board checked this boot"
         mark = Mark(NOT_APPLICABLE[0], NOT_APPLICABLE[1], f"{name} not applicable: {why}")
         return CheckCell(name, [mark], NOT_APPLICABLE[2], "")
     marks, sorts = zip(*(_mark(b, name) for b in host.boards))
@@ -376,9 +375,7 @@ def _line(host, now, pages, columns, detail, observed=None, planned=None):
                 [check_cell(host, name, link, planned or {}) for name in columns],
                 host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
                 int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],
-                offered, host.no_board_expected,
-                "offered" if offered else ("not applicable: this host carries no board" if host.no_board_expected
-                                           else f"not offered: {why}"), notes, page)
+                offered, "offered" if offered else f"not offered: {why}", notes, page)
 
 
 def _page(request):

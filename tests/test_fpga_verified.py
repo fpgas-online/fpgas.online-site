@@ -122,10 +122,12 @@ def test_the_fleet_pages_show_the_check(c):
     html = c.get("/fleet/").content.decode()  # the Pi dashboard (#94): the check of each Pi's boot as words
     # the verdict as one character (#129); its words and why the Pi is not offered are the cell's title
     for mark, word, why in (("⟳", "running", "its boot check is running"),
-                            ("✗", "found no board", "its boot check gave missing"),
                             ("⊘", "not started", "its boot check has not started this boot")):
         assert re.search(rf'data-label="Boot check" data-sort="\d" title="{word}[^"]*: {why}"><span class="[^"]+">'
                          rf'{mark}</span>', html), word
+    # found no board: the word is the why, said once (#144)
+    assert re.search(r'data-label="Boot check" data-sort="\d" title="found no board, \d+ \w+ \d\d:\d\d"><span class="[^"]+">✗</span>',
+                     html)
     # a host's own page: the condition badge, and the check of this boot as a word (#93)
     aaa = c.get("/fleet/aaa/").content.decode()
     assert re.search(r'<span class="mgmt-state-unknown">⟳</span> checking</td>', aaa)
@@ -182,5 +184,5 @@ def test_two_switches_with_the_same_port_are_two_pis(c):
 
 @pytest.mark.django_db
 def test_the_tt_page_needs_a_board_on_port_21(c):
-    registered("opi", "pi-sw2-p21", "missing")  # an Orange Pi, no FPGA
+    registered("opi", "pi-sw2-p21", "missing")  # an Orange Pi with no board
     assert c.get("/fpgas/tt.html").status_code == 404

@@ -297,7 +297,6 @@ class Host:
     checked_in: bool = False
     pi: Pi | None = None
     registered_kinds: list = field(default_factory=list)  # the board kinds its registration names, as it named them
-    no_board_expected: bool = False  # carries_no_board(): a host whose check finding no board is as it should be
 
     @property
     def board_text(self):
@@ -352,22 +351,12 @@ class Host:
         if self.state == "verifying":
             return "its boot check is running"
         reasons = "; ".join(b["reason"] for b in self.boards if b["reason"])
-        said = {"fail": "its boot check failed", "error": "its boot check could not finish"}.get(
+        # a host whose check found no board needs a person, an Orange Pi with no board yet too (Tim, 16 Oct 2026,
+        # coord-65: "(B) Needs attention", site #144)
+        said = {"fail": "its boot check failed", "error": "its boot check could not finish",
+                "missing": "no board found"}.get(
             self.state, f"its boot check gave {self.state}")
         return said + (f": {reasons}" if reasons else "")
-
-
-# The type of a host that carries no FPGA board (the Orange Pi PCs, USB-booted from the hub Pi): its own row in the
-# summary, never "no board" as a board type.
-NO_FPGA = "no FPGA"
-
-
-def carries_no_board(machine):
-    """Whether a host carries no FPGA board by design: one switch (the coordinator's default for coord-65, Tim's
-    answer may change it): a host rpi-hwid identifies as a board that is not a Raspberry Pi (welland's Orange Pi PCs);
-    every Raspberry Pi on a fleet port is there to carry a board."""
-    fields = pi_fields(machine)
-    return not fields.why and fields.kind != "rpi"
 
 
 def report_boards(detail):
@@ -420,17 +409,10 @@ def hosts(now=None):
             kinds = _snapshot_kinds(m.latest_snapshot.document if m.latest_snapshot else {})
             board_type = " + ".join(dict.fromkeys(SNAPSHOT_KINDS.get(k, OTHER) for k in kinds if k)) or NO_BOARD
         has_checked_in = m.serial in live
-        no_board = not boards and not kinds and carries_no_board(m)
-        if no_board:
-            board_type = NO_FPGA
-        # a host that carries no board and whose check found none is as it should be (the coordinator's default for
-        # coord-65, 15 Oct 2026): judged as a check that passed, never "needs attention" for the absence of a board
-        judged = "pass" if no_board and state == "missing" else state
-        rows.append(Host(machine=m, condition=condition(judged, has_checked_in, m.last_seen, now), state=state,
+        rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,
                          registered_kinds=list(dict.fromkeys(_text(k, 40) for k in kinds if k)),
-                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None,
-                         no_board_expected=no_board))
+                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None))
     return sorted(rows, key=lambda r: r.place)
 
 

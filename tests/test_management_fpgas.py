@@ -944,23 +944,26 @@ def _orange_pi(hostname, serial, detail):
 
 
 @pytest.mark.django_db
-def test_a_host_that_carries_no_board_is_its_own_type_and_operational_when_its_check_finds_none(fleet):
-    """The coordinator's default for coord-65 (15 Oct 2026): welland's Orange Pi PCs carry no FPGA by design; they are
-    their own type, ● when the check finds no board, Offered – (not applicable), never needs attention for it."""
+def test_a_host_whose_check_finds_no_board_needs_attention_an_orange_pi_too(fleet):
+    """Tim, 16 Oct 2026 (coord-65): "(B) Needs attention": welland's Orange Pi PCs are to get boards, so one whose
+    check finds no board is ! with "no board found" on hover, counted under needs attention, like a Raspberry Pi
+    (site #144; #134 had made them operational, the coordinator's default while the question was open)."""
     _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
-    rows = fpga.hosts()
-    host = next(r for r in rows if r.machine.serial == "02c000810b122044")
-    assert (host.board_type, host.condition, host.no_board_expected) == (fpga.NO_FPGA, "operational", True)
-    assert any(t == fpga.NO_FPGA and counts["operational"] == 1 for t, counts, _ in fpga.summary(rows)[0])
-    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
-    row = _by_serial(html)["02c000810b122044"]
-    assert (row["State"], row["Board"], row["Offered"], row["Boot check"]) == ("●", "no FPGA", "–", "✓")
-    assert 'title="not applicable: this host carries no board"' in html
-    assert "found no board, as expected: this host carries none" in html
-    # a Raspberry Pi that finds no board still needs attention
     pi("pi-sw2-p19", {"result": "missing"}, serial="10000000aaaa0019")
-    assert _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[
-        "10000000aaaa0019"]["State"] == "!"
+    rows = fpga.hosts()
+    for serial in ("02c000810b122044", "10000000aaaa0019"):
+        host = next(r for r in rows if r.machine.serial == serial)
+        assert (host.board_type, host.condition, host.why) == (fpga.NO_BOARD, "attention", "no board found")
+    assert any(t == fpga.NO_BOARD and counts["attention"] == 2 for t, counts, _ in fpga.summary(rows)[0])
+    html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
+    for serial in ("02c000810b122044", "10000000aaaa0019"):
+        row = _by_serial(html)[serial]
+        assert (row["State"], row["Board"], row["Offered"], row["Boot check"]) == ("!", "no board", "✗", "✗")
+    assert 'title="needs attention: no board found"' in html
+    assert 'title="not offered: boot check found no board"' in html
+    assert "found no board: no board found" not in html  # the Boot check's title does not say it twice
+    assert "as expected" not in html and "carries none" not in html and "not applicable: this host" not in html
+    assert "carries no board" not in html and "found no board), or it stopped checking in" in html  # the State title
 
 
 @pytest.mark.django_db
@@ -1018,14 +1021,13 @@ def test_a_report_of_the_new_fpgas_verify_is_read_as_it_comes(fleet):
 
 @pytest.mark.django_db
 def test_a_pi_whose_revision_cannot_be_read_is_never_taken_for_a_host_without_a_board():
-    """The review of #134 (finding 9): carries_no_board is only for a host rpi-hwid identifies as another board; a Pi
-    whose label cannot be made is still a Pi, and finding no board still needs attention."""
+    """The review of #134 (finding 9): a Pi whose label cannot be made still needs attention when it finds no
+    board."""
     from fleet.models import HardwareSnapshot
 
     m = pi("pi-sw2-p21", {"result": "missing"}, serial="10000000bbbb0021")
     m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint="z", document={
         "machine": {"serial": m.serial, "revision_code": "zz"}})
     m.save()
-    assert fpga.carries_no_board(m) is False
     assert _by_serial(Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode())[
         "10000000bbbb0021"]["State"] == "!"
