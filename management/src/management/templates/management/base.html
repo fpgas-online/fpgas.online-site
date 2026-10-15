@@ -1,16 +1,15 @@
 {% extends management_theme %}
 {% load static %}
 {# Every management page extends this (#66). It owns `content`; a page fills `title` (its whole title, e.g.
-   "Switch ports &mdash; Management &mdash; fpgas.online"), `extra_head`, `crumb` (" &rsaquo; Switch ports") and `body`.
-   The landing empties `crumbs`: a crumb to itself would repeat its own heading. #}
+   "Switch ports &mdash; Management &mdash; fpgas.online"), `extra_head` and `body`. The one navigation (#131) is at
+   the top and the foot of every page, the same links and names, the page you are on marked. #}
 {% block title %}Management &mdash; fpgas.online{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'management/management.css' %}">{% block extra_head %}{% endblock %}{% endblock %}
 {% block content %}
 <div class="mgmt">
-  {% block crumbs %}<nav class="mgmt-crumbs" aria-label="Management">
-    <a href="/management/">Management</a>{% block crumb %}{% endblock %}
-  </nav>{% endblock %}
+  {% include "management/nav.html" %}
   {% block body %}{% endblock %}
+  {% include "management/nav.html" %}
   <p class="mgmt-public">These pages are public: everything they show is available elsewhere without a login.</p>
 </div>
 {% endblock %}

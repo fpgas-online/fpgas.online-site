@@ -105,7 +105,7 @@ def test_the_page_and_json_answer_without_a_login_on_every_host(host, reader):
     assert r.status_code == 200
     html = r.content.decode()
     assert "<title>Switch ports &mdash; Management &mdash; fpgas.online</title>" in html
-    assert "&rsaquo; Switch ports" in html
+    assert '<a href="/management/switches/" aria-current="page">Switch ports</a>' in html  # the one navigation
     assert "GSM7252PS" in html and "Times are" in html and "/accounts/login" not in html
     assert 'class="mgmt-scroll"' in html and 'scope="col"' in html and 'scope="row"' in html
     j = c.get("/management/switches.json")

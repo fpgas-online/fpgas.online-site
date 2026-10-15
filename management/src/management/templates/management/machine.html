@@ -1,14 +1,14 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}{{ label }} &mdash; Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block crumb %} &rsaquo; {% if fleet %}<a href="{{ fleet }}">Raspberry Pis</a>{% else %}Raspberry Pis{% endif %} &rsaquo; {{ label }}{% endblock %}
 {% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
 {% block body %}
 <h1>{{ label }}</h1>
 
 <table class="mgmt-table mgmt-facts mgmt-fit">
   <tbody>
-    <tr><th scope="row">State</th><td><span class="badge mgmt-{{ host.condition }}"{% if host.why %} title="{{ host.why }}"{% endif %}>{{ host.condition_title }}</span></td></tr>
+    {# the same mark and word as every management page (management.states, #131) #}
+    <tr><th scope="row">State</th><td class="mgmt-c-state-word" title="{{ host.condition_title }}{% if host.why %}: {{ host.why }}{% endif %}"><span class="mgmt-state-{{ host.condition }}">{{ state_mark }}</span> {{ host.condition_title }}</td></tr>
     <tr><th scope="row">Offered</th><td>{% if page %}<a href="{{ page }}">{{ offered }}</a>{% else %}{{ offered }}{% endif %}</td></tr>
     <tr><th scope="row">Boot check</th><td{% if check_title %} title="{{ check_title }}"{% endif %}>{{ check }}{% if checked %} &middot; {{ checked }}{% endif %}</td></tr>
     <tr><th scope="row">Port</th><td title="the port its host name says it booted on">{{ port }}</td></tr>

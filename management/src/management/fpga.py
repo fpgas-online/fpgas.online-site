@@ -16,6 +16,8 @@ from rpi_hwid.model import Summary
 from rpi_hwid.probe import nominal_memory
 from rpi_hwid.revision import decode_revision
 
+from .states import WORDS
+
 # The board names fpgas-verify's modules use (board<i>), as a visitor reads them. "xilinx-pcie" is its name
 # (conclusion.OTHER_PCIE) for a Xilinx PCIe card that is not ours (15 Oct 2026: one on welland showed as "other").
 TYPE_TITLES = {"acorn": "Acorn", "arty": "Arty A7", "netv2": "NeTV2", "fomu": "Fomu", "pcileech": "PCIe card",
@@ -32,8 +34,7 @@ TT_UNIDENTIFIED = "TT board, not identified"  # the check could not tell which: 
 DNA_NAMES = {"acorn": names.acorn_name, "netv2": names.netv2_name, "pcileech": names.pcileech_name}
 # "unknown" is the condition of a Pi whose boot check has not finished this boot (not started, or running): the
 # page calls it what it is, "checking" (the coordinator, 11 Oct 2026: no state reads "unknown").
-CONDITION_TITLES = {"operational": "operational", "attention": "needs attention", "missing": "missing",
-                    "unknown": "checking"}
+CONDITION_TITLES = WORDS  # one set of names everywhere (management.states, #131)
 MAX_TEXT = 300
 
 

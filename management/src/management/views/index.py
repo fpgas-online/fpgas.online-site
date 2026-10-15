@@ -30,7 +30,7 @@ from fleet.models import BootEvent
 from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, UNKNOWN
 from fleet.timeago import ago_time, duration
 
-from .. import e2e, fpga, inventory_check, localtime
+from .. import e2e, fpga, inventory_check, localtime, states
 from . import switches as switch_page
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 OK, FAILING, MISSING_WORD, WAITING = "ok", "failing", "missing", "waiting"
 # Severity: the order of the failures at the top; the ok rows follow all of them.
 ERROR, SWITCH_DOWN, BOARD_MISSING, BOARD_FAILING, SWITCH_PORTS, CHECK_FAILED, E2E_FAILED, BOARD_WAITING, FINE = range(9)
-AREAS = ("Boards", "Switches", "Boot checks", "Browser test")
+AREAS = ("Raspberry Pis", "Switches", "Boot checks", "Browser test")
 # The names of a board's tests ("sdk", "dip-switches", "pin-id", "uart"): a word the code can show as it is.
 CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,39}")
 # Results of a boot check (fpga-verified detail["result"]) that mean the Pi is not offered and why.
@@ -64,6 +64,7 @@ class Row:
     title: str = ""
     seen: str = ""  # <time> html from fleet.timeago.ago_time, or ""
     sort_seen: int = 0  # the time as a number, for the sortable column
+    value_cls: str = ""  # a value that is a result is a mark (✓ ✗ ⊘, management.states), its class here (#131)
 
     @property
     def failing(self):
@@ -71,7 +72,16 @@ class Row:
 
     @property
     def css(self):
+        """The row's state as a condition key: the same marks and words as the Pis' (management.states, #131)."""
         return {OK: "operational", FAILING: "attention", MISSING_WORD: "missing", WAITING: "unknown"}[self.state]
+
+    @property
+    def mark(self):
+        return states.MARKS[self.css]
+
+    @property
+    def word(self):
+        return states.WORDS[self.css]
 
 
 def _url(request, name, *args):
@@ -88,11 +98,16 @@ def _short(text):
 
 def _row(severity, state, area, item, value, link="", title="", moment=None):
     """One row. A time the page cannot show (further in the future than clocks differ) makes this item's row a
-    failure naming it, and only this item's: the area's other rows stand."""
+    failure naming it, and only this item's: the area's other rows stand. `value` is a count ("18 Pis"), a mark of a
+    result (_mark: ✓ ✗ ⊘, its words the title), or for a failure of the page's own a reason that names it."""
     try:
         seen = ago_time(moment)
     except ValueError as exc:
         return Row(ERROR, FAILING, area, item, _short(str(exc)), link, str(exc))
+    if isinstance(value, tuple):  # a result: (mark, css class)
+        (mark, cls) = value
+        return Row(severity, state, area, item, mark, link, title, seen, int(moment.timestamp()) if moment else 0,
+                   f"mgmt-mark {cls}")
     return Row(severity, state, area, item, _short(value), link, title or (value if len(value) > MAX_VALUE else ""),
                seen, int(moment.timestamp()) if moment else 0)
 
@@ -156,7 +171,7 @@ def _boards(request, now):
             why = "" if host.condition == OPERATIONAL else _board_reason(host, now)
         except ValueError as exc:
             item = f"{fpga.pi_label(host.machine)} on {fpga.port_text(host.machine)}"
-            rows.append(_row(ERROR, FAILING, "Boards", item, str(exc), _url(request, "fleet-detail", host.machine.serial),
+            rows.append(_row(ERROR, FAILING, "Raspberry Pis", item, str(exc), _url(request, "fleet-detail", host.machine.serial),
                              str(exc), host.machine.last_seen))
             continue
         counted[host.condition].append(f"{fpga.pi_label(host.machine)}" + (f": {why}" if why else ""))
@@ -167,10 +182,12 @@ def _boards(request, now):
         elif condition == OPERATIONAL:
             severity, state = BOARD_FAILING, FAILING  # no Pi offered
         else:
-            severity, state = FINE, OK
+            # no Pi in this condition: no row (the review of #133: "missing: 0 Pis" beside a green "operational" mark
+            # read as two answers); the operational count is always shown, a row of none is a failure
+            continue
         title = "; ".join(pis[:TITLE_PIS]) + (f"; and {len(pis) - TITLE_PIS} more" if len(pis) > TITLE_PIS else "")
         link = f"{table}?condition={condition}" if table and pis else ""
-        rows.append(_row(severity, state, "Boards", fpga.CONDITION_TITLES[condition], _pis(len(pis)), link, title))
+        rows.append(_row(severity, state, "Raspberry Pis", fpga.CONDITION_TITLES[condition], _pis(len(pis)), link, title))
     return rows
 
 
@@ -193,7 +210,7 @@ def _switches(request, now):
     try:
         views = sorted(switch_page._read(), key=lambda v: (v.index is None, v.index or 0))
     except switch_page._Unavailable as exc:
-        return [_row(SWITCH_DOWN, FAILING, "Switches", "all switches", exc.message, page, exc.message)]
+        return [_row(SWITCH_DOWN, FAILING, "Switches", "all switches", states.FAILED, page, exc.message)]
     inventory = switch_page._inventory()
     rows = []
     for view in views:
@@ -206,12 +223,14 @@ def _switches(request, now):
             continue
         if not view.reachable:
             reason = view.error or "not answering"
-            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, "not answering", link, reason, read))
+            rows.append(_row(SWITCH_DOWN, FAILING, "Switches", number, states.FAILED, link, f"not answering: {reason}",
+                             read))
             continue
         spec = switch_page._spec(inventory, view.index)
         if spec is None or spec is switch_page.NO_INVENTORY:
             why = "the switch inventory does not describe this switch, so its ports cannot be checked"
-            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, "not in inventory", link, why, read))
+            rows.append(_row(SWITCH_PORTS, FAILING, "Switches", number, states.FAILED, link, f"not in the inventory: {why}",
+                             read))
             continue
         failures = inventory_check.check(spec, view)
         if not failures:
@@ -271,8 +290,9 @@ def _boot_checks(request, now):
     # the newest check only: whether checks are running at all. A Pi whose check failed is counted in Boards already.
     # The value is the result, a value; which Pi it was is its title, and its link the Pi's page.
     return [_row(FINE if result == "pass" else CHECK_FAILED, OK if result == "pass" else FAILING, "Boot checks",
-                 "newest check", RESULT_WORDS.get(result, f"gave {result}"), _url(request, "fleet-detail", machine.serial),
-                 name, event.ts)]
+                 "newest check", states.PASSED if result == "pass" else states.FAILED,
+                 _url(request, "fleet-detail", machine.serial), f"{RESULT_WORDS.get(result, f'gave {result}')}: {name}",
+                 event.ts)]
 
 
 # --- Browser test ---------------------------------------------------------------------------------------------
@@ -284,23 +304,20 @@ def _browser_test(request, now):
     try:
         run = e2e.latest(site)
     except e2e.E2EError as exc:
-        return [_row(E2E_FAILED, FAILING, "Browser test", item, "not readable", e2e.WORKFLOW_URL,
+        return [_row(E2E_FAILED, FAILING, "Browser test", item, states.FAILED, e2e.WORKFLOW_URL,
                      f"cannot be read: {exc}")]
     if now - run["completed_at"] > e2e.STALE_AFTER:  # the test stopped running: an old result says nothing now
         why = f"no completed run for {duration(now - run['completed_at'])} (the last {run['result']})"
-        return [_row(E2E_FAILED, FAILING, "Browser test", item, "stopped", e2e.WORKFLOW_URL, why,
+        return [_row(E2E_FAILED, FAILING, "Browser test", item, states.NOT_RUN, e2e.WORKFLOW_URL, f"stopped: {why}",
                      run["completed_at"])]
     passed = run["result"] == "passed"
-    return [_row(FINE if passed else E2E_FAILED, OK if passed else FAILING, "Browser test", item, run["result"],
-                 run["url"], "", run["completed_at"])]
+    return [_row(FINE if passed else E2E_FAILED, OK if passed else FAILING, "Browser test", item,
+                 states.PASSED if passed else states.FAILED, run["url"], run["result"], run["completed_at"])]
 
 
 # --- The page -------------------------------------------------------------------------------------------------
 
-# each dashboard by the first of its names this host has: the Pis are /fleet/ where the host has the fleet pages
-LINKS = (("Switch ports", ("management-switches",)), ("Raspberry Pis", ("fleet-list", "management-fpgas")),
-         ("Visitor and usage stats", ("management-stats",)))
-BUILDERS = (("Boards", _boards), ("Switches", _switches), ("Boot checks", _boot_checks),
+BUILDERS = (("Raspberry Pis", _boards), ("Switches", _switches), ("Boot checks", _boot_checks),
             ("Browser test", _browser_test))
 
 
@@ -322,6 +339,4 @@ def index(request):
     # the site's own zone)
     with timezone.override(localtime.zone()):
         table = rows(request)
-    links = [(title, url) for title, names in LINKS
-             if (url := next((u for name in names if (u := _url(request, name))), ""))]
-    return render(request, "management/index.html", {"rows": table, "links": links})
+    return render(request, "management/index.html", {"rows": table})

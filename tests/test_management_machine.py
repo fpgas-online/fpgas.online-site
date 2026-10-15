@@ -57,10 +57,11 @@ def test_the_page_names_the_host_by_its_label_and_says_how_it_is():
     m.save()
     html = page(m.serial)
     assert "<h1>Pi 5 4 GB 285df3f84af242d0</h1>" in html
-    assert re.search(r'<span class="badge mgmt-operational"[^>]*>operational</span>', html)
+    assert re.search(r'<span class="mgmt-state-operational">●</span> operational</td>', html)  # one set (#131)
     assert ">sw2 p46</td>" in html and "<td>Raspberry Pi 5 Model B Rev 1.0</td>" in html
     # under the Pi dashboard in the crumbs
-    assert '&rsaquo; <a href="/fleet/">Raspberry Pis</a> &rsaquo; Pi 5 4 GB 285df3f84af242d0' in html
+    # under Raspberry Pis in the one navigation (#131); the page's heading names the host by its label
+    assert '<a href="/fleet/" aria-current="page">Raspberry Pis</a>' in html and "Pi 5 4 GB 285df3f84af242d0" in html
 
 
 @pytest.mark.django_db
