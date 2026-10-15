@@ -74,6 +74,13 @@ def make_views():
         ])]
 
 
+def in_their_vlans(views):
+    """`views` with each port in its own board VLAN, as the inventory says (2000 + 100 * switch + port)."""
+    for p in views[0].ports:
+        p.pvid, p.untagged_vlans = 2100 + p.port, [2100 + p.port]
+    return views
+
+
 @pytest.fixture(autouse=True)
 def welland_inventory(monkeypatch):
     """Switch 1 described as welland's is (40 board ports; gateway trunk 47, house uplink 48, switch trunk 50), so
@@ -87,7 +94,7 @@ def welland_inventory(monkeypatch):
 
 @pytest.fixture
 def reader(monkeypatch):
-    views = make_views()
+    views = in_their_vlans(make_views())
     monkeypatch.setattr(page, "_reader", lambda: lambda cache, *a, **k: views)
     return views
 
@@ -95,6 +102,33 @@ def reader(monkeypatch):
 def machine(serial, hostname, seen_ago=0):
     return Machine.objects.create(serial=serial, site="welland", hostname=hostname,
                                   last_seen=timezone.now() - timedelta(minutes=seen_ago))
+
+
+# revision codes rpi-hwid reads (the label's "Pi 5 2 GB", ...)
+REVISIONS = {"Pi 5": "b04170", "Pi 4B": "b03111", "Pi 3B+": "a020d3"}
+
+
+def seat(hostname, serial, model="Pi 5", board="acorn", result="pass", seen_ago=0, lease=None, lease_ago=0,
+         reason=""):
+    """A registered machine as the fleet registry has it (a label from its revision code, a boot check of `board`
+    with `result`, seen `seen_ago` minutes ago, checking in), and the gateway's lease record of it on `lease` ((switch,
+    port)) `lease_ago` minutes ago: the observation that puts it on that port."""
+    from fleet.models import BootEvent, GatewayRecord, HardwareSnapshot
+
+    seen = timezone.now() - timedelta(minutes=seen_ago)
+    m = Machine.objects.create(serial=serial, site="welland", hostname=hostname, online=True, last_seen=seen,
+                               last_boot_id="b1", last_uptime_s=3600)
+    m.latest_snapshot = HardwareSnapshot.objects.create(machine=m, fingerprint=serial, document={
+        "machine": {"serial": serial, "revision_code": REVISIONS[model]}})
+    m.save()
+    detail = {"result": result, "board0": f"{board} - {result}"}
+    if reason:
+        detail["board0_reason"] = reason
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=seen, detail=detail)
+    if lease is not None:
+        GatewayRecord.objects.create(site="welland", kind="lease", switch=lease[0], port=lease[1], hostname=hostname,
+                                     at=timezone.now() - timedelta(minutes=lease_ago), doc={}, machine=m)
+    return m
 
 
 @pytest.mark.django_db
@@ -131,26 +165,38 @@ def test_the_names_reverse_on_both_urlconfs():
 @pytest.mark.django_db
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert ">down<" in row and ">searching</td>" in row and len(re.findall(r"<td[^>]*></td>", row)) >= 2
+    row = html.split('<th scope="row" class="c-port">3</th>')[1].split("</tr>")[0]
+    assert '<span class="mgmt-glyph">↓</span><span class="mgmt-sr"> link down</span>' in row
+    assert 'title="PoE on, nothing drawing power">○<span class="mgmt-sr"> PoE on, nothing drawing power</span>' in row
+    # no machine on it: the hardware cells, the speed and the watts are empty, not a dash or a word
+    for column in ("c-model", "c-board", "c-serial", "c-lease", "c-speed", "c-watts"):
+        assert re.search(rf'<td class="[^"]*{column}"[^>]*></td>', row), column
 
 
 @pytest.mark.django_db
 def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     d = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert (d[0]["rx"], d[0]["tx"]) == ("250 kbit/s", "3.4 Mbit/s")
-    assert (d[2]["rx"], d[2]["tx"]) == ("–", "–") and d[0]["errors"] == "0 / 2"
+    # one unit for the column (kbit/s, in the header's title), a number a cell (#130)
+    assert (d[0]["rx"], d[0]["tx"]) == ("250", "3400")
+    assert (d[2]["rx"], d[2]["tx"]) == ("–", "–")
+    # receive and transmit errors, a column each
+    assert (d[0]["rx_errors"], d[0]["tx_errors"]) == ("0", "2") and (d[2]["rx_errors"], d[2]["tx_errors"]) == ("–", "–")
     # one MAC and how many more (#89: the column as wide as one value); every MAC in the title
-    assert d[0]["macs"] == "aa:00:00:00:00:01 +3" and d[0]["macs_title"].count("aa:") == 4 and d[0]["link"] == "up 1G"
+    assert d[0]["macs"] == "aa:00:00:00:00:01 +3" and d[0]["macs_title"].count("aa:") == 4
+    # the link state and its speed, a column each (#130)
+    assert (d[0]["link"], d[0]["link_title"], d[0]["speed"]) == ("↑", "link up", "1G")
+    assert (d[2]["link"], d[2]["link_title"], d[2]["speed"]) == ("↓", "link down", "")
 
 
 @pytest.mark.django_db
 def test_a_fleet_pis_lldp_name_links_to_its_page_and_other_names_do_not(reader):
     machine("10000000aaaa0001", "pi-sw1-p1.welland.example")
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    # the neighbour, then the port it reports on a line of its own (#89)
-    assert '<a href="/fleet/10000000aaaa0001/">pi-sw1-p1</a><br><span class="mgmt-soon">eth0</span>' in html
-    assert 'device<br><span class="mgmt-soon">gi1</span>' in html and "not-a-fleet-host" not in html  # a machine not in the fleet: masked
+    # the neighbour, then the port it reports in a column of its own (#130: one value a column)
+    assert ('<td class="c-lldp" data-label="LLDP"><a href="/fleet/10000000aaaa0001/">pi-sw1-p1</a></td>\n'
+            '        <td class="c-lldp-port" data-label="LLDP port">eth0</td>') in html
+    assert '<td class="c-lldp" data-label="LLDP">device</td>' in html and "not-a-fleet-host" not in html  # masked
+    assert '<td class="c-lldp-port" data-label="LLDP port">gi1</td>' in html
 
 
 @pytest.mark.django_db
@@ -165,17 +211,29 @@ def test_the_newest_machine_on_a_hostname_is_the_one_linked(reader):
 def test_no_fleet_pages_on_tinytapeout_means_no_link(reader):
     machine("10000000aaaa0001", "pi-sw1-p1")
     html = Client(HTTP_HOST=TT).get("/management/switches/").content.decode()
-    assert 'pi-sw1-p1<br><span class="mgmt-soon">eth0</span>' in html and "/fleet/" not in html
+    assert '<td class="c-lldp" data-label="LLDP">pi-sw1-p1</td>' in html and "/fleet/" not in html
 
 
 @pytest.mark.django_db
-def test_one_query_finds_every_fleet_pi(reader, django_assert_num_queries):
-    for n in range(5):
-        machine(f"10000000aaaa000{n}", f"pi-sw1-p{n + 1}")
+def test_the_number_of_queries_does_not_grow_with_the_machines_on_the_ports(reader):
+    """The fleet hosts, the lease records and the registry are read once a page, not once a port or a machine."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
     reader[0].ports[1].lldp_name = "pi-sw1-p2"
     reader[0].ports[2].lldp_name = "pi-sw1-p3"
-    with django_assert_num_queries(2):  # the fleet hosts, and the PoE policy for the whole switch
-        Client(HTTP_HOST=HOSTS[0]).get("/management/switches/")
+
+    def count():
+        with CaptureQueriesContext(connection) as queries:
+            assert Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").status_code == 200
+        return len(queries)
+
+    seat("pi-sw1-p1", "10000000aaaa0001", lease=(1, 1))
+    one = count()
+    for n in range(2, 4):
+        seat(f"pi-sw1-p{n}", f"10000000aaaa000{n}", lease=(1, n))
+    seat("pi-sw1-p3", "10000000aaaa0009", model="Pi 4B", board="arty", lease=(1, 3), lease_ago=60)
+    assert count() == one
 
 
 @pytest.mark.django_db
@@ -186,7 +244,7 @@ def test_an_unreachable_switch_shows_its_error_and_last_ports(monkeypatch):
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert "not answering since 09:59:45" in html and "mgmt-dead" in html
-    assert 'th scope="row">1</th>' in html
+    assert 'th scope="row" class="c-port">1</th>' in html
 
 
 @pytest.mark.django_db
@@ -289,22 +347,29 @@ def test_watts_are_shown_only_on_a_delivering_port(monkeypatch):
     views[0].ports[2].poe_watts = 0.0  # port 3, searching
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert (ports[0]["poe"], ports[0]["poe_title"]) == ("3.5W", "delivering power")
-    assert (ports[2]["poe"], ports[2]["poe_title"]) == ("searching", "PoE on, nothing drawing power")
+    assert (ports[0]["poe"], ports[0]["poe_title"], ports[0]["watts"]) == ("⚡", "PoE delivering power", "3.5")
+    assert (ports[2]["poe"], ports[2]["poe_title"], ports[2]["watts"]) == ("○", "PoE on, nothing drawing power", "")
 
 
-def test_poe_cells_are_watts_or_the_state_as_a_word():
-    """One form per column (the coordinator, 11 Oct 2026): the watts where power flows, else a word; no glyph that
-    needs a key."""
-    assert page.poe_cell("delivering", 8.6) == ("8.6W", "delivering power")
-    words = {state: page.poe_cell(state, None)[0] for state in ("delivering", "searching", "disabled", "fault", "other")}
-    assert words == {"delivering": "on", "searching": "searching", "disabled": "off", "fault": "fault",
-                     "other": "not known"}
-    assert page.poe_cell("something new", None)[0] == "not known"
-    assert page.poe_cell(None, None) == ("no PoE", "this port has no PoE")
-    for state in ("delivering", "searching", "disabled", "fault", "other", None):
-        text, title = page.poe_cell(state, None)
-        assert text.replace(" ", "").isalpha() and title
+def test_poe_cells_are_one_character_states_and_the_watts_a_column_of_their_own():
+    """One form per column (#130): the PoE state as one character, its words on hover; the watts apart."""
+    marks = {state: page.poe_cell(state)[:3] for state in ("delivering", "searching", "disabled", "fault")}
+    assert marks == {"delivering": ("⚡", "mgmt-poe-on", "PoE delivering power"),
+                     "searching": ("○", "mgmt-poe-idle", "PoE on, nothing drawing power"),
+                     "disabled": ("⊗", "mgmt-poe-off", "PoE off"),
+                     "fault": ("!", "mgmt-state-attention", "PoE fault")}
+    assert page.poe_cell(None, has_poe=False)[:3] == ("–", "mgmt-test-none", "no PoE on this port")
+    for state in ("delivering", "searching", "disabled", "fault"):
+        assert len(page.poe_cell(state)[0]) == 1
+    assert page.watts("delivering", 8.64) == "8.6" and page.watts("delivering", None) == ""
+    assert page.watts("searching", 0.0) == ""
+
+
+def test_a_poe_state_the_page_does_not_know_is_said_in_the_cell_never_unknown():
+    """Fail loud (spec 3): the switch's own word in the cell, and the PoE port with no state says "not read"."""
+    text, cls, title, _ = page.poe_cell("melting")
+    assert (text, cls) == ("melting", "mgmt-state-attention") and "'melting'" in title and "unknown" not in title
+    assert page.poe_cell(None, has_poe=True)[:2] == ("not read", "mgmt-state-attention")
 
 
 def test_link_speeds_are_short():
@@ -312,26 +377,46 @@ def test_link_speeds_are_short():
         ["10M", "100M", "1G", "2.5G", "10G", "20G"]
 
 
-@pytest.mark.django_db
-def test_headers_are_short_so_values_set_the_column_widths(reader):
-    """Tim, 2026-10-09: a column is as wide as its values, not its header. Each header is no longer than the
-    shortest value its column always has (a port number, "up 1G", "0 / 0"); the full names are in <abbr title>."""
-    import re
+COLUMNS = ["Port", "Model", "Board", "State", "Serial", "Lease", "Net", "Link", "Speed", "PoE", "W", "⏻", "VLAN", "GW",
+           "LLDP", "LLDP port", "MACs", "In", "Out", "Rx err", "Tx err", "Label"]
 
+
+@pytest.mark.django_db
+def test_the_columns_are_the_hardware_first_then_the_network_each_with_its_definition(reader):
+    """#130: the first columns are /fleet/'s (Port, Model, Board, State), then the network columns, one value a column;
+    every header has a title saying what its column is; the table is as wide as its values (mgmt-fit), striped and
+    sortable, with table.js loaded."""
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     thead = html[html.index("<thead>"):html.index("</thead>")]
     # what a viewer sees: the visually hidden screen-reader text (.mgmt-sr) takes no width
     seen = re.sub(r'<span class="mgmt-sr">[^<]*</span>', "", thead)
-    headers = [re.sub(r"<[^>]+>", "", h) for h in re.findall(r'<th scope="col">(.*?)</th>', seen)]
-    assert headers == ["#", "Label", "Link", "VLAN", "GW", "PoE", "⏻", "LLDP", "MACs", "In", "Out", "Err"]
-    # the button's own column (#89): one symbol over "off"/"on", its name for a mouse and a screen reader
-    assert ('<abbr title="Power: switch the board\'s PoE off or on" aria-hidden="true">⏻</abbr>'
-            '<span class="mgmt-sr">Power</span>') in thead
-    assert 'title="Errors in / out"' in thead and 'title="Port"' in thead
-    # the one-symbol header is read as a word: the symbol hidden from screen readers, the word given to them
-    assert '<abbr title="Port" aria-hidden="true">#</abbr><span class="mgmt-sr">Port</span>' in thead
-    assert 'title="the gateway\'s interface for the port\'s VLAN"' in thead
+    ths = re.findall(r'<th scope="col"([^>]*)>(.*?)</th>', seen, re.S)
+    assert [re.sub(r"<[^>]+>", "", text) for _, text in ths] == COLUMNS
+    for attrs, text in ths:
+        title = re.search(r'title="([^"]+)"', attrs)
+        assert title and len(title.group(1)) > 10, text  # a header without its definition is a shortcut
+    # the one-character columns are set upright, as /fleet/'s State and check columns, so they are a mark wide
+    upright = [re.sub(r"<[^>]+>", "", text) for attrs, text in ths if "mgmt-checkhead" in attrs]
+    assert upright == ["State", "Net", "Link", "PoE"]
+    # the power column's symbol is read as its word
+    assert '<span aria-hidden="true">⏻</span><span class="mgmt-sr">Power</span>' in thead
+    assert 'class="mgmt-table mgmt-ports mgmt-fit mgmt-striped mgmt-sortable"' in html
+    assert '<script src="/static/management/table.js" defer></script>' in html
     assert "nowrap" not in thead
+
+
+@pytest.mark.django_db
+def test_each_row_has_a_cell_for_every_column_in_the_page_and_the_script(reader):
+    """The served rows and the rows the refresh builds have one cell a column, in the headers' order."""
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    for port in (1, 2, 3):
+        assert len(re.findall(r"<td ", row_of(html, port))) == len(COLUMNS) - 1  # the port is the row's <th>
+    classes = re.findall(r'<th scope="col" class="(?:mgmt-checkhead )?(c-[\w-]+)"', html)
+    assert len(classes) == len(COLUMNS)
+    script = html.split("<script>")[1].split("</script>")[0]
+    for cls in classes[1:]:
+        assert f'"{cls}' in script or f' {cls}"' in script or f'"mgmt-mark {cls}' in script or \
+            f'"mgmt-n {cls}' in script or f'"mgmt-label {cls}' in script, cls
 
 
 @pytest.fixture
@@ -462,7 +547,7 @@ def test_the_house_uplink_reads_house_uplink_and_other_ports_their_full_label(mo
     c = Client(HTTP_HOST=HOSTS[0])
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
     assert ports[2]["label"] == "house uplink" and ports[0]["label"] == "uplink"  # port 1 keeps its own label
-    assert ports[2]["label_title"] == "house uplink"
+    assert ports[2]["label_title"] == "house uplink: its role in the inventory"
     assert "a-private-device" not in c.get("/management/switches/").content.decode()
 
 
@@ -482,7 +567,8 @@ def test_no_button_on_a_trunk_inside_the_board_range_even_when_registered(monkey
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec(gateway_trunk_port=3)})
     ports = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"]
-    assert (ports[2]["label_title"], ports[2]["can_power"]) == ("gateway trunk", False)
+    assert (ports[2]["label"], ports[2]["can_power"]) == ("gateway trunk", False)
+    assert ports[2]["machines"] == []  # a registration names no port: only the gateway's lease records do
 
 
 @pytest.mark.django_db
@@ -553,7 +639,7 @@ def test_board_ports_on_the_tinytapeout_host_agrees_with_board_port(monkeypatch)
 
 
 def row_of(html, port):
-    return html.split(f'<th scope="row">{port}</th>')[1].split("</tr>")[0]
+    return html.split(f'<th scope="row" class="c-port">{port}</th>')[1].split("</tr>")[0]
 
 
 @pytest.mark.django_db
@@ -565,8 +651,9 @@ def test_only_a_board_port_can_power_and_only_it_has_a_button(reader):
     assert [p["poe_action"] for p in ports] == ["off", "", ""]
     html = c.get("/management/switches/").content.decode()
     assert html.split("</head>")[1].count("<button") == 1  # the one button (the head's script only builds them)
-    assert 'class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">off</button>' \
-        in row_of(html, 1)
+    # the button says what a press does, so it does not read as the port's state (the review of 15 Oct 2026)
+    assert ('class="mgmt-poe-button" data-switch="1" data-port="1" data-action="off" data-powers="pi-sw1-p1">'
+            'turn off</button>') in row_of(html, 1)
     for port in (2, 3):  # a non-board port: the cell is as it was, no button and no hint of one
         assert "button" not in row_of(html, port) and "mgmt-poe-msg" not in row_of(html, port)
 
@@ -595,7 +682,8 @@ def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
     c = Client(HTTP_HOST=HOSTS[0])
     port = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"][0]
     assert port["can_power"] is True and port["poe_action"] == action
-    assert (f">{action}</button>" in row_of(c.get("/management/switches/").content.decode(), 1)) == bool(action)
+    assert port["poe_button"] == (f"turn {action}" if action else "")
+    assert (f">turn {action}</button>" in row_of(c.get("/management/switches/").content.decode(), 1)) == bool(action)
 
 
 @pytest.mark.django_db
@@ -612,7 +700,7 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     assert 'var powerUrl = "/snmp/power";' in html
-    assert "⏻ Power: off/on switches the board's PoE (board ports only)" in html
+    assert 'title="Power: turn the board&#x27;s PoE off or on (board ports only)"' in html
 
 
 @pytest.mark.django_db
@@ -625,17 +713,16 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
 
 
 @pytest.mark.django_db
-def test_a_poe_cell_is_the_same_word_for_everyone(reader):
+def test_a_poe_cell_is_one_mark_with_its_words_and_the_watts_beside_it(reader):
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
-    row = html.split('<th scope="row">3</th>')[1].split("</tr>")[0]
-    assert '<td class="mgmt-poe" title="PoE on, nothing drawing power">searching</td>' in row
-    row1 = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
-    assert '<td class="mgmt-poe" title="delivering power">3.5W</td>' in row1
+    assert ('<td class="mgmt-mark c-poe mgmt-poe-idle" data-label="PoE" data-sort="2" title="PoE on, nothing drawing '
+            'power">○<span class="mgmt-sr"> PoE on, nothing drawing power</span></td>') in row_of(html, 3)
+    assert ('<td class="mgmt-mark c-poe mgmt-poe-on" data-label="PoE" data-sort="1" title="PoE delivering power">⚡'
+            '<span class="mgmt-sr"> PoE delivering power</span></td>\n        <td class="mgmt-n c-watts" '
+            'data-label="W">3.5</td>') in row_of(html, 1)
     script = html.split("<script>")[1].split("</script>")[0]
-    assert 'var poe = cell("td", p.poe);' in script and "poe_symbol" not in script
-    ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert "poe_symbol" not in ports[0]
+    assert 'mark(poe, p.poe, p.poe_title)' in script and 'w.textContent = p.watts' in script
 
 
 # --- VLAN and GW columns ---
@@ -778,10 +865,10 @@ def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, 
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: [view])
     c = Client(HTTP_HOST=HOSTS[0])
     html = c.get("/management/switches/").content.decode()
-    assert '<td title="PVID 2110; untagged 2110; tagged none">2110</td>' in html
-    assert '<td title="gateway interface v2110, up">v2110 ↑</td>' in html
-    assert "VLAN the port's VLAN (+ other untagged; +Nt tagged); GW the gateway's interface for it (↑ up, ↓ down)" \
-        in html
+    assert '<td class="c-vlan" data-label="VLAN" title="PVID 2110; untagged 2110; tagged none">2110</td>' in html
+    assert '<td class="c-gw" data-label="GW" title="gateway interface v2110, up">v2110 ↑</td>' in html
+    assert "title=\"the port&#x27;s VLAN (PVID); + other untagged VLANs; +Nt tagged VLANs; all of them on hover\"" in html
+    assert "title=\"the gateway&#x27;s interface for the port&#x27;s VLAN: ↑ up, ↓ down\"" in html
     script = html.split("<script>")[1].split("</script>")[0]
     assert "p.vlan_title" in script and "p.gw_title" in script and "innerHTML" not in script
     for body in (html, c.get("/management/switches.json").content.decode()):
@@ -824,7 +911,8 @@ def test_a_neighbouring_switch_is_shown_by_its_number_with_its_name_in_the_title
     assert (ports[1]["lldp_name"], ports[1]["lldp_title"], ports[1]["lldp_port"]) == (
         "switch 2", "sw-netgear-gsm7252ps-s1", "1/0/50")
     html = c.get("/management/switches/").content.decode()
-    assert '<td title="sw-netgear-gsm7252ps-s1">switch 2<br><span class="mgmt-soon">1/0/50</span></td>' in html
+    assert ('<td class="c-lldp" data-label="LLDP" title="sw-netgear-gsm7252ps-s1">switch 2</td>\n'
+            '        <td class="c-lldp-port" data-label="LLDP port">1/0/50</td>') in html
 
 
 @pytest.mark.django_db
@@ -835,28 +923,27 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
     monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    row = html.split('<th scope="row">1</th>')[1].split("</tr>")[0]
-    poe, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[4:6]
-    assert "3.5W" in poe and "button" not in poe
+    row = html.split('<th scope="row" class="c-port">1</th>')[1].split("</tr>")[0]
+    poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[8:11]
+    assert "⚡" in poe and "button" not in poe and watts == "3.5"
     assert power.startswith('<button type="button" class="mgmt-poe-button"') and 'class="mgmt-poe-msg"' in power
     script = html.split("<script>")[1].split("</script>")[0]
-    assert 'power.className = "mgmt-power"' in script and "poe.appendChild(powerButton" not in script
+    assert 'var power = td("c-power")' in script and "poe.appendChild(powerButton" not in script
 
 
 @pytest.mark.django_db
-def test_a_long_label_may_break_after_a_dot_and_nowhere_else(monkeypatch):
+def test_a_label_is_one_value_on_one_line(monkeypatch):
+    """#130: every value is one line, so the table is as wide as its values (a label that wrapped let the table
+    stretch to the window); a port with no label says so in its title."""
     views = make_views()
     views[0].ports[0].label = "1/0/51.sw-netgear-gsm7252ps-s1"
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     c = Client(HTTP_HOST=HOSTS[0])
-    assert ('<td class="mgmt-label"><span>1/0/51.</span><wbr><span>sw-netgear-gsm7252ps-s1</span></td>'
-            in c.get("/management/switches/").content.decode())
+    assert ('<td class="mgmt-label c-label" data-label="Label" title="the switch&#x27;s own label for the port">'
+            '1/0/51.sw-netgear-gsm7252ps-s1</td>' in c.get("/management/switches/").content.decode())
     ports = json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]
-    assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1"
-    assert ports[0]["label_parts"] == ["1/0/51.", "sw-netgear-gsm7252ps-s1"]
-    # a port with no label says so, in the cell and its title
-    assert (ports[2]["label"], ports[2]["label_parts"]) == ("–", ["–"])
-    assert ports[2]["label_title"] == "the switch has no label for this port"
+    assert ports[0]["label"] == "1/0/51.sw-netgear-gsm7252ps-s1" and "label_parts" not in ports[0]
+    assert (ports[2]["label"], ports[2]["label_title"]) == ("–", "the switch has no label for this port")
 
 
 @pytest.mark.django_db
@@ -867,7 +954,7 @@ def test_the_explanations_are_one_collapsed_key_after_the_switches(reader):
     assert body.count('<details class="mgmt-key-box"><summary>Key</summary>') == 1
     assert body.index("<table") < body.index('<details class="mgmt-key-box">')
     assert 'class="mgmt-key"' not in body and "<details open" not in body
-    assert "⏻ Power: off/on switches the board's PoE (board ports only)" in body
+    assert "mgmt-panel-key" not in body  # no key beside the drawing (#130)
 
 
 
@@ -920,24 +1007,40 @@ def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader, setting
     settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"  # the installation's zone, whatever the test host's is
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     # READ_AT is 10:00 at +09:30 on 9 Oct: 11:00 in Adelaide (+10:30), days ago now
-    assert re.search(r'Read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span>\.', html)
+    assert re.search(r'read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span></p>', html)
     script = html.split("<script>")[1].split("</script>")[0]
     assert "readat.textContent = s.read_ago; readat.title = s.read_at;" in script
 
 
-@pytest.mark.django_db
-def test_on_a_phone_the_counters_and_macs_are_left_out_and_the_key_says_so(reader):
+def test_on_a_phone_a_port_is_a_block_of_its_hardware_state_link_and_poe():
+    """#130: the phone layout for the new columns: each port a block of labelled values, the hardware and its State
+    first; the network detail columns (VLAN, GW, LLDP port, MACs, traffic, errors, label) and the serial left out by
+    their class, never by position; an empty value takes no room."""
     import pathlib
 
     from django.apps import apps
 
+    from tests.test_management_headers import _rules
+
     css = (pathlib.Path(apps.get_app_config("management").path) / "static/management/management.css").read_text()
-    assert ".mgmt-ports th:nth-child(n+9), .mgmt-ports td:nth-child(n+9) { display: none; }" in css
+    phone = css[css.index("/* On a phone (#130)"):]
+    phone = phone[:phone.index("\n}\n") + 3]
+    rules = _rules(phone)
+    hidden = next(sels for sels, body in rules if "display: none" in body and ".mgmt-ports td.c-vlan" in sels)
+    assert set(hidden) == {*(f".mgmt-ports td.c-{c}" for c in (
+        "vlan", "gw", "lldp-port", "macs", "rx", "tx", "rx-errors", "tx-errors", "label", "serial")),
+        ".mgmt-ports td:empty"}
+    assert "nth-child" not in phone  # a column is found by its class, so a new column cannot shift the layout
+    assert any(".mgmt-ports td[data-label]::before" in sels and "attr(data-label)" in body for sels, body in rules)
+    assert any(".mgmt-ports tr" in sels and "flex-wrap: wrap" in body for sels, body in rules)
+
+
+@pytest.mark.django_db
+def test_on_a_phone_every_shown_cell_says_its_column(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    thead = html[html.index("<thead>"):html.index("</thead>")]
-    headers = re.findall(r'<th scope="col">', thead)
-    assert len(headers) == 12  # columns 9-12 are MACs, In, Out, Err
-    assert "On a phone the MACs, In, Out and Err columns are left out" in html
+    for cell in re.findall(r"<td [^>]*>", row_of(html, 1)):
+        if "c-power" not in cell:  # the button says what it does
+            assert "data-label=" in cell, cell
 
 
 @pytest.mark.django_db
@@ -952,3 +1055,166 @@ def test_the_json_carries_the_good_read_time_with_its_offset(reader):
                  SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
     switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
     assert [s["good_at_iso"] for s in switches] == [older, READ_AT]
+
+
+# --- #130: the hardware on each port, from the gateway's observation ---------------------------------------------
+
+
+def ports_json(host=HOSTS[0], n=0):
+    return json.loads(Client(HTTP_HOST=host).get("/management/switches.json").content)["switches"][n]["ports"]
+
+
+@pytest.mark.django_db
+def test_a_port_shows_the_machine_the_gateway_last_leased_an_address_on_it(reader):
+    """One machine: its /fleet/ model, board type and State mark with its word, its serial linking its page, and the
+    lease that puts it on the port, with its time."""
+    seat("pi-sw1-p1", "10000000aaaa0001", model="Pi 5", board="acorn", lease=(1, 1), lease_ago=5)
+    port = ports_json()[0]
+    (m,) = port["machines"]
+    assert (m["model"], m["board"], m["condition"], m["mark"]) == ("Pi 5", "Acorn", "operational", "●")
+    assert m["model_title"] == "Pi 5 2 GB 10000000aaaa0001" and m["url"] == "/fleet/10000000aaaa0001/"
+    assert m["lease_ago"] == "5 min ago" and m["state_title"] == "operational"
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    row = row_of(html, 1)
+    assert '<td class="c-model" data-label="Model"><div title="Pi 5 2 GB 10000000aaaa0001">Pi 5</div></td>' in row
+    assert '<td class="c-board" data-label="Board"><div title="Acorn">Acorn</div></td>' in row
+    assert ('<div class="mgmt-state-operational" title="operational">●<span class="mgmt-sr"> operational</span></div>'
+            in row)
+    assert '<a href="/fleet/10000000aaaa0001/">10000000aaaa0001</a>' in row
+    assert re.search(r'<div title="\d{4}-\d\d-\d\d \d\d:\d\d:\d\d">5 min ago</div>', row)
+
+
+@pytest.mark.django_db
+def test_a_machine_is_on_the_port_the_gateway_saw_it_on_not_the_one_its_name_says(reader):
+    """Never a remembered port table: the host name pi-sw1-p3 names port 3, the gateway's newest lease says port 1."""
+    m = seat("pi-sw1-p3", "10000000aaaa0003", lease=(1, 3), lease_ago=60)
+    from fleet.models import GatewayRecord
+    GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=1, hostname="pi-sw1-p3",
+                                 at=timezone.now(), doc={}, machine=m)
+    ports = ports_json()
+    assert [mm["serial"] for mm in ports[0]["machines"]] == ["10000000aaaa0003"] and ports[2]["machines"] == []
+    seat("pi-sw1-p2", "10000000aaaa0002")  # registered, but the gateway has leased it nothing: on no port
+    assert ports_json()[1]["machines"] == []
+
+
+@pytest.mark.django_db
+def test_several_machines_last_seen_on_one_port_are_a_line_each_newest_first(reader):
+    """The label station's port: each machine the gateway last saw there, a line each in every hardware column, the
+    newest lease first (the one most likely there now), each with its own State and time."""
+    seat("pi-sw1-p2", "10000000aaaa0021", model="Pi 4B", board="arty", result="fail", reason="pin-id fail",
+         lease=(1, 2), lease_ago=600)
+    seat("pi-sw1-p2", "10000000aaaa0022", model="Pi 5", board="acorn", lease=(1, 2), lease_ago=1)
+    seat("pi-sw1-p2", "10000000aaaa0023", model="Pi 3B+", board="netv2", seen_ago=60 * 8, lease=(1, 2),
+         lease_ago=60 * 8)
+    port = ports_json()[1]
+    assert [m["serial"] for m in port["machines"]] == ["10000000aaaa0022", "10000000aaaa0023", "10000000aaaa0021"]
+    assert [m["mark"] for m in port["machines"]] == ["●", "○", "!"]
+    assert [m["model"] for m in port["machines"]] == ["Pi 5", "Pi 3B+", "Pi 4B"]
+    assert port["state_sort"] == 3  # sorts as its first machine (operational)
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    row = row_of(html, 2)
+    for column in ("c-model", "c-board", "c-state", "c-serial", "c-lease"):
+        cell = re.search(rf'<td class="[^"]*{column}"[^>]*>(.*?)</td>', row).group(1)
+        assert cell.count("<div") == 3, column
+    # the panel's box: the newest machine, and how many more; port 2 links at 100M under that Pi 5, so the box is
+    # "!" (Net ✗) over the machine's own ●
+    sw = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]
+    box = next(p for p in sw["panel"] if p["port"] == 2)
+    assert (box["kind"], box["mark"], [line["text"] for line in box["lines"]]) == ("attention", "!",
+                                                                                   ["Pi 5 +2", "Acorn"])
+    assert box["title"].count("leased an address here") == 3
+    assert "not as it should be: link 100M; a Pi 5 links at 1G" in box["title"]
+
+
+@pytest.mark.django_db
+def test_a_port_with_a_link_or_power_and_no_registered_machine_is_marked_not_registered(reader):
+    ports = ports_json()
+    # port 2: a link and power, a neighbour the fleet does not know; port 3: nothing (down, searching)
+    assert ports[1]["machines"] == [] and ports[1]["unregistered"] == "?"
+    assert ports[1]["unregistered_title"] == ("not registered: a link up and PoE power drawn, and the gateway has "
+                                              "leased no registered machine an address on this port")
+    assert ports[2]["unregistered"] == "" and ports[2]["state_sort"] == 9
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert '<div class="mgmt-state-unregistered" title="not registered: a link up' in row_of(html, 2)
+    assert "mgmt-state-unregistered" not in row_of(html, 3)
+
+
+@pytest.mark.django_db
+def test_an_infrastructure_port_is_never_unregistered_and_shows_its_role_word(monkeypatch):
+    views = make_views()
+    views[0].ports[1].port = 46  # infrastructure (beyond the 40 board ports), link up and power drawn
+    views[0].ports[2].port = 50  # the switch trunk
+    views[0].ports[2].label = "1/0/50.sw-netgear-gsm7252ps-s1"
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    ports = ports_json()
+    assert (ports[1]["role"], ports[1]["label"], ports[1]["unregistered"]) == ("infrastructure", "infrastructure", "")
+    assert (ports[2]["label"], ports[2]["label_title"]) == ("switch trunk", "switch trunk: its role in the inventory")
+
+
+# --- #130: Net, the port's reading against what it should be ------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_net_is_a_tick_when_the_port_is_as_it_should_be(reader):
+    seat("pi-sw1-p1", "10000000aaaa0001", model="Pi 5", lease=(1, 1))
+    port = ports_json()[0]
+    assert (port["net"], port["net_ok"]) == ("✓", True)
+    assert port["net_title"] == "as it should be: VLANs against the inventory, PoE, link and speed for the Pi 5 on it"
+
+
+@pytest.mark.django_db
+def test_net_is_a_cross_for_a_slow_link_under_a_pi_with_the_reason(reader):
+    reader[0].ports[1].speed_mbps = 100
+    seat("pi-sw1-p2", "10000000aaaa0002", model="Pi 5", lease=(1, 2))
+    port = ports_json()[1]
+    assert (port["net"], port["net_ok"]) == ("✗", False)
+    assert port["net_title"] == "not as it should be: link 100M; a Pi 5 links at 1G"
+
+
+@pytest.mark.django_db
+def test_net_is_a_cross_for_a_link_down_under_a_pi_that_is_not_missing_but_not_under_a_missing_one(reader):
+    seat("pi-sw1-p3", "10000000aaaa0003", model="Pi 4B", board="arty", lease=(1, 3))
+    port = ports_json()[2]
+    assert port["net_ok"] is False
+    assert port["net_title"] == ("not as it should be: link down under Pi 4 Model B 2 GB 10000000aaaa0003 "
+                                 "(operational)")
+    Machine.objects.filter(serial="10000000aaaa0003").update(last_seen=timezone.now() - timedelta(hours=8))
+    port = ports_json()[2]
+    assert port["machines"][0]["condition"] == "missing" and port["net_ok"] is True  # the State says it already
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("poe, words", [("fault", "PoE fault"), ("melting", "PoE state 'melting' not known")])
+def test_net_is_a_cross_for_a_poe_fault_or_a_poe_state_the_page_cannot_read(reader, poe, words):
+    reader[0].ports[2].poe_state = poe
+    port = ports_json()[2]
+    assert port["net_ok"] is False and port["net_title"] == f"not as it should be: {words}"
+
+
+@pytest.mark.django_db
+def test_net_names_an_inventory_failure_and_only_mentions_a_known_cause(monkeypatch):
+    views = make_views()
+    for p in views[0].ports:
+        p.pvid, p.untagged_vlans = 2100 + p.port, [2100 + p.port, 21]  # every board port also in VLAN 21: poe #16
+    views[0].ports[1].pvid = 1  # port 2: a new fault
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    ports = ports_json()
+    assert ports[0]["net_ok"] is True
+    assert ports[0]["net_title"].endswith("; known: also untagged in VLAN 21 (poe #16)")
+    assert ports[0]["net_title"].startswith("as it should be: VLANs against the inventory, PoE")
+    assert ports[1]["net_ok"] is False and ports[1]["net_title"].startswith("not as it should be: port 2 PVID 1, not 2102")
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert ('<td class="mgmt-mark c-net" data-label="Net" data-sort="0" title="not as it should be: port 2 PVID 1, '
+            'not 2102') in row_of(html, 2)
+    assert '<span class="mgmt-test-fail">✗</span>' in row_of(html, 2)
+    assert '<span class="mgmt-test-pass">✓</span>' in row_of(html, 1)
+
+
+def test_the_speeds_net_compares_are_for_the_fleet_short_model_names():
+    """LINK_SPEEDS is keyed by fpga.short_model's forms, so a model the table names is compared, never skipped."""
+    from management.fpga import short_model
+
+    for label in ("Pi 3 Model B+", "Pi 4 Model B", "Pi 5", "Orange Pi PC", "Pi Compute Module 4"):
+        assert short_model(label) in page.LINK_SPEEDS, label

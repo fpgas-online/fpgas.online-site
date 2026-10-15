@@ -5,92 +5,55 @@
  *
  * The gateway's switch poller publishes each board port's link change; the site forwards it on ws/switches/ as the
  * record {"schema": 1, "switch", "port", "hostname", "link": "up"|"down"|"bounced", "at"}. applyRecord draws it on
- * the page the way the next reading would: the port's link cell and its front-panel mark. It does not fetch
- * anything: the dashboard's JSON comes through a 15 s server cache and would still show the old state. The page's
- * own 15 s refresh stays as the fallback and rebuilds the table, so a Keeper remembers each applied record per
- * (switch, port) and draws it again after the rebuild for as long as the reading is older than the record; the
+ * the page the way the next reading would: the row's Link mark (↑ / ↓, its words in its title and for a screen
+ * reader), its Speed (empty while down; a link that comes up keeps what the cell shows until the next reading gives
+ * the speed), and the front-panel box's edge (solid while up, dashed while down) and the link words in its title.
+ * It does not fetch anything: the dashboard's JSON comes through a 15 s server cache and would still show the old
+ * state. The rest of what a link change means (the Net check of a Pi's port, the State) follows at the next reading.
+ * The page's own 15 s refresh stays as the fallback and rebuilds the table, so a Keeper remembers each applied record
+ * per (switch, port) and draws it again after the rebuild for as long as the reading is older than the record; the
  * first reading at least as new as the record replaces it and the Keeper forgets it.
- *
- * The panel state is panel.py's state(): the new link with the port's PoE as the row shows it. The PoE is not in
- * a link record, so the row's PoE cell is the port's PoE part and only the link part changes.
  */
 (function () {
-  /* The port's PoE as its cell says it (views/switches.py POE_WORDS): "8.6W" and "on" are delivering. */
-  function poeOf(text) {
-    text = (text || "").trim();
-    if (/W$/.test(text) || text === "on") { return "delivering"; }
-    return {"searching": "searching", "off": "disabled", "fault": "fault", "not known": "other"}[text] || null;
-  }
+  var WORDS = {up: "link up", down: "link down"};
+  var MARKS = {up: "↑", down: "↓"};
+  /* the link part of a port's title ("… · link up 1G · …" or "… · link down · …", views/switches.py panel.title) */
+  var LINK_PART = /(^| · )link (?:up(?: [^ ·]+)?|down)(?= · |$)/;
 
-  /* panel.py state(), from the PoE the row shows. `current` is the mark's state now: a port whose cell says "no PoE"
-     is a port without PoE only when it shows plain up or down, else its PoE reading is missing (unknown). */
-  function stateFor(poeText, linkUp, current) {
-    var poe = poeOf(poeText);
-    if (poe === null) {
-      if (poeText.trim() === "no PoE" && (current === "up" || current === "down")) { return linkUp ? "up" : "down"; }
-      return "unknown";
-    }
-    if (poe === "other") { return "unknown"; }
-    if (poe === "fault") { return "fault"; }
-    if (poe === "delivering") { return linkUp ? "power" : "starting"; }
-    if (linkUp) { return "up"; }
-    return poe === "searching" ? "searching" : "off";
-  }
-
-  function stateOf(g, states) {
-    var names = states.map(function (s) { return s[0]; });
-    var classes = (g.getAttribute("class") || "").split(/\s+/);
-    for (var i = 0; i < classes.length; i++) {
-      if (classes[i].indexOf("mgmt-port-") === 0 && names.indexOf(classes[i].slice(10)) >= 0) {
-        return classes[i].slice(10);
-      }
-    }
-    return null;
-  }
-
-  /* The port's title is "port N · <the state in words> · …" (panel.py), with "link up" or "link down" after it
-     for an unknown state. */
-  function retitle(title, was, now, linkUp, states) {
-    var words = {};
-    states.forEach(function (s) { words[s[0]] = s[2]; });
-    var parts = title.split(" · ");
-    if (parts.length < 2) { return title; }
-    parts[1] = words[now];
-    if (was === "unknown") { parts.splice(2, 1); }
-    if (now === "unknown") { parts.splice(2, 0, linkUp ? "link up" : "link down"); }
-    return parts.join(" · ");
-  }
-
-  /* Draw one link record on `doc`. `states` is panel.STATES ([state, glyph, words] triples). Returns whether the
-     page had the port. A "bounced" record says the link flapped between two readings, not where it is now, so it
-     draws nothing and the next reading says. */
-  function applyRecord(doc, states, record) {
+  /* Draw one link record on `doc`. Returns whether the page had the port. A "bounced" record says the link flapped
+     between two readings, not where it is now, so it draws nothing and the next reading says. */
+  function applyRecord(doc, record) {
     if (!record || (record.link !== "up" && record.link !== "down")) { return false; }
-    var linkUp = record.link === "up";
+    var up = record.link === "up";
     var row = doc.getElementById("switch-" + record.switch + "-port-" + record.port);
     if (!row) { return false; }
-    var cell = row.children[2];
-    if (cell.textContent.split(" ")[0] !== record.link) { cell.textContent = record.link; }
-    cell.className = linkUp ? "mgmt-up" : "mgmt-down";
+    var cell = row.querySelector(".c-link");
+    cell.className = "mgmt-mark c-link " + (up ? "mgmt-up" : "mgmt-down");
+    cell.title = WORDS[record.link];
+    cell.querySelector(".mgmt-glyph").textContent = MARKS[record.link];
+    cell.querySelector(".mgmt-sr").textContent = " " + WORDS[record.link];
+    if (!up) {
+      var speed = row.querySelector(".c-speed");
+      speed.textContent = ""; speed.setAttribute("data-sort", "0");
+    }
     var g = doc.getElementById("switch-" + record.switch + "-panel-" + record.port);
     if (g) {
-      var was = stateOf(g, states);
-      var now = stateFor(row.querySelector(".mgmt-poe").textContent, linkUp, was);
       var kept = (g.getAttribute("class") || "").split(/\s+/).filter(function (c) {
-        return c !== "mgmt-port-" + was && c !== "mgmt-port-" + now;
+        return c && c !== "mgmt-edge-up" && c !== "mgmt-edge-down";
       });
-      g.setAttribute("class", kept.concat("mgmt-port-" + now).join(" "));
-      var title = retitle(g.querySelector("title").textContent, was, now, linkUp, states);
-      g.querySelector("title").textContent = title;
-      g.querySelector(".mgmt-glyph").textContent = states.filter(function (s) { return s[0] === now; })[0][1];
-      g.parentNode.setAttribute("aria-label", title);
+      g.setAttribute("class", kept.concat("mgmt-edge-" + record.link).join(" "));
+      var title = g.querySelector("title").textContent;
+      var now = LINK_PART.test(title) ? title.replace(LINK_PART, function (all, sep) { return sep + WORDS[record.link]; })
+                                      : title;
+      /* a link that comes up keeps no speed in the title: the next reading says it */
+      g.querySelector("title").textContent = now;
+      g.parentNode.setAttribute("aria-label", now);
     }
     return true;
   }
 
-  /* Remembers the records it applied, so the refresh cannot undo them with a reading older than the change.
-     `states` is panel.STATES. */
-  function createKeeper(states) {
+  /* Remembers the records it applied, so the refresh cannot undo them with a reading older than the change. */
+  function createKeeper() {
     var kept = {};
     function when(record) { return Date.parse(record.at); }
     return {
@@ -99,7 +62,7 @@
         if (!record) { return false; }
         var k = record.switch + "/" + record.port, old = kept[k];
         if (old && when(record) < when(old)) { return false; }
-        var drawn = applyRecord(doc, states, record);
+        var drawn = applyRecord(doc, record);
         if (drawn) { kept[k] = record; }
         return drawn;
       },
@@ -112,7 +75,7 @@
         Object.keys(kept).forEach(function (k) {
           var record = kept[k], at = when(record), seen = read[record.switch];
           if (!(seen < at) || !(at === at)) { delete kept[k]; return; }  /* caught up, unknown, or a bad time */
-          applyRecord(doc, states, record);
+          applyRecord(doc, record);
         });
       },
       size: function () { return Object.keys(kept).length; }
@@ -142,7 +105,7 @@
     connect();
   }
 
-  var api = {applyRecord: applyRecord, stateFor: stateFor, listen: listen, createKeeper: createKeeper};
+  var api = {applyRecord: applyRecord, listen: listen, createKeeper: createKeeper};
   if (typeof module !== "undefined") { module.exports = api; }
   if (typeof window !== "undefined") { window.SwitchEvents = api; }
 })();

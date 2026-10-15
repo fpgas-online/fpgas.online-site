@@ -1,20 +1,23 @@
-"""A switch's front panel on the switch page (#90): each port where it is, coloured by its state with a glyph and
-the words in its title and accessible name, marked where it is not as the inventory says (a known cause apart from a
-new fault), linked to its row."""
+"""A switch's front panel on the switch page (#90, #130): each port where it is, drawn so that it needs no key (Tim, 15
+Oct 2026): its number, the hardware the gateway last saw on it, its /fleet/ State mark and fill, a solid edge while the
+link is up and a dashed one while it is down, ⚡ while PoE delivers, "!" where the network reading is not as it should
+be; a switch-wide known issue one line above the drawing; each port's words in its title, linked to its row."""
 
 import json
+import re
 
 import pytest
 from django.test import Client
 from management.views import switches as page
 
 from management import panel
-from tests.test_management_switches import HOSTS, READ_AT, PortView, SwitchView, spec
+from tests.test_management_switches import HOSTS, READ_AT, PortView, SwitchView, seat, spec
 
 
 def board_switch(extra_untagged=None, ports=52, poe_ports=48, model="gsm7252ps"):
     """Switch 1 as the inventory (spec()) says: board ports 1..40 in their VLANs, the gateway trunk (47) carrying them,
-    PoE on 1..poe_ports, no PoE above; `extra_untagged` a VLAN every board port is also untagged in."""
+    PoE on 1..poe_ports, no PoE above; `extra_untagged` a VLAN every board port is also untagged in. Port 10 links at
+    1G and draws 8.6 W, port 47 (the gateway trunk) links at 1G; the rest are down, their PoE searching."""
     view_ports = []
     for n in range(1, ports + 1):
         vlan = 2100 + n
@@ -47,8 +50,24 @@ def page_json():
     return json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
 
 
+def box_of(html, port, switch=1):
+    """The served <g> of a port's box, its markup up to its end."""
+    return re.search(rf'<g id="switch-{switch}-panel-{port}" .*?</g>', html, re.S).group(0)
+
+
+def texts(box):
+    """{class: text} of a box's text elements (the hardware lines as a list)."""
+    found = re.findall(r'<text class="([^"]+)"[^>]*>([^<]*)</text>', box)
+    out = {cls.split()[0]: text for cls, text in found if not cls.startswith("mgmt-hw")}
+    out["hw"] = [text for cls, text in found if cls.startswith("mgmt-hw")]
+    return out
+
+
+# --- the layout -------------------------------------------------------------------------------------------------
+
+
 def test_the_ports_are_in_two_rows_odd_above_even_then_the_uplink_block():
-    places = panel._place(board_switch().ports, 52, 48)
+    places = panel._place(range(1, 53), 52, 48)
     assert places[1][1] == places[3][1] < places[2][1] == places[4][1]  # odd above even
     assert places[1][0] == places[2][0] < places[3][0]  # 1 over 2, then 3 over 4
     # 49..52 carry no PoE on this model: the uplink block, after a gap
@@ -57,101 +76,137 @@ def test_the_ports_are_in_two_rows_odd_above_even_then_the_uplink_block():
 
 
 def test_a_port_the_reading_lacks_leaves_its_gap_and_moves_no_other():
-    view = board_switch()
-    whole = panel._place(view.ports, 52, 48)
-    view.ports = [p for p in view.ports if p.port != 5]
-    assert panel._place(view.ports, 52, 48) == {n: xy for n, xy in whole.items() if n != 5}
-
-
-def test_the_uplink_block_comes_from_the_model_not_from_which_ports_read_poe():
-    view = board_switch()
-    view.ports[47].poe_state = None  # port 48's PoE not read
-    places = panel._place(view.ports, 52, 48)
-    assert places[48] == (places[47][0], places[2][1])  # still under 47, not moved into the uplink block
-    assert panel.state(view.ports[47], has_poe=True) == "unknown"
+    whole = panel._place(range(1, 53), 52, 48)
+    assert panel._place([n for n in range(1, 53) if n != 5], 52, 48) == {n: xy for n, xy in whole.items() if n != 5}
 
 
 def test_a_port_outside_the_model_is_a_layout_error():
     with pytest.raises(panel.LayoutError, match="port 53 is not on this model"):
-        panel._place([PortView(port=53)], 52, 48)
+        panel._place([53], 52, 48)
 
 
 def test_a_model_with_no_poe_is_all_main_block():
-    places = panel._place([PortView(port=n) for n in range(1, 11)], 10, 0)
+    places = panel._place(range(1, 11), 10, 0)
     assert [places[n][0] for n in (1, 3, 5, 7, 9)] == [0, panel.PITCH, 2 * panel.PITCH, 3 * panel.PITCH,
                                                        4 * panel.PITCH]
 
 
-def test_each_state_is_a_word_and_a_glyph():
-    view = board_switch()
-    states = {p.port: panel.state(p, p.port <= 48) for p in view.ports}
-    assert (states[10], states[47], states[1], states[49]) == ("power", "up", "searching", "down")
-    words = {"power", "starting", "up", "searching", "off", "down", "fault", "unknown"}
-    assert set(panel.STATE_WORDS) == set(panel.GLYPHS) == words
-    assert len(set(panel.GLYPHS.values())) == len(words)  # no two states share a glyph
+def test_the_widest_switch_fits_about_1300_px():
+    """26 columns of a 52-port switch (24 main, 2 uplink) and the gap (Tim's brief: about 1300 px)."""
+    ports = [panel.Port(n, x, y, "empty", "", False, "", [], "", "") for n, (x, y) in
+             panel._place(range(1, 53), 52, 48).items()]
+    width, height = panel.size(ports)
+    assert 1200 <= width <= 1300 and height == panel.ROW + panel.HEIGHT + 2
 
 
-@pytest.mark.parametrize("link_up, poe, has_poe, word", [
-    (False, "other", True, "unknown"),  # a PoE state the poe reader does not name
-    (True, "other", True, "unknown"),
-    (False, None, True, "unknown"),  # a PoE port whose PoE was not read
-    (True, None, True, "unknown"),
-    (False, None, False, "down"),  # a port with no PoE on this model
-    (True, None, False, "up"),
-    (False, "delivering", True, "starting"),  # powered, its link not up yet
-    (True, "delivering", True, "power"),
-    (True, "searching", True, "up"),
-    (True, "disabled", True, "up"),
-    (False, "disabled", True, "off"),
-    (True, "fault", True, "fault"),
-])
-def test_the_state_says_what_the_switch_said(link_up, poe, has_poe, word):
-    assert panel.state(PortView(port=1, link_up=link_up, poe_state=poe), has_poe) == word
+def test_a_long_hardware_line_is_squeezed_into_its_box_and_a_short_one_is_not():
+    assert panel.squeeze("Pi 5") == 0 and panel.squeeze("Acorn") == 0
+    assert panel.squeeze("PCIe card") == panel.TEXT_WIDTH == panel.squeeze("Pi 4B +4")
+    assert panel.TEXT_WIDTH < panel.WIDTH
 
 
-def test_a_poe_state_the_panel_does_not_know_raises():
-    with pytest.raises(ValueError, match="PoE state 'melting' is not one the panel knows"):
-        panel.state(PortView(port=7, poe_state="melting"), True)
+# --- what a box shows, from its row -----------------------------------------------------------------------------
+
+
+def row(**over):
+    base = {"port": 3, "machines": [], "role": "", "unregistered": "", "unregistered_title": "", "net_ok": True,
+            "net_title": "as it should be: PoE", "link_up": False, "link_title": "link down", "speed": "",
+            "poe_state": "searching", "poe_title": "PoE on, nothing drawing power", "watts": "", "vlan": "2103",
+            "lldp_name": ""}
+    return {**base, **over}
+
+
+def machine(model="Pi 5", board="Acorn", condition="operational", mark="●", label="Pi 5 2 GB 1234"):
+    return {"model": model, "board": board, "condition": condition, "mark": mark, "label": label,
+            "state_title": "operational", "lease_at": "2026-10-15 09:12:00"}
+
+
+def test_a_box_shows_the_newest_machine_its_board_and_its_state():
+    assert panel.box(row(machines=[machine()])) == ("operational", "●", ["Pi 5", "Acorn"])
+    assert panel.box(row(machines=[machine("Pi 4B", "TT chip", "missing", "○")])) == ("missing", "○", ["Pi 4B", "TT chip"])
+
+
+def test_several_machines_on_one_port_show_the_newest_and_how_many_more():
+    many = [machine("Pi 4B", "Arty A7", "attention", "!")] + [machine("Pi 4B", "TT chip", "missing", "○")] * 4
+    assert panel.box(row(machines=many)) == ("attention", "!", ["Pi 4B +4", "Arty A7"])
+    words = panel.title(row(machines=many))
+    assert words.count("leased an address here") == 5  # every machine in the title, with its time
+
+
+def test_an_infrastructure_port_shows_its_role_and_an_empty_one_nothing():
+    assert panel.box(row(role="gateway trunk")) == ("infrastructure", "", ["gateway", "trunk"])
+    assert panel.box(row(role="house uplink")) == ("infrastructure", "", ["house", "uplink"])
+    assert panel.box(row()) == ("empty", "", ["", ""])
+    assert panel.box(row(unregistered="?")) == ("unregistered", "?", ["", ""])
+
+
+def test_a_port_not_as_it_should_be_is_needs_attention_whatever_is_on_it():
+    assert panel.box(row(machines=[machine()], net_ok=False)) == ("attention", "!", ["Pi 5", "Acorn"])
+    assert panel.box(row(role="gateway trunk", net_ok=False))[:2] == ("attention", "!")
+    assert panel.box(row(net_ok=False))[:2] == ("attention", "!")
+
+
+# --- the drawing on the page ------------------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_the_panel_is_drawn_with_its_states_glyphs_marks_titles_and_links(one_switch):
+def test_the_panel_needs_no_key_each_box_says_its_state_by_mark_edge_and_bolt(one_switch):
+    seat("pi-sw1-p10", "10000000aaaa0010", lease=(1, 10))  # an operational Pi 5 with an Acorn on port 10
     view = board_switch()
-    view.ports[2].pvid = 1  # port 3: a new fault
-    view.ports[20].poe_state = "other"  # port 21: PoE state not known
+    view.ports[2].pvid = 1  # port 3: a new fault (not as the inventory says)
+    view.ports[11].link_up, view.ports[11].poe_state = True, "delivering"  # port 12: something, nothing registered
     one_switch(view)
     html = page_html()
-    assert '<svg class="mgmt-panel" id="switch-1-panel"' in html and 'role="group"' in html and 'role="img"' not in html
-    # the panel's name counts the ports in each state: 48 PoE ports less 10 (delivering), 47 (link up) and 21
-    assert ('role="group" aria-label="Front panel of Switch 1: sw-1 (GSM7252PS): 1 link up, PoE delivering; 1 link up, '
-            'no PoE drawn; 45 link down, PoE on and searching; 4 link down, no PoE on the port; 1 PoE state not known '
-            '(the switch gave none it names, or it was not read). A port links to its row."') in html
-    assert '<a href="#switch-1-port-10" aria-label="port 10 · link up, PoE delivering · ' in html
-    assert '<g id="switch-1-panel-10" class="mgmt-port mgmt-port-power">' in html
-    assert 'id="switch-1-panel-3" class="mgmt-port mgmt-port-searching mgmt-port-wrong">' in html
-    assert "port 3 · link down, PoE on and searching" in html and "not as the inventory says: port 3 PVID 1" in html
-    assert 'id="switch-1-panel-21" class="mgmt-port mgmt-port-unknown">' in html
-    assert "port 21 · PoE state not known (the switch gave none it names, or it was not read) · link down" in html
-    assert 'class="mgmt-glyph" x="134" y="63" text-anchor="middle" aria-hidden="true">P</text>' in html  # 10: col 5, row 2
-    assert "port 47 · link up, no PoE drawn · gateway trunk" in html  # the inventory's role
-    assert '<tr id="switch-1-port-10">' in html  # the row the panel links to
-    assert "red dashed edge: not as the inventory says" in html  # the key, in words
-    assert '<text class="mgmt-glyph" x="8" y="11" text-anchor="middle">?</text></svg> PoE state not known' in html
-    assert 'tabindex="0" role="region" aria-label="Front panel of Switch 1: sw-1 (GSM7252PS)"' in html  # the scroll box
+    assert "mgmt-panel-key" not in html and "<ul class=\"mgmt-panel-key\"" not in html  # no key
+    assert '<svg class="mgmt-panel" id="switch-1-panel"' in html and 'role="group"' in html
+    # port 10: link up (solid edge), PoE delivering (⚡), the Pi's model and board, its ● in the State's colour
+    ten = box_of(html, 10)
+    assert 'class="mgmt-port mgmt-box-operational mgmt-edge-up"' in ten
+    assert texts(ten)["mgmt-bolt"] == "⚡" and texts(ten)["mgmt-pmark"] == "●" and texts(ten)["hw"] == ["Pi 5", "Acorn"]
+    assert '<text class="mgmt-pmark mgmt-state-operational"' in ten
+    # port 1: an empty port, link down (dashed edge), no bolt, no mark, nothing on it
+    one = box_of(html, 1)
+    assert 'class="mgmt-port mgmt-box-empty mgmt-edge-down"' in one
+    assert texts(one)["mgmt-bolt"] == "" and texts(one)["mgmt-pmark"] == "" and texts(one)["hw"] == ["", ""]
+    # port 3: "!" where the network reading is not as it should be, its reason in the title
+    three = box_of(html, 3)
+    assert 'mgmt-box-attention' in three and texts(three)["mgmt-pmark"] == "!"
+    assert "not as it should be: port 3 PVID 1, not 2103" in three
+    # port 12: power drawn and a link, nothing registered: "?"
+    twelve = box_of(html, 12)
+    assert 'mgmt-box-unregistered mgmt-edge-up' in twelve and texts(twelve)["mgmt-pmark"] == "?"
+    assert "not registered: a link up and PoE power drawn" in twelve
+    # port 47: the gateway trunk by its role
+    assert texts(box_of(html, 47))["hw"] == ["gateway", "trunk"]
+    # each box links its row, its title is its accessible name
+    assert re.search(r'<a href="#switch-1-port-10" aria-label="port 10 · Pi 5 2 GB 10000000aaaa0010, Acorn, '
+                     r'operational, leased an address here [^"]+ · link up 1G · PoE delivering power 8.6 W', html)
+    assert '<tr id="switch-1-port-10">' in html
+    assert 'tabindex="0" role="region" aria-label="Front panel of Switch 1: sw-1 (GSM7252PS)"' in html
+    # the panel's name counts the boxes by state, and the links and the power
+    assert ('aria-label="Front panel of Switch 1: sw-1 (GSM7252PS): 1 needs attention; 1 not registered; '
+            '1 operational; 12 infrastructure; 37 empty; 3 with a link up; 2 delivering PoE. A port links to its row."'
+            in html)
 
 
 @pytest.mark.django_db
-def test_a_known_cause_is_marked_apart_from_a_new_fault(one_switch):
+def test_a_switch_wide_known_issue_is_one_line_above_the_drawing_not_a_mark_on_every_port(one_switch):
     view = board_switch(extra_untagged=21)  # every board port also untagged in VLAN 21: poe #16
     view.ports[4].untagged_vlans = [*view.ports[4].untagged_vlans, 99]  # port 5: and a new one
     one_switch(view)
-    ports = {p["port"]: p for p in page_json()[0]["panel"]}
-    assert ports[1]["mismatch"] and ports[1]["known"] and "known: poe #16" in ports[1]["title"]
-    assert ports[5]["mismatch"] and not ports[5]["known"]  # VLAN 99 has no known cause
-    assert not ports[47]["mismatch"] and not ports[49]["mismatch"]
+    sw = page_json()[0]
+    assert sw["known_issues"] == [{"text": "40 board ports also untagged in VLAN 21", "issue": "poe #16",
+                                   "url": "https://github.com/fpgas-online/fpgas.online-poe/issues/16"}]
+    ports = {p["port"]: p for p in sw["panel"]}
+    assert ports[1]["kind"] == "empty" and ports[1]["mark"] == ""  # the known cause marks no port
+    assert "known: also untagged in VLAN 21 (poe #16)" in ports[1]["title"]
+    assert ports[5]["kind"] == "attention" and ports[5]["mark"] == "!"  # VLAN 99 has no known cause
     html = page_html()
-    assert 'id="switch-1-panel-1" class="mgmt-port mgmt-port-searching mgmt-port-known">' in html
-    assert 'id="switch-1-panel-5" class="mgmt-port mgmt-port-searching mgmt-port-wrong">' in html
+    section = html.split('id="switch-1"')[1]
+    assert section.count('<ul class="mgmt-known"><li>40 board ports also untagged in VLAN 21: '
+                         '<a href="https://github.com/fpgas-online/fpgas.online-poe/issues/16">poe #16</a></li></ul>') == 1
+    assert section.index('class="mgmt-known"') < section.index('class="mgmt-panel"')  # above the drawing
+    assert "mgmt-port-known" not in html and "mgmt-port-wrong" not in html
 
 
 @pytest.mark.django_db
@@ -159,12 +214,15 @@ def test_the_refresh_script_keeps_the_panel_with_the_table(one_switch):
     one_switch(board_switch())
     script = page_html().split("<script>")[1].split("</script>")[0]
     assert 'getElementById(anchor + "-panel-" + p.port)' in script and 'querySelector("title").textContent' in script
-    assert 'querySelector(".mgmt-glyph").textContent = p.glyph' in script
+    assert '"mgmt-port mgmt-box-" + p.kind + " mgmt-edge-" + (p.link_up ? "up" : "down")' in script
+    assert 'querySelector(".mgmt-bolt").textContent = p.bolt' in script
+    assert 'pm.textContent = p.mark' in script and 'querySelectorAll(".mgmt-hw")' in script
     assert 'g.parentNode.setAttribute("aria-label", p.title)' in script
     assert 'svg.setAttribute("aria-label", s.panel_label' in script
     assert 'tr.id = anchor + "-port-" + p.port' in script and "innerHTML" not in script
+    assert "known(box, s.known_issues)" in script and "MgmtTable.resort(table)" in script
     # a port that came or went: the page is drawn afresh, not left with a stale layout
-    panel_part = script.split("the front panel (#90)")[1]
+    panel_part = script.split("the front panel (#90, #130)")[1]
     assert "location.reload()" in panel_part.split("panel.forEach")[0]
 
 

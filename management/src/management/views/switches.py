@@ -1,4 +1,6 @@
-"""The switch port dashboard (#67): every switch and every port, read side only.
+"""The switch port dashboard (#67, #130): every switch and every port, read side only: which hardware is on each port
+(the machines the gateway last leased an address to on it, with the /fleet/ model, board type and State), whether the
+port's network reading is as it should be, then the switch's own reading, one value a column.
 
 The reading is done by `snmp_switch.dashboard` (fpgas.online-poe), cached for 15 s in the site's "poe" cache, so
 the number of viewers does not change the number of reads. This module only lays the result out: the page
@@ -26,9 +28,11 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
+from fleet.services import MISSING
 from fleet.timeago import ago
 
-from .. import inventory_check, localtime, panel
+from .. import fpga, inventory_check, localtime, panel, states
+from ..states import FAILED, PASSED
 
 REFRESH_SECONDS = 15
 NONE = "–"  # shown for a value that is not known
@@ -80,12 +84,11 @@ def _read():
 
 
 def rate(bps):
-    """A rate in bits per second as kbit/s or Mbit/s; NONE when not known."""
+    """A rate in bits per second as whole kbit/s, one unit for the column (#130: one form per column); NONE when the
+    switch gave none."""
     if bps is None:
         return NONE
-    if bps >= 1_000_000:
-        return f"{bps / 1_000_000:.1f} Mbit/s"
-    return f"{bps / 1000:.0f} kbit/s"
+    return f"{bps / 1000:.0f}"
 
 
 def when(iso):
@@ -102,25 +105,34 @@ def when(iso):
     return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M:%S")
 
 
-# The PoE column: the watts where power flows, else the state as a word (#89; the coordinator, 11 Oct 2026: one
-# form per column, and a glyph that needs a key is a word). The longer meaning is the cell's title.
-POE_WORDS = {
-    "delivering": ("on", "delivering power; the switch gives no watts"),  # only when the switch gives no watts
-    "searching": ("searching", "PoE on, nothing drawing power"),
-    "disabled": ("off", "PoE off"),
-    "fault": ("fault", "PoE fault"),
-    "other": ("not known", "the switch reports a PoE state this page does not know"),
+# The PoE column (#130): the port's PoE state as one character, its words on hover and for a screen reader; the watts
+# are a column of their own. (mark, css class, words, sort key: power flowing first, a fault before the rest.)
+POE_MARKS = {
+    "delivering": ("⚡", "mgmt-poe-on", "PoE delivering power", 1),
+    "fault": ("!", "mgmt-state-attention", "PoE fault", 0),
+    "searching": ("○", "mgmt-poe-idle", "PoE on, nothing drawing power", 2),
+    "disabled": ("⊗", "mgmt-poe-off", "PoE off", 3),
 }
-NO_POE = ("no PoE", "this port has no PoE")
+NO_POE = ("–", "mgmt-test-none", "no PoE on this port", 4)
 
 
-def poe_cell(state, watts):
-    """(text, title) of a port's PoE cell: "8.6W" on a delivering port, else its state's word (POE_WORDS)."""
-    if state == "delivering" and watts is not None:
-        return f"{watts:.1f}W", "delivering power"
-    if not state:
+def poe_cell(state, has_poe=True):
+    """(text, css class, title, sort key) of a port's PoE cell. A state this page does not know is shown as the switch
+    gave it, and a PoE port the switch gave no state for says "not read" (fail loud, in the cell: both are a Net ✗
+    too); a port without PoE is –."""
+    if state in POE_MARKS:
+        return POE_MARKS[state]
+    if state is None:
+        if has_poe:
+            return "not read", "mgmt-state-attention", "the switch gave no PoE state for this PoE port", 0
         return NO_POE
-    return POE_WORDS.get(state, POE_WORDS["other"])
+    return str(state)[:20], "mgmt-state-attention", f"the switch gave PoE state {str(state)[:40]!r}, which this page " \
+        "does not know", 0
+
+
+def watts(state, value):
+    """The watts a delivering port draws ("8.6"); "" for any other port, or where the switch gives none."""
+    return f"{value:.1f}" if state == "delivering" and value is not None else ""
 
 
 def link_speed(mbps):
@@ -139,6 +151,101 @@ def _fleet_url(request, serial):
         return reverse("fleet-detail", args=[serial], urlconf=getattr(request, "urlconf", None))
     except NoReverseMatch:  # no fleet pages on this host
         return ""
+
+
+# --- the hardware on each port (#130): the machines the gateway last leased an address to on it ---
+
+# the speed a model's Ethernet links at (the Pi 3B+'s gigabit port sits behind USB 2, but links at 1G); a model not
+# here is not compared (its Net title says so)
+LINK_SPEEDS = {"Pi 3B+": 1000, "Pi 3B": 100, "Pi 4B": 1000, "Pi 5": 1000, "Pi CM4": 1000, "Pi 400": 1000,
+               "OPi PC": 100}
+UNREGISTERED = "?"
+UNREGISTERED_WORDS = "not registered"
+
+
+def _machine(request, host, observed):
+    """One machine as a port row shows it: the /fleet/ table's values (model, board type, State mark and its words)
+    and the gateway's observation that puts it on this port, with its time."""
+    from .fpgas import SEVERITY  # not at import: views.fpgas imports views.index, which imports this module
+
+    fields = fpga.pi_fields(host.machine)
+    word = states.WORDS[host.condition]
+    return {
+        "serial": fields.serial,
+        "url": _fleet_url(request, fields.serial),
+        "label": fpga.pi_label(host.machine),
+        # the model in the /fleet/ short form; a host with no label says what keeps it from one (fail loud)
+        "model": fields.short or fields.note,
+        "model_title": fields.label if not fields.why else fields.why,
+        # the board's type alone, as /fleet/'s Board column ("Acorn"; "Acorn + TT FPGA" for two); its variant on hover
+        "board": " + ".join(b["title"] for b in host.boards) or host.board_type,
+        "board_title": " + ".join(b["type"] for b in host.boards) or host.board_type,
+        "condition": host.condition,
+        "mark": states.MARKS[host.condition],
+        "state_title": word + (f": {host.why}" if host.why else ""),
+        "severity": SEVERITY[host.condition],
+        "lease_ago": _ago_moment(observed.at),
+        "lease_at": timezone.localtime(observed.at).strftime("%Y-%m-%d %H:%M:%S"),
+        "lease_sort": int(observed.at.timestamp()),
+    }
+
+
+def _ago_moment(moment):
+    try:
+        return ago(moment)
+    except ValueError as exc:  # a lease stamped ahead of this clock: said in the cell
+        return str(exc)
+
+
+def on_ports(request):
+    """{(switch, port): [machine]} of every machine the gateway has leased an address to on a port (fpga.seen_ports:
+    its newest lease record that names a port), newest lease first. An observation with its time, never a remembered
+    table: a machine moved to another port is shown there once the gateway leases it an address there."""
+    seen = fpga.seen_ports()
+    if not seen:
+        return {}
+    out = {}
+    for host in fpga.hosts():
+        observed = seen.get(host.machine.pk)
+        if observed is not None:
+            out.setdefault((observed.switch, observed.port), []).append((observed.at, _machine(request, host, observed)))
+    return {key: [m for _, m in sorted(found, key=lambda f: f[0], reverse=True)] for key, found in out.items()}
+
+
+def net_check(port, has_poe, role, machines, failures, known, vlans_checked):
+    """(ok, title) of a port's Net cell: is the network reading as it should be? Not ok for an inventory failure with
+    no known cause (management.inventory_check), a PoE fault or a PoE state the page cannot read, a link down under a
+    machine that is not missing, a link slower than the model on it links at. A failure of a known cause (poe #16,
+    #18) is in the title only: it is one line above the switch's drawing, not a mark on every port. Error counters are
+    not judged: they count from the switch's boot, and one reading cannot tell an old count from a rising one."""
+    wrong, compared = list(failures), []
+    if vlans_checked:
+        compared.append("VLANs against the inventory")
+    poe = port.poe_state
+    compared.append("PoE")
+    if poe == "fault":
+        wrong.append("PoE fault")
+    elif poe is None and has_poe:
+        wrong.append("PoE state not read")
+    elif poe is not None and poe not in POE_MARKS:
+        wrong.append(f"PoE state {str(poe)[:40]!r} not known")
+    if machines and machines[0]["condition"] != MISSING:
+        newest = machines[0]
+        compared.append(f"link and speed for the {newest['model'] or newest['serial']} on it")
+        if not port.link_up:
+            wrong.append(f"link down under {newest['label']} ({states.WORDS[newest['condition']]})")
+        else:
+            want = LINK_SPEEDS.get(newest["model"])
+            if want is None:
+                compared[-1] += " (no speed known for this model)"
+            elif port.speed_mbps is not None and port.speed_mbps < want:
+                wrong.append(f"link {link_speed(port.speed_mbps)}; a {newest['model']} links at {link_speed(want)}")
+    tail = "; ".join(f"known: {k}" for k in known)
+    if wrong:
+        title = "not as it should be: " + "; ".join(wrong)
+    else:
+        title = "as it should be: " + ", ".join(compared) + (" (an infrastructure port)" if role else "")
+    return not wrong, title + (f"; {tail}" if tail else "")
 
 
 def _fleet_hosts():
@@ -308,7 +415,10 @@ def lldp_port(port, house=()):
 
 
 def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, switches=None,
-         house=()):
+         house=(), machines=(), has_poe=True, failures=(), known=()):
+    """A port's row: the hardware the gateway last saw on it (`machines`, newest first), whether its network reading is
+    as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one),
+    then the switch's reading, one value a column (#130). `has_poe`: the switch's model gives the port PoE."""
     name = port.lldp_name or ""
     serial = hosts.get(name.split(".")[0]) if name else None
     macs = list(port.macs or [])
@@ -319,33 +429,57 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # a neighbour that is one of this installation's switches by its number, as the page titles it; the sysName in
     # the title
     short = (switches or {}).get(name.split(".")[0].lower()) if name else None
-    poe, poe_title = poe_cell(port.poe_state, port.poe_watts)
-    speed = f" {link_speed(port.speed_mbps)}" if port.link_up and port.speed_mbps else ""
+    poe, poe_cls, poe_title, poe_sort = poe_cell(port.poe_state, has_poe)
     vlan, vlan_title = vlan_cell(port, vlan_names)
     # the gateway's interface for the port's VLAN belongs to a board port; an infrastructure port carries many
     # VLANs (all in the VLAN cell's title), and where the inventory is unknown a trunk cannot be told from a board
     board = spec is not NO_INVENTORY and port_role(spec, port.port) is None
     gw, gw_title = gw_cell(getattr(port, "pvid", None), netdevs) if board else (NONE, "not a board port")
+    machines = list(machines)
+    # something on a board port (a link, or power drawn) where the gateway has leased no registered machine an address
+    powered = port.poe_state == "delivering"
+    unregistered = UNREGISTERED if not machines and not role and (port.link_up or powered) else ""
+    vlans_checked = spec is not None and spec is not NO_INVENTORY and (board or role == "gateway trunk")
+    net_ok, net_title = net_check(port, has_poe, role, machines, failures, known, vlans_checked)
+    speed = link_speed(port.speed_mbps) if port.link_up and port.speed_mbps else ""
     row = {
         "port": port.port,
-        # fail closed where the inventory cannot say which port is the house uplink: no label at all
-        "label": (NONE if spec is NO_INVENTORY else
-                  HOUSE_UPLINK if role == HOUSE_UPLINK else label(port.label, house) or NONE),
-        "label_title": ("labels hidden: the switch inventory could not be read" if spec is NO_INVENTORY else
-                        role or ("" if port.label else "the switch has no label for this port")),
-        # the label's dot-separated parts: the page may break a long label after a dot, and only there
-        "label_parts": [],
-        "link": ("up" if port.link_up else "down") + speed,
+        "machines": machines,
+        "role": role or "",
+        "unregistered": unregistered,
+        "unregistered_title": ("not registered: " + " and ".join(w for w, on in (("a link up", port.link_up),
+                                                                                ("PoE power drawn", powered)) if on)
+                               + ", and the gateway has leased no registered machine an address on this port")
+                              if unregistered else "",
+        # the State column sorts as its first machine (needs attention first), then an unregistered device, then none
+        "state_sort": machines[0]["severity"] if machines else (5 if unregistered else 9),
+        "net_ok": net_ok,
+        "net": PASSED[0] if net_ok else FAILED[0],
+        "net_cls": PASSED[1] if net_ok else FAILED[1],
+        "net_title": net_title,
+        "link": "↑" if port.link_up else "↓",
         "link_up": bool(port.link_up),
+        "link_title": "link up" if port.link_up else "link down",
+        "speed": speed,
+        "speed_sort": port.speed_mbps if port.link_up and port.speed_mbps else 0,
         "vlan": vlan,
         "vlan_title": vlan_title,
         "gw": gw,
         "gw_title": gw_title,
         "poe": poe,
+        "poe_cls": poe_cls,
         "poe_title": poe_title,
+        "poe_sort": poe_sort,
+        "poe_state": port.poe_state or "",
+        "watts": watts(port.poe_state, port.poe_watts),
         "can_power": can_power,
         # what the button does; "" where there is no button (not a board port, or a state it cannot act on)
         "poe_action": POWER_ACTION.get(port.poe_state or "", "") if can_power else "",
+        # the button's words say what a press does, so it does not read as the port's state (the review of 15 Oct)
+        "poe_button": {"off": "turn off", "on": "turn on"}.get(
+            POWER_ACTION.get(port.poe_state or "", "") if can_power else "", ""),
+        # what the button's confirm() names as powered: the newest machine on the port, else the LLDP neighbour
+        "powers": machines[0]["label"] if machines else (short or neighbour_name),
         "lldp_name": short or neighbour_name,
         "lldp_title": neighbour_name if short else "",
         "lldp_url": _fleet_url(request, serial) if serial else "",
@@ -354,10 +488,16 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "macs_title": ", ".join(macs) if len(macs) > 1 else "",
         "rx": rate(port.rx_bps),
         "tx": rate(port.tx_bps),
-        "errors": f"{_count(port.rx_errors)} / {_count(port.tx_errors)}",
+        "rx_errors": _count(port.rx_errors),
+        "tx_errors": _count(port.tx_errors),
+        # an infrastructure port is labelled by its role, whatever the switch's own label says (it can name a private
+        # device: port_role); fail closed where the inventory cannot say which ports those are: no label at all
+        "label": NONE if spec is NO_INVENTORY else role or label(port.label, house) or NONE,
+        "label_title": ("labels hidden: the switch inventory could not be read" if spec is NO_INVENTORY else
+                        f"{role}: its role in the inventory" if role else
+                        "the switch's own label for the port" if port.label else
+                        "the switch has no label for this port"),
     }
-    parts = row["label"].split(".")
-    row["label_parts"] = [f"{part}." for part in parts[:-1]] + parts[-1:] if row["label"] else []
     return row
 
 
@@ -483,6 +623,40 @@ def _ago(iso):
         return str(exc)
 
 
+def _model(view):
+    """The switch's model from the switch registry (netgear_switch), or (None, why not)."""
+    from netgear_switch import UnknownModelError, get_model
+
+    try:
+        return get_model(view.model), ""
+    except UnknownModelError as exc:
+        return None, f"No front panel: {exc}."
+
+
+def _failures(view, spec):
+    """({port: [text]} of the inventory check's failures with no known cause, {port: [known cause]}, [the switch's
+    known issues, one line each]) of a reachable switch the inventory describes; nothing for any other."""
+    failures, known, issues = {}, {}, {}
+    if not view.reachable or spec is None or spec is NO_INVENTORY:
+        return failures, known, []
+    for failure in inventory_check.check(spec, view):
+        cause = inventory_check.KNOWN_CAUSES.get(failure.vlan)
+        if cause is None:
+            failures.setdefault(failure.port, []).append(failure.text)
+            continue
+        short = cause[0]
+        known.setdefault(failure.port, []).append(f"also untagged in VLAN {failure.vlan} ({short})")
+        issue = issues.setdefault(short, {"ports": set(), "vlans": set()})
+        issue["ports"].add(failure.port)
+        issue["vlans"].add(failure.vlan)
+    # a switch-wide known issue is one line above the drawing (#130), not a mark on every port: how many board ports,
+    # which VLANs, the issue linked
+    lines = [{"text": f"{len(i['ports'])} board ports also untagged in VLAN {', '.join(map(str, sorted(i['vlans'])))}",
+              "issue": short, "url": inventory_check.POE_ISSUES + short.split("#")[1]}
+             for short, i in sorted(issues.items())]
+    return failures, known, lines
+
+
 def _switch_dicts(request):
     views = sorted(_read(), key=lambda v: (v.index is None, v.index or 0))
     hosts = _fleet_hosts() if any(p.lldp_name for v in views for p in v.ports) else {}
@@ -491,13 +665,19 @@ def _switch_dicts(request):
     vlan_names = _vlan_names(views)
     netdevs = gateway_vlan_netdevs()  # once per request, not per port
     powered = {id(v): _can_power(request, v, specs[id(v)]) for v in views}
+    machines = on_ports(request)  # once per request: the registry and the gateway's lease records
     # the house uplink's device, masked wherever any switch's label names it (not only its own switch's)
     house = tuple(dict.fromkeys(n for v in views for n in house_names(specs[id(v)], v.ports)))
     # {a switch's own name, lower case: "switch N"}: a neighbour that is one of these is shown by its number
     switches = {(v.name or "").split(".")[0].lower(): f"switch {v.index}" for v in views if v.name and v.index is not None}
     out = []
     for position, v in enumerate(views):
-        rows = [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs, switches, house)
+        model, problem = _model(v)
+        poe_ports = model.poe_port_count if model is not None else 0
+        failures, known, issues = _failures(v, specs[id(v)])
+        rows = [_row(request, p, hosts, specs[id(v)], p.port in powered[id(v)], vlan_names, netdevs, switches, house,
+                     machines.get((v.index, p.port), ()) if v.index is not None else (), p.port <= poe_ports,
+                     failures.get(p.port, ()), known.get(p.port, ()))
                 for p in v.ports]
         out.append({
             "index": v.index,
@@ -512,45 +692,69 @@ def _switch_dicts(request):
             # pushed link change until a reading at least this new has caught up with it (a failed read keeps the
             # old ports, so good_at, not read_at)
             "good_at_iso": getattr(v, "good_at", None) or v.read_at or "",
+            "known_issues": issues,
             "ports": rows,
-            **_panel(v, specs[id(v)], rows, position),
+            **_panel(v, model, problem, rows, position),
         })
     return out
 
 
-def _panel(view, spec, rows, position):
+def _panel(view, model, problem, rows, position):
     """{"panel": [port dicts], "panel_width", "panel_height", "panel_label", "panel_problem"} of a switch that answers
-    (#90): its front panel, laid out by its model in the switch registry. Each port marked where the inventory check
-    (management.inventory_check) says it is not as the inventory says; with no inventory for the switch, nothing is
-    marked (the page says the inventory could not be read). A model the registry does not know, or a reading that does
-    not fit the model, draws no panel and says why in `panel_problem`."""
+    (#90, #130): its front panel, laid out by its model in the switch registry, each port drawn from its table row. A
+    model the registry does not know, or a reading that does not fit the model, draws no panel and says why in
+    `panel_problem`."""
     out = {"panel": [], "panel_width": 0, "panel_height": 0, "panel_label": "", "panel_problem": ""}
     if not view.reachable or not view.ports:
         return out
-    from netgear_switch import UnknownModelError, get_model
-
-    try:
-        model = get_model(view.model)
-    except UnknownModelError as exc:
-        return {**out, "panel_problem": f"No front panel: {exc}."}
-    failures, causes = {}, {}
-    if spec is not None and spec is not NO_INVENTORY:
-        for failure in inventory_check.check(spec, view):
-            failures.setdefault(failure.port, []).append(failure.text)
-            cause = inventory_check.KNOWN_CAUSES.get(failure.vlan)
-            causes.setdefault(failure.port, []).append(cause[0] if cause else None)
-    # a port whose every failure has a known cause (poe #16, #18): marked apart, so a new fault stands out
-    known = {port: ", ".join(dict.fromkeys(c)) for port, c in causes.items() if all(c)}
+    if model is None:
+        return {**out, "panel_problem": problem}
     # the section and row anchors use the switch index, or the list position for the legacy single switch
     anchor = f"switch-{view.index if view.index is not None else position}"
     try:
-        ports = panel.panel(view, {r["port"]: r for r in rows}, failures, anchor, model.port_count,
-                            model.poe_port_count, known)
+        ports = panel.panel(rows, anchor, model.port_count, model.poe_port_count)
     except panel.LayoutError as exc:
         return {**out, "panel_problem": f"No front panel: the reading does not fit the {model.display_name}: {exc}."}
     width, height = panel.size(ports)
     return {**out, "panel": [dataclasses.asdict(p) for p in ports], "panel_width": width, "panel_height": height,
             "panel_label": f"Front panel of {title(view)}: {panel.summary(ports)}"}
+
+
+def head_titles():
+    """Each column header's title: what the column is, said once (the /fleet/ rule, #129). The State column has the
+    /fleet/ definition word for word, and the one mark this page adds."""
+    from .fpgas import HEAD_TITLES  # not at import: views.fpgas imports views.index, which imports this module
+
+    return {
+        "port": "the switch port",
+        "model": "the Pi's model, as its label says, of each machine the gateway last leased an address on this "
+                 "port, newest first; its label on hover",
+        "board": "the FPGA board's type on that machine; its variant on hover",
+        "state": "the State of each machine, as the Raspberry Pis page has it: "
+                 + ", ".join(f"{states.MARKS[c]} {w}" for c, w in states.WORDS.items()) + f". {HEAD_TITLES['state']}. "
+                 f"On this page also {UNREGISTERED} {UNREGISTERED_WORDS}: a link up or PoE power drawn on a board port "
+                 "where the gateway has leased no registered machine an address",
+        "serial": "the machine's serial number; links its own page",
+        "lease": "when the gateway last leased that machine an address on this port: the observation that puts it here",
+        "net": "the port's network reading against what it should be: ✓ as it should be, ✗ not, why on hover "
+               "(VLANs as the inventory says, PoE read and not at fault, the link up and as fast as the Pi on it)",
+        "link": "↑ link up, ↓ link down",
+        "speed": "the link's speed",
+        "poe": "⚡ PoE delivering power, ○ PoE on and nothing drawing power, ⊗ PoE off, ! PoE fault, – no PoE on "
+               "this port",
+        "watts": "the watts the port delivers",
+        "power": "Power: turn the board's PoE off or on (board ports only)",
+        "vlan": "the port's VLAN (PVID); + other untagged VLANs; +Nt tagged VLANs; all of them on hover",
+        "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",
+        "lldp": "the LLDP neighbour the port sees",
+        "lldp_port": "the port the LLDP neighbour reports",
+        "macs": "the MAC addresses seen on the port: one, and how many more; all on hover",
+        "rx": "traffic in, kbit/s",
+        "tx": "traffic out, kbit/s",
+        "rx_errors": "receive errors the switch has counted on the port (a total since the switch's own count began)",
+        "tx_errors": "transmit errors the switch has counted on the port (a total since the switch's own count began)",
+        "label": "the switch's own label for the port; an infrastructure port's role in the inventory",
+    }
 
 
 @require_GET
@@ -562,7 +766,7 @@ def switches(request):
         data, problem = [], exc.message
     return render(request, "management/switches.html", {
         "switches": data, "problem": problem, "refresh_seconds": REFRESH_SECONDS, "zone": localtime.zone_name(),
-        "panel_states": panel.STATES,
+        "head_titles": head_titles(),
         "power_url": POWER_URL,
         "json_url": reverse("management-switches-json", urlconf=getattr(request, "urlconf", None)),
     })
