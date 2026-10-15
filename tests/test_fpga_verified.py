@@ -184,5 +184,5 @@ def test_two_switches_with_the_same_port_are_two_pis(c):
 
 @pytest.mark.django_db
 def test_the_tt_page_needs_a_board_on_port_21(c):
-    registered("opi", "pi-sw2-p21", "missing")  # an Orange Pi, no FPGA
+    registered("opi", "pi-sw2-p21", "missing")  # an Orange Pi with no board
     assert c.get("/fpgas/tt.html").status_code == 404

@@ -119,7 +119,7 @@ def test_the_widest_switch_fits_about_1300_px_and_a_phone_gets_six_columns():
 
 # every word a box shows, from the page's own vocabularies: none is squeezed, each fits its line or wraps at a space
 BOARD_WORDS = ("Acorn", "Arty A7", "NeTV2", "Fomu", "PCIe card", "TT FPGA", "TT chip", "TT board, not identified",
-               "no FPGA", "no board", "TT, not checked this boot", "Acorn + TT FPGA")
+               "no board", "TT, not checked this boot", "Acorn + TT FPGA")
 MODEL_WORDS = ("Pi 3B+", "Pi 3B", "Pi 4B", "Pi 5", "Pi CM4", "Pi 400", "OPi PC", "Pi Zero 2 W")
 
 

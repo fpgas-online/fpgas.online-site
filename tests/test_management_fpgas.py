@@ -946,6 +946,7 @@ def test_a_host_whose_check_finds_no_board_needs_attention_an_orange_pi_too(flee
     assert 'title="not offered: boot check found no board"' in html
     assert "found no board: no board found" not in html  # the Boot check's title does not say it twice
     assert "as expected" not in html and "carries none" not in html and "not applicable: this host" not in html
+    assert "carries no board" not in html and "found no board), or it stopped checking in" in html  # the State title
 
 
 @pytest.mark.django_db

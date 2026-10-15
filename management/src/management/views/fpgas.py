@@ -139,9 +139,9 @@ class Line:
 # The column headers' titles: what each column is, said once (#129: "What is the differences between Checked and
 # operational?"). "operational" is a State; "Check ran" is a time.
 HEAD_TITLES = {
-    "state": "operational: it checks in and the boot check of the boot it is running passed (for a host that "
-             "carries no board: found none), so a board on it is offered to visitors; needs attention: that check did "
-             "not pass, or it stopped checking in; missing: not heard from for 6 h; checking: that check has not "
+    "state": "operational: it checks in and the boot check of the boot it is running passed, so a board on it "
+             "is offered to visitors; needs attention: that check did not pass (it failed, could not finish, or found "
+             "no board), or it stopped checking in; missing: not heard from for 6 h; checking: that check has not "
              "finished",
     "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
     "serial": "the Pi's serial number; links its own page",
