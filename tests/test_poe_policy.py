@@ -4,9 +4,11 @@ the fpgas-online-poe package) act on a board's own port and nothing beyond
 
 Visitors use the boards and press Reset, with no login: every board keeps
 its Reset, above all one that has hung, is restarting or is failing its
-check. What is refused is a port no board is registered on, and, whatever
-has been registered, a trunk, an uplink or a port outside a switch's access
-ports.
+check. On a site with a switches file every access port is switched, a board
+registered on it or not (Tim, 16 Oct 2026, coord-67/68: "I approve that any
+non-trunk port should be controllable"); a trunk, an uplink or a port outside
+a switch's access ports is refused whatever has been registered. A flat site
+(no switches file) switches only a port a board is registered on.
 
 Run against the installed fpgas-online-poe package with this project's own
 settings and URL routing, on both hosts, and with a switch client that
@@ -242,11 +244,10 @@ def test_a_listed_boards_port_reports_its_state(switch_calls):
 
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
-@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS + [(2, 45), (1, 30), (2, 4), (2, 6)])
-def test_an_uplink_trunk_out_of_range_or_empty_port_is_refused(switch_calls, path, switch, port):
-    """With boards registered on switch 2 port 46 and switch 1 port 6: not
-    their numbers on the other switch (1, 46 and 2, 6), not a neighbour, not
-    a port whose number only begins like theirs (2, 4)."""
+@pytest.mark.parametrize("switch, port", NOT_FOR_BOARDS)
+def test_an_uplink_trunk_or_out_of_range_port_is_refused(switch_calls, path, switch, port):
+    """With boards registered on switch 2 port 46 and switch 1 port 6: every port the switches file does not make an
+    access port is refused, whatever is registered."""
     verified_pi("pi-sw2-p46")
     verified_pi("pi-sw1-p6")
     r = post(WELLAND, path, {"port": str(port), "switch": switch})
@@ -334,26 +335,29 @@ def test_a_registered_name_with_a_domain_names_its_port(switch_calls):
     "pi-sw2-p046", "pi-sw02-p46", "pi-sw2-p46x", "pi-sw2-p460", "pi-sw2-p4", "xpi-sw2-p46", "PI-SW2-P46",
     "pi-sw2-p46\n", "pi46", "opi-sw2-p46", "", "gateway",
 ])
-def test_only_the_one_spelling_of_a_ports_name_names_it(switch_calls, hostname):
+def test_only_the_one_spelling_of_a_ports_name_names_it(db, hostname):
+    """registered_on, which a flat site's policy asks (a site with a switches file switches every access port and does
+    not ask it, coord-67)."""
+    from pibfpgas.poe import registered_on
+
     machine("s6", hostname)
-    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 403
-    assert switch_calls == []
+    assert registered_on(2, 46) is False
 
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
-def test_a_policy_that_cannot_answer_is_not_a_yes(switch_calls, monkeypatch, path):
-    """The registry cannot be read (a locked database, say): an error, loud
+def test_a_policy_that_cannot_answer_is_not_a_yes(flat_calls, monkeypatch, path):
+    """The registry cannot be read (a locked database, say) on a flat site, whose policy asks it: an error, loud
     in the log, and nothing sent to the switch."""
-    verified_pi("pi-sw2-p46")
+    verified_pi("pi46")
 
     def locked(switch, port):
         raise RuntimeError("database is locked")
 
     monkeypatch.setattr("pibfpgas.poe.registered_on", locked)
     client = Client(HTTP_HOST=WELLAND, raise_request_exception=False)
-    r = client.post(path, data=json.dumps({"port": 46, "switch": 2}), content_type="application/json")
+    r = client.post(path, data=json.dumps({"port": 46}), content_type="application/json")
     assert r.status_code == 500
-    assert switch_calls == []
+    assert flat_calls == []
 
 
 # --- a registration nobody checked -------------------------------------------
@@ -374,10 +378,17 @@ def test_a_forged_registration_cannot_open_a_trunk_an_uplink_or_a_port_outside_t
     assert switch_calls == []
 
 
-def test_a_forged_registration_reaches_an_access_port_and_no_further(switch_calls):
-    """What forging can do: name an access port. That is another board,
-    which any visitor may reset anyway, or (here) an empty port."""
-    assert post(WELLAND, "/snmp/toggle", {"port": 30, "switch": 1}).status_code == 403
+@pytest.mark.parametrize("switch, port", [(2, 45), (1, 30), (2, 4), (2, 6), (1, 1), (2, 48)])
+def test_every_access_port_is_switched_registered_or_not(switch_calls, switch, port):
+    """Tim, 16 Oct 2026 (coord-67): "Every access port". An empty access port, or one whose device never registered,
+    is power-cycled from /management/switches/ as a board's is; nothing is registered here."""
+    assert post(WELLAND, "/snmp/toggle", {"port": port, "switch": switch}).status_code == 200
+    assert switch_calls == cycled(WELLAND, switch, port)
+
+
+def test_a_forged_registration_reaches_no_more_than_an_access_port(switch_calls):
+    """Forging gains nothing on a site with a switches file: every access port is switched anyway, and every other
+    port is refused whatever is registered (the parametrized test above)."""
     forge("pi-sw1-p30")
     assert post(WELLAND, "/snmp/toggle", {"port": 30, "switch": 1}).status_code == 200
     assert switch_calls == cycled(WELLAND, 1, 30)
@@ -429,11 +440,14 @@ def test_flat_scheme_resets_a_board_that_is_failing_its_check(flat_calls):
     assert flat_calls == [("set", "11", "2"), ("set", "11", "1")]
 
 
-def test_a_flat_registration_does_not_open_a_per_port_vlan_port(switch_calls):
+def test_a_registration_plays_no_part_on_a_site_with_a_switches_file(switch_calls):
+    """coord-67: switch 2 port 46 is an access port and is switched; switch 1 port 46 is outside switch 1's access
+    ports and is refused, whatever is registered (a flat-site name here)."""
     verified_pi("pi46")
-    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 403
     assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 1}).status_code == 403
     assert switch_calls == []
+    assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
+    assert switch_calls == cycled(WELLAND, 2, 46)
 
 
 def test_a_vlan_per_port_pi_does_not_open_a_flat_port(flat_calls):
@@ -570,15 +584,21 @@ def test_tt_board_on_the_second_switch_has_the_button_and_is_power_cycled(switch
 
 
 @pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
+@pytest.mark.parametrize("switch, port", [(1, 3), (2, 6), (1, 7), (1, 5), (2, 46)])
+def test_the_tt_site_switches_every_access_port_too(switch_calls, tt_boards, path, switch, port):
+    """Tim, 16 Oct 2026: "All access ports should *always* be switchable": on the Tiny Tapeout host as on welland's,
+    a port with no Tiny Tapeout board (a catalogue row no Pi reports, another switch's port number, an empty port, a
+    board this site does not show) is an access port and is switched."""
+    verified_pi("pi-sw2-p46")
+    assert post(TINYTAPEOUT, path, {"port": str(port), "switch": switch}).status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/snmp/status", "/snmp/toggle"])
 @pytest.mark.parametrize("switch, port, why", [
-    (1, 3, "tt03 is a catalogue row no Pi reports: no button, and no port to name"),
-    (2, 6, "tt06's port number, on the other switch"),
-    (1, 7, "tt07's port number, on the other switch"),
-    (1, 5, "no board"),
     (1, 47, "gateway trunk"), (1, 48, "uplink"), (1, 50, "trunk"), (2, 51, "trunk"), (2, 52, "uplink"),
-    (2, 46, "a board registered with the fleet, which this site does not show"),
+    (1, 41, "outside switch 1's access ports"),
 ])
-def test_tt_site_refuses_every_port_that_is_not_one_of_its_boards(switch_calls, tt_boards, path, switch, port, why):
+def test_tt_site_refuses_every_port_that_is_not_an_access_port(switch_calls, tt_boards, path, switch, port, why):
     verified_pi("pi-sw2-p46")
     r = post(TINYTAPEOUT, path, {"port": str(port), "switch": switch})
     assert r.status_code == 403, why
@@ -618,7 +638,9 @@ def test_a_tt_board_moved_to_another_port_takes_its_reset_with_it(switch_calls, 
     assert 'id="tt-power"' in html and 'data-port="13"' in html and 'data-switch="2"' in html
     assert post(TINYTAPEOUT, "/snmp/toggle", {"port": "13", "switch": 2}).status_code == 200
     assert switch_calls == cycled(TINYTAPEOUT, 2, 13)
-    assert post(TINYTAPEOUT, "/snmp/status", {"port": "7", "switch": 2}).status_code == 403  # where it was
+    # where it was is an access port, switched like every other (Tim, 16 Oct 2026: "All access ports should *always*
+    # be switchable")
+    assert post(TINYTAPEOUT, "/snmp/status", {"port": "7", "switch": 2}).status_code == 200
 
 
 def test_a_tt_board_with_no_catalogue_row_can_be_reset(switch_calls, tt_boards):
