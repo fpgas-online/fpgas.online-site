@@ -51,20 +51,24 @@ def board_title(board):
     return TYPE_TITLES.get(board["board"], OTHER)
 
 
-def board_label(board):
-    """A board as its label names it: "acorn-holly 0x00200c8664b04854" where its check read the DNA (rpi-hwid's
-    name for it, then the DNA), else its type and the id its check read ("TT FPGA 4df39a7a6856f86f"), else its
-    type."""
+def board_parts(board):
+    """(name, id) of a board as its label gives them: rpi-hwid's name and the DNA where its check read one
+    ("acorn-holly", "0x00200c8664b04854"), else its type and the id its check read ("TT FPGA", "4df39a7a6856f86f"),
+    else its type and "". The Pi table shows the two in two columns (one value a column)."""
     title = board_title(board)
     dna = _text(board["identity"].get("dna", ""), 40)
     namer = DNA_NAMES.get(board["board"])
     if dna and namer:
         try:
-            return f"{namer(dna)} {dna}"
+            return namer(dna), dna
         except ValueError:  # a DNA rpi-hwid cannot read: the type and what was sent
-            return f"{title} {dna}"
-    ident = board_id(board)
-    return f"{title} {ident}" if ident else title
+            return title, dna
+    return title, board_id(board)
+
+
+def board_label(board):
+    """A board as its label names it: "acorn-holly 0x00200c8664b04854", "TT FPGA 4df39a7a6856f86f", "Fomu"."""
+    return " ".join(part for part in board_parts(board) if part)
 
 
 def registered_model(machine):
@@ -333,7 +337,9 @@ def hosts(now=None):
         for i, b in zip(board_indices(detail), _reported_boards(detail)) if detail else ():
             # the variant, when it says more than the type: an Acorn's model, not a Tiny Tapeout board's "tt-fpga"
             variant = "" if b["board"] == "tt" else _text(b["variant"], 40)
+            name, ident = board_parts(b)
             boards.append({"kind": _text(b["board"], 40), "title": board_title(b), "label": board_label(b),
+                           "name": name, "label_id": ident,
                            "variant": variant, "id": board_id(b),
                            "usb_serial": _text(b["identity"].get("usb_serial", ""), 40) if b["board"] == "tt" else "",
                            "result": _text(b["result"], 20), "reason": _text(b.get("reason", "")),

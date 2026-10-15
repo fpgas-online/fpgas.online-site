@@ -75,6 +75,12 @@ class CheckCell:
     sort: int
     link: str  # the Pi's own page, where every check's result and reason is, for a cell with a ✗
 
+    @property
+    def title(self):
+        """The cell's title, so hovering anywhere in it shows the result (#123: it was on the mark only): the mark's
+        title, or one line per board in the Board cell's order."""
+        return "\n".join(m.title for m in self.marks)
+
 
 @dataclass
 class Line:
@@ -90,7 +96,8 @@ class Line:
     sort_port: str  # switch and port as numbers, zero-padded: sw2 p4 before sw2 p33
     check: str  # the boot check's verdict, one word or phrase: "passed", "failed", "found no board"
     check_title: str  # why it is not offered, in the check's words, "" when it is
-    boards: list  # each board's label, or the kinds its registration names: one per line in the cell
+    boards: list  # [(name, id)] of each board ("acorn-holly", "0x0020..."), or the kinds its registration names
+                  # with "": one per line in the Board and ID cells
     checks: list  # a CheckCell per column of `columns`
     uptime: str  # "3 d 4 h", or ""
     sort_uptime: int  # seconds, 0 for none
@@ -100,7 +107,7 @@ class Line:
     sort_checked: int
     severity: int
     offered: str  # "yes" or "no"
-    why_not: str  # in the index's words ("stopped checking in", "pin-id, spiflash"), "" when offered
+    why_not: str  # only what State and Boot check do not say ("stopped checking in", "no visitor page"), else ""
     notes: list  # short values, one a line: "revision unreadable", "clock 2 h ahead"
     page: str  # the visitor page "yes" links to
 
@@ -219,6 +226,19 @@ def _port(host, observed):
             f"{observed.switch:03d}{observed.port:03d}", note)
 
 
+# Why a Pi is not offered, as the Why not column says it: only what the State badge and the Boot check verdict do
+# not already say (#123: "boot check failed" beside "failed" was the same fact twice, and made rows four lines tall).
+# A failed or unfinished check is the Boot check's word and its ✗ marks; missing is the State's, and Seen says since
+# when; a running check is the Boot check's word.
+WHY_NOT_SHOWN = ("stopped checking in", "no visitor page")
+
+
+def _why_not(offered, why):
+    if offered or why in WHY_NOT_SHOWN:
+        return why
+    return ""
+
+
 def _line(host, now, pages, columns, detail, observed=None):
     fields = fpga.pi_fields(host.machine)
     notes = [fields.note] if fields.note else []
@@ -246,12 +266,19 @@ def _line(host, now, pages, columns, detail, observed=None):
     except ValueError as exc:  # a check stamped in the future by the Pi's clock: loud in Notes, the page stands
         checked = ""
         notes.append(f"check {duration(host.checked - now)} ahead" if host.checked > now else str(exc))
-    offered, why_not, page = _offer(host, now, pages)
+    offered, why, page = _offer(host, now, pages)
+    try:
+        if not offered and host.condition != OPERATIONAL:
+            _board_reason(host, now)  # a value the page does not know: said, loud, in Why not
+        why_not = _why_not(offered, why)
+    except ValueError as exc:
+        why_not = str(exc)
     seconds = host.machine.last_uptime_s if host.uptime else 0
     link = f"{detail}{host.machine.serial}/#boards" if detail else ""
     return Line(host, fields.short, model_title, fields.memory, memory_mb, fields.serial,
                 port, port_title, sort_port, _check_word(host), host.why,
-                [b["label"] for b in host.boards] or host.registered_kinds or [host.board_type],
+                [(b["name"], b["label_id"]) for b in host.boards]
+                or [(kind, "") for kind in host.registered_kinds or [host.board_type]],
                 [check_cell(host, name, link) for name in columns],
                 host.uptime, int(seconds or 0), seen, int(stamp.timestamp()) if stamp else 0, checked,
                 int(host.checked.timestamp()) if checked else 0, SEVERITY[host.condition],

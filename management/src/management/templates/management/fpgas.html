@@ -27,7 +27,7 @@
 {% if rows %}
 {# one table of the Pis (Tim, 15 Oct 2026): a value per column, and a column per check across the fleet #}
 <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Raspberry Pis"><table class="mgmt-table mgmt-hosts mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col">State</th><th scope="col">Model</th><th scope="col">Memory</th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Up</th><th scope="col">Seen</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}<th scope="col">Notes</th></tr></thead>
+  <thead><tr><th scope="col">State</th><th scope="col">Model</th><th scope="col"><abbr title="Memory">RAM</abbr></th><th scope="col" class="mgmt-c-serial">Serial</th><th scope="col">Port</th><th scope="col">Board</th><th scope="col">ID</th><th scope="col">Boot check</th><th scope="col">Checked</th><th scope="col">Offered</th><th scope="col">Why not</th><th scope="col">Up</th><th scope="col">Seen</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead">{{ name }}</th>{% endfor %}<th scope="col">Notes</th></tr></thead>
   <tbody>
   {% for line in rows %}{% with h=line.host %}
     <tr>
@@ -36,14 +36,15 @@
       <td class="mgmt-c-memory" data-label="Memory" data-sort="{{ line.memory_mb }}">{{ line.memory }}</td>
       <td class="mgmt-c-serial">{% if fleet %}<a href="{{ fleet }}{{ line.serial }}/">{{ line.serial }}</a>{% else %}{{ line.serial }}{% endif %}</td>
       <td class="mgmt-c-port" data-label="Port" data-sort="{{ line.sort_port }}" title="{{ line.port_title }}">{{ line.port }}</td>
-      <td class="mgmt-c-board mgmt-boardlist" data-label="Board">{% for label in line.boards %}<div>{{ label }}</div>{% endfor %}</td>
+      <td class="mgmt-c-board" data-label="Board">{% for name, ident in line.boards %}<div>{{ name }}</div>{% endfor %}</td>
+      <td class="mgmt-c-id" data-label="ID">{% for name, ident in line.boards %}<div>{{ ident|default:"–" }}</div>{% endfor %}</td>
       <td class="mgmt-c-check" data-label="Boot check"{% if line.check_title %} title="{{ line.check_title }}"{% endif %}>{{ line.check }}</td>
       <td class="mgmt-c-checked" data-label="Checked" data-sort="{{ line.sort_checked }}">{{ line.checked }}</td>
       <td class="mgmt-c-offered" data-label="Offered">{% if line.page %}<a href="{{ line.page }}">{{ line.offered }}</a>{% else %}{{ line.offered }}{% endif %}</td>
       <td class="mgmt-c-why" data-label="Why not">{{ line.why_not }}</td>
       <td class="mgmt-c-up" data-label="Up" data-sort="{{ line.sort_uptime }}">{{ line.uptime }}</td>
       <td class="mgmt-c-seen" data-label="Seen" data-sort="{{ line.sort_seen }}">{{ line.seen }}</td>
-      {% for cell in line.checks %}<td class="mgmt-mark" data-sort="{{ cell.sort }}" data-label="{{ cell.name }}">{% for m in cell.marks %}<div class="{{ m.cls }}" title="{{ m.title }}">{% if cell.link and m.mark == "✗" %}<a href="{{ cell.link }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
+      {% for cell in line.checks %}<td class="mgmt-mark" data-sort="{{ cell.sort }}" data-label="{{ cell.name }}" title="{{ cell.title }}">{% for m in cell.marks %}<div class="{{ m.cls }}">{% if cell.link and m.mark == "✗" %}<a href="{{ cell.link }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
       <td class="mgmt-c-notes mgmt-note" data-label="Notes">{% for note in line.notes %}<div>{{ note }}</div>{% endfor %}</td>
     </tr>
   {% endwith %}{% endfor %}
@@ -54,8 +55,8 @@
 <details class="mgmt-key-box"><summary>Key</summary>
 <ul>
   <li><strong>operational</strong>: offered to visitors (it checks in, and its boot check of the boot it is running passed); <strong>needs attention</strong>: its check failed or could not finish, or it stopped checking in within 6 h; <strong>missing</strong>: not heard from for longer; <strong>checking</strong>: its check has not finished this boot.</li>
-  <li>Model, Memory, Serial: the Pi's label, a value a column (the label's words and the registered model in the Model's title); the serial links the Pi's own page. Port: the port the gateway last leased it an address on, the time in its title; empty when the gateway has no lease record (Notes then names the port its host name names). Board: each board's label where its check read one, one a line.</li>
-  <li>Boot check: the verdict of the check of the boot it is running; Checked: when that check reported. Offered: "yes" links its visitor page; Why not says why a Pi is not offered.</li>
+  <li>Model, RAM, Serial: the Pi's label, a value a column (the label's words and the registered model in the Model's title); the serial links the Pi's own page. Port: the port the gateway last leased it an address on, the time in its title; empty when the gateway has no lease record (Notes then names the port its host name names). Board, ID: each board's name and the id on its label (the DNA, a USB serial), one board a line; – where its check read no id.</li>
+  <li>Boot check: the verdict of the check of the boot it is running; Checked: when that check reported. Offered: "yes" links its visitor page. Why not: only what State and Boot check do not already say (stopped checking in, no visitor page).</li>
   <li>Up: the uptime it last reported. Seen: its last status beat. Times are {{ zone }}. The exact time is in each one's title.</li>
   <li>Then a column per check across the fleet: ✓ passed, ✗ failed (the reason on hover; it links the Pi's page), – not applicable (the board does not run it); a Pi with two boards has a mark per board, in the Board cell's order. Notes: what the page could not read (a revision, a clock, a lease).</li>
   <li>Every column sorts: a click on its header, again to reverse, a third time for the served order (what needs a person first).</li>

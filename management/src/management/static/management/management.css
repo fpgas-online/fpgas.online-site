@@ -134,8 +134,10 @@
 .mgmt:has(.mgmt-hosts) { max-width: none; }
 /* a model, a memory, a serial, a port and a time are one value each: they do not break */
 .mgmt-hosts td.mgmt-c-model, .mgmt-hosts td.mgmt-c-memory, .mgmt-hosts td.mgmt-c-serial, .mgmt-hosts td.mgmt-c-port,
+/* every value of the Pi table is one line (#123): a board's name and its id are two columns */
 .mgmt-hosts td.mgmt-c-up, .mgmt-hosts td.mgmt-c-seen, .mgmt-hosts td.mgmt-c-check,
-.mgmt-hosts td.mgmt-c-checked { white-space: nowrap; }
+.mgmt-hosts td.mgmt-c-checked, .mgmt-hosts td.mgmt-c-why, .mgmt-hosts td.mgmt-c-board,
+.mgmt-hosts td.mgmt-c-id { white-space: nowrap; }
 .mgmt-hosts td.mgmt-c-memory { text-align: right; }
 /* the serial names the row: it stays in view while the check columns scroll sideways (#78's port column on the
    switch page does the same); its right edge is a shadow, which stays */
@@ -146,14 +148,15 @@
 /* A check's column (#121): a mark a board, ✓ ✗ – coloured as well as shaped, the result (and a ✗'s reason) in its
    title and for a screen reader. The check's name is set upright, so the column is as wide as a mark. */
 .mgmt-table th.mgmt-checkhead { writing-mode: vertical-rl; text-align: left; vertical-align: bottom; }
-.mgmt-hosts td.mgmt-mark { text-align: center; white-space: nowrap; padding-left: 0.2rem; padding-right: 0.2rem; }
-.mgmt-hosts td.mgmt-mark div { cursor: help; }
+.mgmt-hosts td.mgmt-mark { text-align: center; white-space: nowrap; }
+/* a check's column is a mark wide: its header is set upright, and both keep a sliver of padding */
+.mgmt-table.mgmt-hosts td.mgmt-mark, .mgmt-table.mgmt-hosts th.mgmt-checkhead { padding-left: 0.1rem;
+                                                                              padding-right: 0.1rem; }
+.mgmt-hosts td.mgmt-mark { cursor: help; }
 .mgmt-test-pass { color: #1b7a1b; }
 .mgmt-test-fail, .mgmt-test-fail a { color: #b00020; font-weight: 700; }
 .mgmt-test-none { color: #999; }
 /* a Pi's boards, one label a line; Why not may wrap; Notes are facts, not alarms: plain, one line */
-.mgmt-hosts td.mgmt-c-why { max-width: 20ch; }
-.mgmt-hosts td.mgmt-boardlist { max-width: 20ch; }  /* a label wraps at its space, the name over the id */
 .mgmt-hosts td.mgmt-note div { white-space: nowrap; }
 /* many columns in the page's width: tighter cells than the shared 0.6rem */
 .mgmt-table.mgmt-hosts th, .mgmt-table.mgmt-hosts td { padding: 0.35rem 0.4rem; font-size: 0.92em; }
@@ -174,7 +177,6 @@
   .mgmt-hosts td.mgmt-mark div + div::before { content: " "; }
   .mgmt-hosts td:empty { display: none; }
   .mgmt-hosts td { white-space: normal; }
-  .mgmt-hosts td.mgmt-c-board { max-width: none; }
   /* each value says what it is: the header row is hidden on a phone */
   .mgmt-hosts td[data-label]::before { content: attr(data-label) " "; color: #666; font-size: 0.85em; font-weight: 400; }
   /* the summary: a line per board type, each count after its state's name (the header row's badges do not fit) */
