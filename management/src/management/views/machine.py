@@ -6,7 +6,9 @@ the label input download (/fleet/<serial>/rpi-hwid.json)."""
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404
 from django.shortcuts import render
 from django.utils import timezone
@@ -15,13 +17,34 @@ from fleet.models import BootEvent, Machine
 from fleet.services import FPGA_STAGES
 from fleet.timeago import ago_time, exact
 
-from fleet import hwid, jsonview
+from fleet import hwid, jsonview, labelart
 
 from .. import check_groups, fpga, localtime, network, states
-from .fpgas import CHECK_WORDS, CONDITION_KEYS, HEAD_TITLES, Mark, _mark, _offer, _port, _visitor_pages, boot_mark, plan
+from .fpgas import (
+    CHECK_WORDS,
+    CONDITION_KEYS,
+    HEAD_TITLES,
+    NOT_APPLICABLE,
+    Mark,
+    _mark,
+    _offer,
+    _port,
+    _visitor_pages,
+    boot_mark,
+    plan,
+)
 from .index import _url
 
 DOCS = "https://docs.fpgas.online/en/latest/"
+NOT_APPLICABLE_SORT = NOT_APPLICABLE[2]
+# Two things the page names, said once (Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot
+# checks `Boot` value?"). They are not: fleet.models.HardwareSnapshot is a registration, kept once per distinct document
+# (its fingerprint) and confirmed by every boot that sends it again; a boot is one power-on, named by the kernel's
+# boot id (Machine.last_boot_id, BootEvent.boot_id), and the boot check runs once in each.
+REGISTRATION_TITLE = ("a registration: what the Pi says it is (model, serial, memory, MACs, the boards it sees), sent "
+                      "by every boot and kept once for each different document; many boots send the same one")
+BOOT_TITLE = ("a boot: one power-on of the Pi, named by the id its kernel gives it; the boot check runs once in each, "
+              "and each boot sends the registration again")
 # Each board kind's page on the docs site, and its checks' pages (by the check's own test name where the docs have
 # a page of that name; else the board's checks page). A kind with no page links nothing.
 BOARD_DOCS = {
@@ -88,11 +111,9 @@ class Board:
 
 
 # the mark of a board's result in its Boards row and in the history: one character, its words on hover
-def _result_mark(result, reason="", no_board_expected=False):
+def _result_mark(result, reason=""):
     # a report with no result says so (its detail is in the events), never "not started" or "unknown"
     word = (CHECK_WORDS.get(result) or f"gave {result}") if result else "sent no result"
-    if no_board_expected and result == "missing":  # the same verdict as the facts and /fleet/ (the review of #135)
-        return Mark("✓", "mgmt-test-pass", "found no board, as expected: this host carries none")
     title = word + (f": {reason}" if reason else "")
     if result == "pass":
         return Mark("✓", "mgmt-test-pass", title)
@@ -134,25 +155,99 @@ class Check:
     sort: int
     mark: Mark
     boards: list  # [(type, Mark)] a board a line
+    reports: list  # fpga.report_boards() of its report: what each test of that boot gave
+    running: bool
+    cells: list = None  # [(name, [Mark], sort)] a cell per check column, a mark per board: set by _history
 
 
-def _history(machine, no_board_expected=False):
-    """[Check] of the host's boot checks, newest first, one row a boot: its report, or "running" while it has none."""
+# Each event stage's kind, coloured on the page, the kind named in its own column (Tim, 16 Oct 2026: "Use color coding
+# for the event types"; never colour alone). A stage not listed here is "other", grey, with the stage as sent.
+EVENT_KINDS = {
+    "network-online": "network", "network-state": "network", "time-synced": "network",
+    "ssh-up": "service", "cam-streaming": "service", "tt-daemon-up": "service",
+    "pi-identified": "identify", "fpga-board-found": "identify", "fpga-board-identified": "identify",
+    "fpga-verifying": "check", "fpga-verified": "check",
+    "fpga-test-started": "test", "fpga-test-finished": "test",
+}
+EVENT_KIND_TITLES = {
+    "network": "the Pi's network: link, address, clock",
+    "service": "a service on the Pi came up",
+    "identify": "what the Pi and its boards are",
+    "check": "the boot check started or reported",
+    "test": "one test of the boot check started or finished",
+    "other": "a stage this page has no kind for: shown as sent",
+}
+
+
+@dataclass
+class Event:
+    """An Events row: its time, kind (coloured), stage, the test it is about, its result as a mark, and its detail."""
+    ts: object
+    kind: str
+    stage: str
+    test: str
+    result: Mark | None
+    detail: str
+
+
+def _event(event):
+    detail = event.detail if isinstance(event.detail, dict) else {}
+    test = _t(detail.get("test", ""))[:40]
+    result = _t(detail.get("result", ""))
+    mark = _result_mark(result, _t(detail.get("reason", ""))) if result and event.stage in (
+        "fpga-test-finished", "fpga-verified") else None
+    return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test, mark,
+                 jsonview.compact(event.detail))
+
+
+RUNNING = Mark("⟳", "mgmt-test-running", "running")
+RUNNING_TEST = Mark("⟳", "mgmt-test-running", "the check of this boot is running: no test has reported yet")
+
+
+def _history(machine):
+    """(the check groups, [Check]) of the host's boot checks, newest first, one row a boot: its report, or "running"
+    while it has none; each row has a column per check, the marks of that boot's tests as on /fleet/ (Tim, 16 Oct
+    2026: "Why doesn't the boot checks table show the tests for that boot?")."""
     events = BootEvent.objects.filter(machine=machine, stage__in=FPGA_STAGES).order_by("-id")[:HISTORY * 2]
     rows = {}
     for event in events:  # newest first: a boot's report, when it has one, comes before its "running"
         if event.boot_id in rows:
             continue
         detail = event.detail if isinstance(event.detail, dict) else {}
+        reports = fpga.report_boards(detail) if event.stage != "fpga-verifying" else []
         if event.stage == "fpga-verifying":
-            mark, boards = Mark("⟳", "mgmt-test-running", "running"), []
+            mark, boards = RUNNING, []
         else:
-            mark = _result_mark(str(detail.get("result", "")), no_board_expected=no_board_expected)
-            boards = [(fpga.board_title(b), _result_mark(_t(b["result"]), _t(b.get("reason", ""))))
-                      for b in fpga._reported_boards(detail)] if detail else []
+            mark = _result_mark(str(detail.get("result", "")))
+            boards = [(b["title"], _result_mark(b["result"], b["reason"])) for b in reports]
         rows[event.boot_id] = Check(event.boot_id, event.boot_id == machine.last_boot_id, _when(event.ts), event.id,
-                                    mark, boards)
-    return list(rows.values())[:HISTORY]
+                                    mark, boards, reports, event.stage == "fpga-verifying")
+    checks = list(rows.values())[:HISTORY]
+    groups = check_groups.grouped(list(dict.fromkeys(
+        name for c in checks for b in c.reports for name in [*plan(b)[0], *(n for n, _ in b["tests"]), *b["not_run"]])))
+    columns = [name for _, members in groups for name in members]
+    for c in checks:
+        c.cells = [_history_cell(c, name) for name in columns]
+    return groups, checks
+
+
+def _history_cell(check, name):
+    """(name, [Mark], sort) of one boot's cell in the column of check `name`: a mark per board, as on /fleet/."""
+    if check.running:
+        return name, [RUNNING_TEST], NOT_APPLICABLE_SORT
+    if not check.reports:
+        return name, [Mark("–", "mgmt-test-none", f"{name} not applicable: no board was checked in this boot")], \
+            NOT_APPLICABLE_SORT
+    marks, sorts = zip(*(_mark(b, name) for b in check.reports))
+    return name, list(marks), min(sorts)
+
+
+def _label_images(made, png, pdf):
+    """[(title, image url, PDF url)] of the labels rpi-hwid made. The device page is served only where the fleet app's
+    label URLs are (pib/urls.py): a label with nowhere to be shown is a fault, said, never a missing picture."""
+    if made and not (png and pdf):
+        raise ImproperlyConfigured("the device page is served where the label URLs (fleet.urls) are not")
+    return [(m.title, f"{png}?{urlencode({'id': m.id})}", f"{pdf}?{urlencode({'id': m.id})}") for m in made]
 
 
 def _t(value):
@@ -190,13 +285,16 @@ def _page(request, entry):
     built = hwid.build(entry)
     try:
         missing = sorted((label, fields) for label, fields in hwid.missing(built.document).items() if fields)
+        made, refused = labelart.made(built.document)
     except hwid.label_input.InputError as exc:  # build() makes documents rpi-hwid takes; the last guard (§35)
-        missing = [("document", exc.problems)]
+        missing, made, refused = [("document", exc.problems)], [], []
+    png, pdf = _url(request, "fleet-label-png", entry.serial), _url(request, "fleet-label-pdf", entry.serial)
     offered, why, page = _offer(host, now, _visitor_pages(request))
     fields = fpga.pi_fields(entry)
     port, port_title, _, port_note = _port(host, fpga.seen_ports().get(entry.pk))
     boot = boot_mark(host, timezone.localtime(host.checked).strftime("%-d %b %H:%M") if host.checked else "")[0]
     groups, boards = _boards(host)
+    history_groups, history = _history(entry)
     registered = fpga.registered_model(entry)
     snapshots = list(entry.snapshots.order_by("-first_seen"))
     # this boot's events; a host that has said no boot id yet: its newest events, of any boot
@@ -218,20 +316,29 @@ def _page(request, entry):
         # its host name says", a remembered name under the same word)
         "port": port, "port_title": port_title, "port_note": port_note,
         "condition": CONDITION_KEYS[host.condition], "boot": boot,
-        "offered": offered, "offered_title": "offered" if offered else (
-            "not applicable: this host carries no board" if host.no_board_expected else f"not offered: {why}"),
+        "offered": offered, "offered_title": "offered" if offered else f"not offered: {why}",
         "page": page,
         "seen": _when(entry.last_seen), "first_seen": _when(entry.first_seen), "checked": _when(host.checked),
         "groups": [(group, len(members)) for group, members in groups], "boards": boards,
         "columns": [name for _, members in groups for name in members],
-        "head_titles": HEAD_TITLES, "history": _history(entry, host.no_board_expected),
+        "head_titles": HEAD_TITLES, "history": history,
+        "history_groups": [(group, len(members)) for group, members in history_groups],
+        "history_columns": [name for _, members in history_groups for name in members],
         # one row per field, the label repeated, so the table sorts (rule 22)
         "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
         "notes": [(m[1] if (m := NO_EVENT.fullmatch(note)) else note, note) for note in built.notes],
         "label_input": _url(request, "fleet-label-input", entry.serial),
-        "record": jsonview.render(snapshots[0].document) if snapshots else "",
-        "older": [(snap, jsonview.render(snap.document)) for snap in snapshots[1:]],
-        "events": [(event, jsonview.compact(event.detail)) for event in events],
+        # the labels rpi-hwid makes from what the Pi sent, as images linking the PDF it prints (#141)
+        "label_images": _label_images(made, png, pdf),
+        # a refusal other than a missing field (the fields are the rows above): rpi-hwid's own words
+        "label_refusals": [(kind, str(exc)) for kind, exc in refused
+                           if not isinstance(exc, labelart.labels.MissingFieldsError)],
+        "registrations": [(snap.fingerprint, snap.pk == entry.latest_snapshot_id, _when(snap.first_seen),
+                           int(snap.first_seen.timestamp()),
+                           _when(snap.last_confirmed), int(snap.last_confirmed.timestamp()),
+                           jsonview.render(snap.document)) for snap in snapshots],
+        "registration_title": REGISTRATION_TITLE, "boot_title": BOOT_TITLE,
+        "events": [_event(event) for event in events], "event_kind_titles": EVENT_KIND_TITLES,
         "zone": localtime.zone_name(),
         "fleet": _url(request, "fleet-list"),
     })

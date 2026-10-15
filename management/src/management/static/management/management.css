@@ -291,3 +291,18 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-notes { font-size: 0.9em; color: #444; }
 .badge.online { background: #c9f7c9; }
 .badge.offline { background: #f7c9c9; }
+
+/* the device page's labels (#141): each as rpi-hwid prints it, its size kept, a thin edge as on the sheet */
+.mgmt-labels { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.5rem 0 1rem; }
+.mgmt-labels figure { margin: 0; }
+.mgmt-labels img { display: block; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+.mgmt-labels figcaption { font-size: 0.85em; color: #555; margin-top: 0.25rem; }
+
+/* an event's kind, by colour and by its name in the Kind column (#141): one colour a kind */
+.mgmt-ev { display: inline-block; padding: 0 0.45rem; border-radius: 0.6rem; font-size: 0.85em; font-weight: 600; }
+.mgmt-ev-network .mgmt-ev { background: #dbeafe; color: #1e3a8a; }
+.mgmt-ev-service .mgmt-ev { background: #dcfce7; color: #14532d; }
+.mgmt-ev-identify .mgmt-ev { background: #fef3c7; color: #78350f; }
+.mgmt-ev-check .mgmt-ev { background: #ede9fe; color: #4c1d95; }
+.mgmt-ev-test .mgmt-ev { background: #ccfbf1; color: #134e4a; }
+.mgmt-ev-other .mgmt-ev { background: #e5e5e5; color: #333; }

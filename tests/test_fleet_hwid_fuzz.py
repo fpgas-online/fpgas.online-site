@@ -3,6 +3,7 @@ and one bad event spoils nothing else (label contract §35)."""
 
 import itertools
 import json
+import re
 from urllib.parse import quote
 
 import pytest
@@ -53,7 +54,11 @@ def send(machine, stage, detail):
 
 
 def assert_pages_stand(c):
-    assert c.get(f"/fleet/{SERIAL}/").status_code == 200
+    page = c.get(f"/fleet/{SERIAL}/")
+    assert page.status_code == 200
+    # every label image the page shows is made (#141)
+    for src in re.findall(r'<img src="([^"]+)"', page.content.decode()):
+        assert c.get(src.replace("&amp;", "&")).status_code == 200, src
     r = c.get(f"/fleet/{SERIAL}/rpi-hwid.json")
     assert r.status_code == 200
     json.loads(r.content)
