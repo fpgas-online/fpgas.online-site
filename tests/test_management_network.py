@@ -372,7 +372,7 @@ def test_the_four_network_tables_are_blocks_of_one_side_by_side_row():
     row = re.search(r'<div class="mgmt-side">(.*)</div>', section, re.S)
     assert row
     blocks = re.findall(r"<section>\s*<h3>([^<]+)</h3>", row[1])
-    assert blocks == ["Interface", "Addresses", "Default routes", "DHCP lease"]
+    assert blocks == ["Interface and record", "Addresses", "Default routes", "DHCP lease"]
     assert row[1].count("<section>") == row[1].count("</section>") == 4
 
 
