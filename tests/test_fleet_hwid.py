@@ -424,3 +424,44 @@ def test_a_real_pi_read_with_no_hat_makes_the_pi_label():
     made, refused = labelart.made(document)
     assert refused == []
     assert [(m.kind, m.title) for m in made] == [("rpi", "Pi 3 Model B+ 1 GB 000000004fe3e7e4")]
+
+
+# The NeTV2 netv2-basil on the Pi 3B+ 000000004fe3e7e4: its fpga-board-identified as welland's label input of
+# 16 Oct 2026 22:3x showed it (DNA and IDCODE only), and with the flash identity fpgas-verify reads from td PR #366
+# (fo-tools' real read, 16 Oct 22:33).
+NETV2_TODAY = {"schema": "fpga-identity/1", "board": "netv2", "kind": "netv2",
+               "dna": "0x0038a44663258854", "idcode": "0x0362d093"}
+NETV2_FLASH = {"flash_jedec": "0xc22017", "flash_uid_state": "none",
+               "flash_uid_note": "no factory ESN: security register 0x00, bit 0 (factory lock) = 0",
+               "flash_sfdp": "1.0", "flash_size_bytes": "8388608", "flash_source": "jtag"}
+
+
+def _netv2(detail):
+    register_document(PI3_REGISTRATION)
+    status("000000004fe3e7e4", {"online": True, "boot_id": "b2", "uptime_s": 60})
+    m = Machine.objects.get()
+    event(m, "fpga-board-identified", detail)
+    return hwid.build(m).document
+
+
+@pytest.mark.django_db
+def test_the_netv2_today_gets_no_label_and_rpi_hwid_names_the_flash_facts_it_lacks():
+    # Tim, 16 Oct 2026: "Why is the labels still not showing for netv2?" (#157)
+    from fleet import labelart
+
+    document = _netv2(NETV2_TODAY)
+    assert {"flash_jedec", "flash_uid_state"} <= set(hwid.missing(document)["fpga[0]"])
+    made, _ = labelart.made(document)
+    assert not [m for m in made if m.kind != "rpi"]
+
+
+@pytest.mark.django_db
+def test_the_netv2_with_its_flash_identity_gets_its_label():
+    from fleet import labelart
+
+    document = _netv2({**NETV2_TODAY, **NETV2_FLASH})
+    assert hwid.missing(document).get("fpga[0]", []) == []
+    made, refused = labelart.made(document)
+    # without `flash` (openFPGALoader's part-name guess for a JEDEC id several parts share, which fo-tools may drop)
+    assert [(m.kind, m.title) for m in made] == [("netv2", "netv2-basil 0x0038a44663258854")]
+    assert [kind for kind, _ in refused] == ["rpi"]  # the Pi's own label: #153, waits on rpi-hwid#91
