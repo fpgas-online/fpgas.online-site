@@ -5,9 +5,10 @@
  *
  * The gateway's switch poller publishes each board port's link change; the site forwards it on ws/switches/ as the
  * record {"schema": 1, "switch", "port", "hostname", "link": "up"|"down"|"bounced", "at"}. applyRecord draws it on
- * the page the way the next reading would: the row's Link mark (↑ / ↓, its words in its title and for a screen
- * reader), its Speed (empty while down; a link that comes up keeps what the cell shows until the next reading gives
- * the speed), and the front-panel box's link light (lit green while up, dark while down) and the link words in its title.
+ * the page the way the next reading would: the row's Link badge (round 5: the empty badge while down; a link that
+ * comes up keeps the speed the badge shows, or is a green ↑ until the next reading gives the speed; a port disabled at
+ * the switch keeps its disabled badge, which a link record does not change), its words in its title and for a screen
+ * reader, and the front-panel box's link light (lit green while up, dark while down) and the link words in its title.
  * It does not fetch anything: the dashboard's JSON comes through a 15 s server cache and would still show the old
  * state. The rest of what a link change means (the Net check of a Pi's port, the State) follows at the next reading.
  * The page's own 15 s refresh stays as the fallback and rebuilds the table, so a Keeper remembers each applied record
@@ -27,16 +28,24 @@
     var up = record.link === "up";
     var row = doc.getElementById("switch-" + record.switch + "-port-" + record.port);
     if (!row) { return false; }
-    var cell = row.querySelector(".c-link");
-    cell.className = "mgmt-mark c-link " + (up ? "mgmt-up" : "mgmt-down");
-    /* the cell's title is its words, then the MACs the switch saw: only the words change */
-    cell.title = /^link (up|down)/.test(cell.title || "") ? cell.title.replace(/^link (up|down)/, WORDS[record.link])
-                                                          : WORDS[record.link];
-    cell.querySelector(".mgmt-glyph").textContent = MARKS[record.link];
-    cell.querySelector(".mgmt-sr").textContent = " " + WORDS[record.link];
-    if (!up) {
-      var speed = row.querySelector(".c-speed");
-      speed.textContent = ""; speed.setAttribute("data-sort", "0");
+    var cell = row.querySelector(".c-link"), badge = cell.querySelector(".mgmt-link-badge");
+    var cls = badge.dataset.cls, text = badge.dataset.text;
+    if (cls !== "mgmt-badge-off") {  /* a disabled port has no link whatever a record says; its badge stays */
+      if (!up) { cls = "mgmt-badge-none"; text = ""; }
+      else if (cls === "mgmt-badge-none") { cls = "mgmt-badge-fast"; text = MARKS.up; }
+      var words = up ? (text === MARKS.up ? WORDS.up + "; the speed at the next reading" : WORDS.up) : "no link";
+      badge.dataset.cls = cls; badge.dataset.text = text;
+      /* the badge's look: the power-button.js glue redraws a pressed one from data-cls / data-text */
+      badge.className = badge.className.split(/\s+/).filter(function (c) {
+        return c && c.indexOf("mgmt-badge-") !== 0;
+      }).concat(cls).join(" ");
+      badge.querySelector(".mgmt-link-glyph").textContent = text;
+      /* the cell's title is its words, then the MACs the switch saw (and what a click does): only the words change */
+      var rest = (cell.title || "").replace(/^(no link|link up[^;]*|link disabled at the switch)/, "");
+      cell.title = words + rest;
+      if (badge.tagName === "BUTTON" || badge.tagName === "button") { badge.title = cell.title; }
+      cell.querySelector(".mgmt-sr").textContent = " " + words;
+      cell.setAttribute("data-sort", up ? (text === MARKS.up ? "10" : cell.getAttribute("data-sort")) : "0");
     }
     /* the port's box in the wide drawing and its twin in the narrow one (a phone's) */
     ["", "-n"].forEach(function (suffix) {

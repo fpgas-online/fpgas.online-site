@@ -91,6 +91,26 @@
 @media (prefers-reduced-motion: reduce) {
   .mgmt-poe-busy .mgmt-poe-glyph { animation: mgmt-pulse 1.2s ease-in-out infinite; }
 }
+/* the Link badge (Tim, 17 Oct 2026, round 5): one size, 3 characters, like the power button beside it. Empty and
+   transparent with no link; red when an error counter rose; green 100 / 1G / 10G; yellow 10; a disabled port the PoE-off
+   look (hollow, red edge and text, as the ⏻ that turns PoE on). On an access port it is a button. */
+.mgmt-link-badge { display: inline-block; box-sizing: border-box; width: 2.4em; height: 1.45em; line-height: 1.3em;
+  border: 1px solid transparent; border-radius: 3px; padding: 0; overflow: hidden; text-align: center;
+  font: inherit; font-size: 0.85em; font-weight: bold; font-variant-numeric: tabular-nums; vertical-align: middle; }
+.mgmt-link-button { cursor: pointer; }
+.mgmt-link-button:disabled { cursor: progress; }
+.mgmt-badge-none { background: transparent; border-color: #ccc; color: transparent; }
+.mgmt-badge-fast { background: #1b7a1b; border-color: #1b7a1b; color: #fff; }
+.mgmt-badge-slow { background: #f2c200; border-color: #c9a100; color: #111; }
+.mgmt-badge-err { background: #b00020; border-color: #b00020; color: #fff; }
+.mgmt-badge-off { background: #fff; border-color: #b00020; color: #b00020; }
+/* the countdown and the turning glyph are readable on every badge, the empty one included */
+.mgmt-badge-wait.mgmt-badge-none, .mgmt-badge-busy.mgmt-badge-none { color: #444; }
+.mgmt-link-glyph { display: inline-block; }
+.mgmt-badge-busy .mgmt-link-glyph { animation: mgmt-turn 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .mgmt-badge-busy .mgmt-link-glyph { animation: mgmt-pulse 1.2s ease-in-out infinite; }
+}
 /* the PoE button's messages: a stack fixed at the top of the page, over the content; nothing in the table moves */
 .mgmt-toasts { position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 100;
   display: flex; flex-direction: column; gap: 0.4rem; width: max-content; max-width: calc(100vw - 2rem); }
