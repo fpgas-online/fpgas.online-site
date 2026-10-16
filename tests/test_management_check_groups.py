@@ -20,6 +20,14 @@ def test_a_check_no_group_names_is_shown_last_under_not_grouped_never_hidden():
         ("basic", ["jtag"]), ("memory", ["ddr"]), (check_groups.NOT_GROUPED, ["new-thing", "other-thing"])]
 
 
+def test_basic_holds_only_checks_more_than_one_board_type_gets_and_header_is_board_specific():
+    # Tim, 16 Oct 2026: "Why is `header` in basic when it appears to be fomu only?" (td #361, td PR #363)
+    assert check_groups.GROUP_OF["header"] == "board specific"
+    for name in dict(check_groups.GROUPS)["basic"]:
+        types = [t for t, (planned, _, _) in check_groups.PLANNED.items() if name in planned]
+        assert len(types) > 1, (name, types)
+
+
 def test_every_check_fpgas_verify_runs_at_welland_has_a_group():
     """The checks the fleet reported on 15 Oct 2026 (welland's /fleet/ columns): none may fall into "not grouped"."""
     seen = ["pcie-link", "pcie-bar0", "rp1-pio", "jtag", "flash", "ddr", "p2-uart", "p2-serial", "scratch", "p2-gpio",

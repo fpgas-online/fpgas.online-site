@@ -9,13 +9,16 @@ branch verify/checks-every-board (bdf3a62) states them (fo-tools, 15 Oct 2026, s
 checks/plans.txt). A board's own report wins over these lists wherever it says something."""
 
 # (group, its checks in the order they depend on each other: jtag first, as nothing loads without it). The groups
-# are verify's ids (basic, memory, peripherals, board-specific), shown with a space.
+# are verify's ids (basic, memory, peripherals, board-specific), shown with a space. "basic" holds only checks every
+# board with the lines gets; `header` is the Fomu EVT's own check of its header lines (CDONE, CRESET, the SPI flash),
+# so it is board specific, as verify's checks.GROUP_OF has it since fpgas.online-test-designs PR #363 (Tim, 16 Oct
+# 2026, coord-74: "Why is `header` in basic when it appears to be fomu only?", td #361).
 GROUPS = (
-    ("basic", ("jtag", "header", "wiring")),
+    ("basic", ("jtag", "wiring")),
     ("memory", ("flash", "ddr", "spram")),
     ("peripherals", ("uart", "p2-uart", "p2-serial", "p2-gpio", "ethernet")),
     ("board specific", ("pcie-link", "pcie-bar0", "power-cycle", "rp1-pio", "scratch", "foboot", "foboot-after", "sdk",
-                        "dip-switches")),
+                        "dip-switches", "header")),
 )
 NOT_GROUPED = "not grouped"
 GROUP_OF = {name: group for group, names in GROUPS for name in names}
