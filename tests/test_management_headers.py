@@ -83,8 +83,16 @@ def test_the_index_headers_are_short(c):
 def _rules(css):
     """(selectors, declarations) for every rule in a stylesheet, comments removed, the rules inside an @media or
     @supports block read as if they were outside it (so the checks below see them: a header rule for a phone is
-    still a header rule). Any other @-rule is refused: this parse does not know what it holds."""
+    still a header rule). An @keyframes block is dropped whole: its "selectors" are animation steps (from, to, 50%),
+    which match no element. Any other @-rule is refused: this parse does not know what it holds."""
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    while (block := re.search(r"@keyframes\s+[\w-]+\s*\{", css)):
+        depth, end = 1, block.end()
+        while depth:
+            assert end < len(css), "unclosed @keyframes block in management.css"
+            depth += {"{": 1, "}": -1}.get(css[end], 0)
+            end += 1
+        css = css[:block.start()] + css[end:]
     while (block := re.search(r"@(media|supports)[^{};]*\{", css)):
         depth, end = 1, block.end()
         while depth:
@@ -101,6 +109,11 @@ def test_rules_reads_the_rules_inside_an_at_media_block():
     assert [sels for sels, _ in _rules(css)] == [[".a"], [".b th"], [".c", ".d"], [".e"]]
     with pytest.raises(AssertionError, match="other than"):
         _rules("@import url(x.css);\n.a { x: 1; }")
+
+
+def test_rules_drops_a_keyframes_block_whole():
+    css = ".a { x: 1; }\n@keyframes spin { to { transform: rotate(360deg); } }\n@media (x) { @keyframes p { 50% { o: 0; } } }\n.b { y: 2; }"
+    assert [sels for sels, _ in _rules(css)] == [[".a"], [".b"]]
 
 
 def _may_hit_a_header(selector):

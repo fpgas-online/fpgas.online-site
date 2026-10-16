@@ -463,7 +463,7 @@ def test_a_vlan_per_port_pi_does_not_open_a_flat_port(flat_calls):
 # --- one power cycle per port per interval ----------------------------------
 
 
-def test_a_second_toggle_inside_the_interval_is_a_429_and_the_switch_is_not_called(switch_calls):
+def test_a_second_toggle_inside_the_hold_is_a_429_and_the_switch_is_not_called(switch_calls):
     verified_pi("pi-sw2-p46")
     verified_pi("pi-sw2-p45")
     assert post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2}).status_code == 200
@@ -471,7 +471,7 @@ def test_a_second_toggle_inside_the_interval_is_a_429_and_the_switch_is_not_call
     r = post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2})
     assert r.status_code == 429
     assert 1 <= int(r["Retry-After"]) <= 60
-    assert r.json() == {"error": f"switch 2 port 46 was power-cycled a moment ago; "
+    assert r.json() == {"error": f"switch 2 port 46 was switched a moment ago; "
                                  f"try again in {r['Retry-After']} seconds. Nothing was sent to the switch"}
     assert switch_calls == CYCLE_SW2_P46
     # the limit is per port: the next board along is not held up
@@ -485,7 +485,7 @@ def test_toggle_is_refused_when_the_rate_limit_store_is_missing(switch_calls, se
     settings.SNMP_SWITCH_RATE_LIMIT_CACHE = "no-such-cache"
     r = post(WELLAND, "/snmp/toggle", {"port": "46", "switch": 2})
     assert r.status_code == 503
-    assert "rate limit store" in r.json()["error"]
+    assert "the store of the ports' holds" in r.json()["error"]
     assert switch_calls == []
 
 
