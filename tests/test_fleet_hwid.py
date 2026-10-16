@@ -152,6 +152,25 @@ def test_a_failed_rpi_hwid_read_is_said_with_its_reason_and_no_older_read_stands
 
 
 @pytest.mark.django_db
+def test_a_failed_read_with_facts_as_well_still_uses_none_of_them(machine):
+    sent = event(machine, "pi-identified", {**PI_IDENTIFIED, "reader_error": "hat: read timed out"})
+    built = hwid.build(machine)
+    assert "power_class" not in built.document["summary"]
+    assert f"{hwid.named(sent)}: rpi-hwid on the Pi could not read its facts: 'hat: read timed out'" in built.notes
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("why", ["", "  ", None, {"a": 1}, 3])
+def test_a_reader_error_that_is_not_a_reason_is_a_malformed_event(machine, why):
+    # the broker is open on the site LAN: anything can be sent; this event is dropped as any malformed one
+    event(machine, "pi-identified", PI_IDENTIFIED, boot_id="b1")
+    sent = event(machine, "pi-identified", {"schema": "pi-identity/1", "reader_error": why})
+    built = hwid.build(machine)
+    assert f"{hwid.named(sent)}: reader_error: not a reason: {hwid.shown(why)}: ignored" in built.notes
+    assert built.document["summary"]["power_class"] == "gpio-poe-hat"  # the event before it, as for any malformed one
+
+
+@pytest.mark.django_db
 def test_unknown_schema_major_is_refused(machine):
     event(machine, "pi-identified", {**PI_IDENTIFIED, "schema": "pi-identity/2"})
     event(machine, "fpga-board-identified", {**ACORN, "schema": "fpga-identity/2"})

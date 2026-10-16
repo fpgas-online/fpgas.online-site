@@ -59,6 +59,18 @@ HISTORY = 20  # boot checks listed, newest first
 # rpi-hwid's note for an event the Pi has not sent ("no usable pi-identified event from this Pi"): the event's name is
 # the value in the Labels table, the note its title (the review of #135: a sentence in a cell)
 NO_EVENT = re.compile(r"no usable ([a-z-]+) event from this Pi")
+
+
+def _note_cell(note):
+    """The Labels table's value for one of fleet.hwid's notes, the note itself its title: the event it is about (an
+    event it lacks, or one it read and could not use, #153: a cell holds a value, not a sentence); a note about no
+    event (the registration, an earlier boot) is its own value."""
+    if m := NO_EVENT.fullmatch(note):
+        return m[1]
+    for stage in (hwid.PI_STAGE, hwid.FPGA_STAGE):
+        if note.startswith(f"{stage} "):
+            return stage
+    return note
 EVENTS = 50  # events listed for a host that has said no boot id
 # Who sends each label field rpi-hwid still needs (#93 item 4: "the page says which stage owes each field").
 REGISTRATION_FIELDS = {"model", "serial", "revision", "memory", "macs"}
@@ -326,7 +338,7 @@ def _page(request, entry):
         "history_columns": [name for _, members in history_groups for name in members],
         # one row per field, the label repeated, so the table sorts (rule 22)
         "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
-        "notes": [(m[1] if (m := NO_EVENT.fullmatch(note)) else note, note) for note in built.notes],
+        "notes": [(_note_cell(note), note) for note in built.notes],
         "label_input": _url(request, "fleet-label-input", entry.serial),
         # the labels rpi-hwid makes from what the Pi sent, as images linking the PDF it prints (#141)
         "label_images": _label_images(made, png, pdf),
