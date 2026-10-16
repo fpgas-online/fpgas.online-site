@@ -392,6 +392,16 @@ def test_an_event_detail_is_laid_out_as_a_registration_document_is():
 
 
 @pytest.mark.django_db
+def test_an_event_detail_from_the_open_broker_is_escaped_in_the_events_table():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up", ts=NOW,
+                             detail={"<img src=x onerror=alert(1)>": "</pre><script>alert(1)</script>"})
+    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    assert "<script>" not in events and "<img src=x" not in events and "</pre><script>" not in events
+    assert "&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in events
+
+
+@pytest.mark.django_db
 def test_an_event_with_no_detail_shows_a_dash():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     BootEvent.objects.create(machine=m, boot_id="b1", stage="network-state", detail={}, ts=NOW)
