@@ -124,19 +124,30 @@
      draws as that state: the PoE-off look for a disabled port, the empty badge for an enabled one. */
   function drawLink(b, view) {
     var glyph = b.querySelector(".mgmt-link-glyph");
-    var cls = b.dataset.cls, text = b.dataset.text;
-    if (view.confirmed === "disabled") { cls = "mgmt-badge-off"; text = "off"; }
-    else if (view.confirmed === "enabled") { cls = "mgmt-badge-none"; text = ""; }
+    /* the reading's badge and its words (data-title: the words, the MACs seen, what a click does) */
+    var cls = b.dataset.cls, text = b.dataset.text, state = b.dataset.title || "";
+    if (view.confirmed === "disabled") { cls = "mgmt-badge-off"; text = "off"; state = "link disabled at the switch"; }
+    else if (view.confirmed === "enabled") { cls = "mgmt-badge-none"; text = ""; state = "link enabled at the switch"; }
     glyph.textContent = view.busy ? BUSY : view.seconds ? String(view.seconds) : text;
     b.dataset.action = view.action;
     b.className = "mgmt-link-badge mgmt-link-button " + cls + (view.busy ? " mgmt-badge-busy" : "") +
       (view.seconds ? " mgmt-badge-wait" : "");
     b.disabled = view.disabled;
     b.setAttribute("aria-busy", view.busy ? "true" : "false");
-    var words = view.busy ? "switching the link, waiting for the switch to confirm" :
-      view.seconds ? "the link can be switched again in " + view.seconds + " s" : view.action + " the link";
-    b.title = words;
-    b.setAttribute("aria-label", words + " on port " + b.dataset.port);
+    /* the badge says what it is first, then what a press does now (or why it cannot yet). The reading's title already
+       ends with what a click does; a confirmed state the reading does not show yet, a turning badge and a countdown
+       say their own. */
+    var words;
+    if (view.busy) { words = state.split(";")[0] + "; switching the link, waiting for the switch to confirm"; }
+    else if (view.seconds) { words = state.split(";")[0] + "; the link can be switched again in " + view.seconds + " s"; }
+    else if (view.confirmed) { words = state + "; a click " + view.action + "s the port at the switch"; }
+    else { words = state; }
+    /* only on a change: a screen reader re-reads a focused button's name each time it is set */
+    if (b.title !== words) {
+      b.title = words;
+      b.setAttribute("aria-label", "port " + b.dataset.port + ": " + words);
+      if (b.parentNode && b.parentNode.title !== undefined) { b.parentNode.title = words; }
+    }
   }
 
   /* The toasts: one stack fixed at the top of the page. A confirmation goes after a few seconds, a refusal or a failure

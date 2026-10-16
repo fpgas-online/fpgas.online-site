@@ -59,7 +59,7 @@ test("a link-down record empties the row's Link badge and dashes the box's edge"
   assert.equal(applyRecord(p.doc, record("down")), true);
   assert.equal(p.glyph.textContent, "");
   assert.equal(p.badge.className, "mgmt-link-badge mgmt-link-button mgmt-badge-none");
-  assert.deepEqual(p.badge.dataset, { cls: "mgmt-badge-none", text: "" });
+  assert.deepEqual(p.badge.dataset, { cls: "mgmt-badge-none", text: "", title: "no link" });  // power-button.js redraws from these
   assert.equal(p.link.kids[".mgmt-sr"].textContent, " no link");
   assert.equal(p.link.title, "no link");
   assert.equal(p.badge.title, "no link");

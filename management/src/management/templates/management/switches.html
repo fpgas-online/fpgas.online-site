@@ -75,8 +75,8 @@
     badge.className = "mgmt-link-badge " + (p.link_action ? "mgmt-link-button " : "") + p.badge_cls;
     badge.dataset.cls = p.badge_cls; badge.dataset.text = p.badge;
     if (p.link_action) {
-      badge.type = "button"; badge.title = p.badge_title;
-      badge.setAttribute("aria-label", p.link_action + " the link on port " + p.port);
+      badge.type = "button"; badge.title = p.badge_title; badge.dataset.title = p.badge_title;
+      badge.setAttribute("aria-label", "port " + p.port + ": " + p.badge_title);
       badge.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
       badge.dataset.port = String(p.port); badge.dataset.action = p.link_action; badge.dataset.powers = p.powers;
     }
@@ -264,7 +264,7 @@
         <td class="c-serial" data-label="Serial" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.serial }}{% endif %}">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
         <td class="c-lease" data-label="Lease" data-sort="{{ p.lease_sort }}">{% for m in p.machines %}<div title="{{ m.lease_at }}">{{ m.lease_ago }}</div>{% endfor %}</td>
         <td class="mgmt-mark c-net" data-label="Net" data-sort="{{ p.net_ok|yesno:'1,0' }}" title="{{ p.net_title }}"><span class="{{ p.net_cls }}">{{ p.net }}</span><span class="mgmt-sr"> {{ p.net_title }}</span></td>
-        <td class="mgmt-mark c-link" data-label="Link" data-sort="{{ p.badge_sort }}" title="{{ p.badge_title }}">{% if p.link_action %}<button type="button" class="mgmt-link-badge mgmt-link-button {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.link_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.link_action }} the link on port {{ p.port }}" title="{{ p.badge_title }}">{% else %}<span class="mgmt-link-badge {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}">{% endif %}<span class="mgmt-link-glyph" aria-hidden="true">{{ p.badge }}</span>{% if p.link_action %}</button>{% else %}</span>{% endif %}<span class="mgmt-sr"> {{ p.badge_words }}</span></td>
+        <td class="mgmt-mark c-link" data-label="Link" data-sort="{{ p.badge_sort }}" title="{{ p.badge_title }}">{% if p.link_action %}<button type="button" class="mgmt-link-badge mgmt-link-button {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}" data-title="{{ p.badge_title }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.link_action }}" data-powers="{{ p.powers }}" aria-label="port {{ p.port }}: {{ p.badge_title }}" title="{{ p.badge_title }}">{% else %}<span class="mgmt-link-badge {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}">{% endif %}<span class="mgmt-link-glyph" aria-hidden="true">{{ p.badge }}</span>{% if p.link_action %}</button>{% else %}</span>{% endif %}<span class="mgmt-sr"> {{ p.badge_words }}</span></td>
         <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
         <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
         <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}"><span class="mgmt-poe-glyph" aria-hidden="true">{{ p.power_icon }}</span></button>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>

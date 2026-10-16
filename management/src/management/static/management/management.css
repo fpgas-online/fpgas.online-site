@@ -99,7 +99,8 @@
   font: inherit; font-size: 0.85em; font-weight: bold; font-variant-numeric: tabular-nums; vertical-align: middle; }
 .mgmt-link-button { cursor: pointer; }
 .mgmt-link-button:disabled { cursor: progress; }
-.mgmt-badge-none { background: transparent; border-color: #ccc; color: transparent; }
+/* dashed, so the empty badge reads as "nothing here", never as a text box to type in */
+.mgmt-badge-none { background: transparent; border: 1px dashed #bbb; color: transparent; }
 .mgmt-badge-fast { background: #1b7a1b; border-color: #1b7a1b; color: #fff; }
 .mgmt-badge-slow { background: #f2c200; border-color: #c9a100; color: #111; }
 .mgmt-badge-err { background: #b00020; border-color: #b00020; color: #fff; }

@@ -176,9 +176,9 @@ test("the link answer is read from its own field", () => {
     "the link of switch 2 port 9 was switched a moment ago; it can be switched again in 8 s");
 });
 
-function badge(doc, cls, text, action) {
+function badge(doc, cls, text, action, title = "link up at 1G; MACs seen: aa:00:00:00:00:01; a click disables the port at the switch") {
   const b = doc.createElement("button");
-  b.dataset.port = "9"; b.dataset.cls = cls; b.dataset.text = text; b.dataset.action = action;
+  b.dataset.port = "9"; b.dataset.cls = cls; b.dataset.text = text; b.dataset.action = action; b.dataset.title = title;
   const g = doc.createElement("span"); g.className = "mgmt-link-glyph"; b.appendChild(g);
   return b;
 }
@@ -192,15 +192,19 @@ test("the badge turns while waiting, then shows the confirmed state with the cou
   PB.drawLink(b, { action: "enable", busy: false, disabled: true, seconds: 7, confirmed: "disabled" });
   assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "7");
   assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-off mgmt-badge-wait");
-  assert.equal(b.title, "the link can be switched again in 7 s");
+  assert.equal(b.title, "link disabled at the switch; the link can be switched again in 7 s");
+  assert.equal(b.attrs["aria-label"], "port 9: link disabled at the switch; the link can be switched again in 7 s");
   PB.drawLink(b, { action: "enable", busy: false, disabled: false, seconds: 0, confirmed: "disabled" });
   assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "off");
   assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-off");
-  assert.equal(b.title, "enable the link");
+  assert.equal(b.title, "link disabled at the switch; a click enables the port at the switch");
   // with no override the reading's badge is drawn
   PB.drawLink(b, { action: "disable", busy: false, disabled: false, seconds: 0, confirmed: null });
   assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "1G");
   assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-fast");
+  // the reading's own words: what the badge is, the MACs, what a click does (the review of #168)
+  assert.equal(b.title, "link up at 1G; MACs seen: aa:00:00:00:00:01; a click disables the port at the switch");
+  assert.equal(b.attrs["aria-label"], "port 9: " + b.title);
 });
 
 test("an enabled port with no link yet is the empty badge", () => {

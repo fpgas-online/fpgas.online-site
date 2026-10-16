@@ -43,7 +43,9 @@
       /* the cell's title is its words, then the MACs the switch saw (and what a click does): only the words change */
       var rest = (cell.title || "").replace(/^(no link|link up[^;]*|link disabled at the switch)/, "");
       cell.title = words + rest;
-      if (badge.tagName === "BUTTON" || badge.tagName === "button") { badge.title = cell.title; }
+      if (badge.tagName === "BUTTON" || badge.tagName === "button") {
+        badge.title = cell.title; badge.dataset.title = cell.title;  /* power-button.js redraws from data-title */
+      }
       cell.querySelector(".mgmt-sr").textContent = " " + words;
       cell.setAttribute("data-sort", up ? (text === MARKS.up ? "10" : cell.getAttribute("data-sort")) : "0");
     }
