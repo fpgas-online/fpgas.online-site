@@ -250,7 +250,10 @@ def test_a_failed_pi_read_is_its_event_in_the_cell_and_its_whole_reason_on_hover
     labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
     row = re.search(r'<td title="(pi-identified \d+ at [^"]*)"><code>pi-identified</code></td>', labels)
     assert row and row[1].endswith("could not read its facts: &#x27;" + why + "&#x27;")
-    assert "could not read its facts" not in labels.replace(row[1], "")  # never as a cell's text
+    # never as a cell's text: every cell of every row, its visible text (the screen-reader span aside), is a value
+    for cell in re.findall(r"<td[^>]*>(.*?)</td>", labels.split("<tbody>", 1)[1], re.S):
+        shown = re.sub(r'<span class="mgmt-sr">.*?</span>', "", cell, flags=re.S)
+        assert "could not read" not in shown and len(re.sub(r"<[^>]+>", "", shown)) <= 40, cell
 
 
 @pytest.mark.django_db

@@ -63,8 +63,9 @@ NO_EVENT = re.compile(r"no usable ([a-z-]+) event from this Pi")
 
 def _note_cell(note):
     """The Labels table's value for one of fleet.hwid's notes, the note itself its title: the event it is about (an
-    event it lacks, or one it read and could not use, #153: a cell holds a value, not a sentence); a note about no
-    event (the registration, an earlier boot) is its own value."""
+    event it lacks, or one it read and could not use, #153: a cell holds a value, not a sentence). A note about no
+    event (the registration, an earlier boot, rpi-hwid's refusal of the whole document) is still shown as it is:
+    fpgas.online-site#163."""
     if m := NO_EVENT.fullmatch(note):
         return m[1]
     for stage in (hwid.PI_STAGE, hwid.FPGA_STAGE):
