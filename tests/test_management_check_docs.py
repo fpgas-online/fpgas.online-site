@@ -12,7 +12,9 @@ from management import check_docs, check_groups
 
 
 def served_ids():
-    with urllib.request.urlopen(check_docs.PAGE, timeout=30) as response:  # noqa: S310 (a fixed https URL)
+    # Read the Docs refuses Python's default user agent (403): name this test
+    request = urllib.request.Request(check_docs.PAGE, headers={"User-Agent": "fpgas.online-site tests (#140)"})
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 (a fixed https URL)
         assert response.status == 200
         return set(re.findall(r'id="([^"]+)"', response.read().decode()))
 
