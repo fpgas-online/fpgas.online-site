@@ -370,7 +370,6 @@ def test_each_event_has_its_kind_by_colour_and_name_and_a_tests_result_is_a_mark
                for k in ("network", "service", "identify", "check", "test", "other"))
 
 
-
 @pytest.mark.django_db
 def test_the_labels_sit_beside_the_top_level_summary():
     # Tim, 16 Oct 2026: "Put labels next to the top level summary." (#156): one row at the top, the summary table
