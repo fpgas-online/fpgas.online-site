@@ -15,7 +15,7 @@ const K = "2/9";
 
 test("an untouched port's button is the reading's, ⏻, and can be pressed", () => {
   const t = PB.createTracker();
-  assert.deepEqual(t.view(K, "off", 0), { action: "off", text: "⏻", busy: false, disabled: false, seconds: 0 });
+  assert.deepEqual(t.view(K, "off", 0), { action: "off", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: null });
 });
 
 test("a pressed button turns until the switch confirms, and cannot be pressed twice", () => {
@@ -33,12 +33,12 @@ test("once confirmed off, the button offers on and counts Tim's ten seconds down
   t.start(K);
   t.confirmed(K, "off", 10, 0);
   // the reading (15 s server cache) still says the port is powered: the confirmed state wins
-  assert.deepEqual(t.view(K, "off", 0), { action: "on", text: "10", busy: false, disabled: true, seconds: 10 });
+  assert.deepEqual(t.view(K, "off", 0), { action: "on", text: "10", busy: false, disabled: true, seconds: 10, confirmed: "off" });
   assert.equal(t.view(K, "off", 400).text, "10");
   assert.equal(t.view(K, "off", 1000).text, "9");
   assert.equal(t.view(K, "off", 9001).text, "1");
   const free = t.view(K, "off", 10000);
-  assert.deepEqual(free, { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0 });
+  assert.deepEqual(free, { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: "off" });
 });
 
 test("once confirmed on, the wait before the next off is sixty seconds", () => {
@@ -71,14 +71,14 @@ test("a press inside someone else's hold counts that hold down: never silently d
   t.start(K);
   t.held(K, 42, 0);
   const v = t.view(K, "off", 0);
-  assert.deepEqual(v, { action: "off", text: "42", busy: false, disabled: true, seconds: 42 });
+  assert.deepEqual(v, { action: "off", text: "42", busy: false, disabled: true, seconds: 42, confirmed: null });
 });
 
 test("a failed press frees the button at once", () => {
   const t = PB.createTracker();
   t.start(K);
   t.failed(K);
-  assert.deepEqual(t.view(K, "on", 0), { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0 });
+  assert.deepEqual(t.view(K, "on", 0), { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: null });
   assert.equal(t.ticking(0), false);
 });
 
@@ -149,4 +149,68 @@ test("a toast goes into the stack at the top, and away by itself", () => {
   assert.equal(later[2][1], 8000);
   PB.toast(doc, "held long", "held", (fn, ms) => later.push([fn, ms]), 60);
   assert.equal(later[3][1], 20000);
+});
+
+// --- the Link badge (round 5, items 4-6) ---
+
+test("a link tracker offers enable once the switch confirmed the port disabled, and counts the short hold", () => {
+  const t = PB.createTracker(PB.LINK_ACTION_OF);
+  t.start(K);
+  assert.equal(t.view(K, "disable", 0).busy, true);
+  t.confirmed(K, "disabled", 10, 0);
+  const v = t.view(K, "disable", 0);
+  assert.equal(v.action, "enable");
+  assert.equal(v.confirmed, "disabled");
+  assert.equal(v.seconds, 10);
+  // a reading that shows the port disabled ends the override
+  assert.equal(t.view(K, "enable", 11000).confirmed, null);
+});
+
+test("the link answer is read from its own field", () => {
+  assert.deepEqual(PB.readAnswer(200, { link: "disabled", next_in: 10 }, null, "switch 2 port 9", "link"),
+    { kind: "ok", state: "disabled", seconds: 10, text: "link disabled on switch 2 port 9" });
+  // a power answer is not a link confirmation, nor the reverse
+  assert.equal(PB.readAnswer(200, { state: "off" }, null, "port 9", "link").kind, "error");
+  assert.equal(PB.readAnswer(200, { link: "enabled" }, null, "port 9", "power").kind, "error");
+  assert.equal(PB.readAnswer(429, {}, "8", "switch 2 port 9", "link").text,
+    "the link of switch 2 port 9 was switched a moment ago; it can be switched again in 8 s");
+});
+
+function badge(doc, cls, text, action, title = "link up at 1G; MACs seen: aa:00:00:00:00:01; a click disables the port at the switch") {
+  const b = doc.createElement("button");
+  b.dataset.port = "9"; b.dataset.cls = cls; b.dataset.text = text; b.dataset.action = action; b.dataset.title = title;
+  const g = doc.createElement("span"); g.className = "mgmt-link-glyph"; b.appendChild(g);
+  return b;
+}
+
+test("the badge turns while waiting, then shows the confirmed state with the countdown, then the state", () => {
+  const doc = fakeDoc();
+  const b = badge(doc, "mgmt-badge-fast", "1G", "disable");
+  PB.drawLink(b, { action: "disable", busy: true, disabled: true, seconds: 0, confirmed: null });
+  assert.equal(b.querySelector(".mgmt-link-glyph").textContent, PB.BUSY);
+  assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-fast mgmt-badge-busy");
+  PB.drawLink(b, { action: "enable", busy: false, disabled: true, seconds: 7, confirmed: "disabled" });
+  assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "7");
+  assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-off mgmt-badge-wait");
+  assert.equal(b.title, "link disabled at the switch; the link can be switched again in 7 s");
+  assert.equal(b.attrs["aria-label"], "port 9: link disabled at the switch; the link can be switched again in 7 s");
+  PB.drawLink(b, { action: "enable", busy: false, disabled: false, seconds: 0, confirmed: "disabled" });
+  assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "off");
+  assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-off");
+  assert.equal(b.title, "link disabled at the switch; a click enables the port at the switch");
+  // with no override the reading's badge is drawn
+  PB.drawLink(b, { action: "disable", busy: false, disabled: false, seconds: 0, confirmed: null });
+  assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "1G");
+  assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-fast");
+  // the reading's own words: what the badge is, the MACs, what a click does (the review of #168)
+  assert.equal(b.title, "link up at 1G; MACs seen: aa:00:00:00:00:01; a click disables the port at the switch");
+  assert.equal(b.attrs["aria-label"], "port 9: " + b.title);
+});
+
+test("an enabled port with no link yet is the empty badge", () => {
+  const doc = fakeDoc();
+  const b = badge(doc, "mgmt-badge-off", "off", "enable");
+  PB.drawLink(b, { action: "disable", busy: false, disabled: false, seconds: 0, confirmed: "enabled" });
+  assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "");
+  assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-none");
 });

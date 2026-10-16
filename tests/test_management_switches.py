@@ -169,10 +169,13 @@ def test_the_names_reverse_on_both_urlconfs():
 def test_a_port_with_nothing_connected_reads_down_with_the_searching_symbol_and_empty_cells(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = row_of(html, 3)
-    assert '<span class="mgmt-glyph">↓</span><span class="mgmt-sr"> link down</span>' in row
+    # round 5: the empty Link badge (a button: the port is an access port), its words for a screen reader
+    assert ('class="mgmt-link-badge mgmt-link-button mgmt-badge-none" data-cls="mgmt-badge-none" data-text=""' in row
+            and '<span class="mgmt-link-glyph" aria-hidden="true"></span>' in row
+            and '<span class="mgmt-sr"> no link</span>' in row)
     assert 'title="PoE on, searching: nothing drawing power">🔍<span class="mgmt-sr"> PoE on, searching: nothing drawing power</span>' in row
     # no machine on it: the hardware cells, the speed and the watts are empty, not a dash or a word
-    for column in ("c-model", "c-board", "c-serial", "c-lease", "c-speed", "c-watts"):
+    for column in ("c-model", "c-board", "c-serial", "c-lease", "c-watts"):
         assert re.search(rf'<td class="[^"]*{column}"[^>]*></td>', row), column
 
 
@@ -388,7 +391,7 @@ def test_link_speeds_are_short():
         ["10M", "100M", "1G", "2.5G", "10G", "20G"]
 
 
-COLUMNS = ["Port", "Model", "RAM", "Board", "State", "Serial", "Lease", "Net", "Link", "Speed", "PoE", "W", "⏻", "VLAN", "GW",
+COLUMNS = ["Port", "Model", "RAM", "Board", "State", "Serial", "Lease", "Net", "Link", "PoE", "W", "⏻", "VLAN", "GW",
            "LLDP", "LLDP port", "In", "Out", "Rx err", "Tx err", "Role"]
 
 
@@ -685,7 +688,8 @@ def test_every_access_port_can_power_registered_or_not(reader):
     assert [p["can_power"] for p in ports] == [True, True, True]
     assert [p["poe_action"] for p in ports] == ["off", "off", "off"]
     html = c.get("/management/switches/").content.decode()
-    assert html.split("</head>")[1].count("<button") == 3  # the head's script only builds them
+    # the head's script only builds them; each port also has its Link badge button (round 5)
+    assert html.split("</head>")[1].count('<button type="button" class="mgmt-poe-button') == 3
     assert ('class="mgmt-poe-button mgmt-poe-to-off" data-switch="1" data-port="1" data-action="off" '
             'data-powers="pi-sw1-p1" aria-label="turn PoE off on port 1" title="turn PoE off"><span class="mgmt-poe-glyph" aria-hidden="true">⏻</span></button>') \
         in row_of(html, 1)
@@ -750,7 +754,7 @@ def test_the_policy_is_asked_once_per_switch_not_once_per_port(reader, monkeypat
 @pytest.mark.django_db
 def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    assert 'var powerUrl = "/snmp/power";' in html
+    assert 'var powerUrl = "/snmp/power", linkUrl = "/snmp/link";' in html
     assert ('title="Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) '
             'turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), '
             'the reason on hover"') in html
@@ -765,7 +769,8 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
     # round 5: the press, the confirm(), the hold and the toasts are power-button.js's (tests/js/power-button.test.mjs)
     js = (Path(page.__file__).parents[1] / "static" / "management" / "power-button.js").read_text()
     assert "innerHTML" not in js and "insertAdjacentHTML" not in js and "outerHTML" not in js
-    assert "confirm(" in js and "Retry-After" in js and "PowerButton.attach(window, powerUrl, tick)" in script
+    assert "confirm(" in js and "Retry-After" in js
+    assert "PowerButton.attach(window, {power: powerUrl, link: linkUrl}, tick)" in script
 
 
 @pytest.mark.django_db
@@ -899,8 +904,9 @@ def test_the_devices_are_read_once_per_request(monkeypatch, netdevs):
 
 @pytest.mark.django_db
 def test_an_older_poe_without_vlan_fields_shows_dashes(monkeypatch, netdevs):
-    class Old:  # a PortView from a poe before the VLAN fields
+    class Old:  # a PortView from a poe before the VLAN fields (admin_enabled is required: the Link badge needs it)
         port, label, link_up, speed_mbps, poe_state, poe_watts = 1, None, False, None, None, None
+        admin_enabled = True
         lldp_name = lldp_port = rx_bps = tx_bps = rx_errors = tx_errors = None
         macs = []
     ports = vlan_json(monkeypatch, [Old()])
@@ -982,7 +988,7 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = row_of(html, 1)
-    poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[9:12]
+    poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[8:11]
     assert "⚡" in poe and "button" not in poe and watts == "3.5"
     # round 5: no message beside the button (they are toasts at the top of the page); the ⏻ is a span that can turn
     assert power.startswith('<button type="button" class="mgmt-poe-button mgmt-poe-to-off"') and \
@@ -1465,3 +1471,66 @@ def test_a_memory_the_page_cannot_size_says_why_on_hover(monkeypatch):
     host = SimpleNamespace(machine=None, boards=[], board_type="no board", condition="operational", why="")
     m = page._machine(None, host, SimpleNamespace(at=timezone.now()))
     assert (m["memory"], m["memory_mb"], m["memory_title"]) == ("?", 0, "memory '?' is not a size")
+
+
+# --- the Link badge (Tim, 17 Oct 2026, round 5): Link + Speed as one 3-character badge, a click switches the link ---
+
+
+@dataclass
+class BadgePort:
+    admin_enabled: bool = True
+    link_up: bool = True
+    speed_mbps: int | None = 1000
+
+
+@pytest.mark.parametrize("port, rose, want", [
+    (BadgePort(link_up=False, speed_mbps=None), [], ("", "mgmt-badge-none")),        # empty / transparent: no link
+    (BadgePort(speed_mbps=1000), ["rx errors +3 since 09:00"], ("1G", "mgmt-badge-err")),  # red: error
+    (BadgePort(speed_mbps=100), [], ("100", "mgmt-badge-fast")),                       # green 100
+    (BadgePort(speed_mbps=1000), [], ("1G", "mgmt-badge-fast")),                       # green 1G
+    (BadgePort(speed_mbps=10), [], ("10", "mgmt-badge-slow")),                         # yellow 10
+    (BadgePort(admin_enabled=False, link_up=False, speed_mbps=None), [], ("off", "mgmt-badge-off")),  # disabled
+    (BadgePort(admin_enabled=False, link_up=False), ["rx errors +1"], ("off", "mgmt-badge-off")),  # disabled wins
+    (BadgePort(speed_mbps=10000), [], ("10G", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=2500), [], ("2G5", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=None), [], ("↑", "mgmt-badge-fast")),  # up, no speed read: as switch-events.js draws it
+])
+def test_each_of_tims_six_badges(port, rose, want):
+    text, cls, words, _ = page.link_badge(port, rose)
+    assert (text, cls) == want
+    assert len(text) <= 3 and words
+
+
+def test_the_red_rule_is_one_line_the_error_counters_rising():
+    """welland-r5-1 (Tim's answer pending): red = an error counter rose since the previous reading."""
+    assert page.link_in_error(["tx errors +1 since 09:00"]) is True
+    assert page.link_in_error([]) is False
+
+
+@pytest.mark.django_db
+def test_the_badge_is_a_button_on_an_access_port_and_a_mark_elsewhere(monkeypatch):
+    views = make_views()
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
+    c = Client(HTTP_HOST=HOSTS[0])
+    ports = {p["port"]: p for p in json.loads(c.get("/management/switches.json").content)["switches"][0]["ports"]}
+    assert ports[1]["link_action"] == "disable" and "a click disables the port at the switch" in ports[1]["badge_title"]
+    html = c.get("/management/switches/").content.decode()
+    assert 'data-action="disable"' in row_of(html, 1) and 'class="mgmt-link-badge mgmt-link-button' in row_of(html, 1)
+    others = [p for n, p in ports.items() if n != 1]
+    assert others and all(p["link_action"] == "" for p in others)
+    n = others[0]["port"]
+    assert "mgmt-link-button" not in row_of(html, n) and 'class="mgmt-link-badge mgmt-badge-' in row_of(html, n)
+
+
+@pytest.mark.django_db
+def test_a_port_disabled_at_the_switch_offers_enable(monkeypatch):
+    views = make_views()
+    views[0].ports[0].admin_enabled = False
+    views[0].ports[0].link_up = False
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    monkeypatch.setattr(page, "_inventory", lambda: {1: spec()})
+    monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
+    p = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"][0]
+    assert (p["badge"], p["badge_cls"], p["link_action"]) == ("off", "mgmt-badge-off", "enable")

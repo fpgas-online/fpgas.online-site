@@ -25,7 +25,7 @@
      down inside it and says the result in a toast at the top of the page (round 5). There is no login (#66): the
      guard is the server, which answers /snmp/power for an access port only (403 for a trunk, an uplink or a port
      outside the access range) and holds a port after each switch (10 s after off, 60 s after on). */
-  var powerUrl = "{{ power_url }}";
+  var powerUrl = "{{ power_url }}", linkUrl = "{{ link_url }}";
   var buttons = null;  /* power-button.js's glue, once the page has loaded */
   function powerButton(sw, p) {
     var b = document.createElement("button");
@@ -69,10 +69,20 @@
     var net = td("mgmt-mark c-net", "Net", p.net_title, p.net_ok ? 1 : 0), ns = cell("span", p.net);
     ns.className = p.net_cls; net.appendChild(ns);
     var nsr = cell("span", " " + p.net_title); nsr.className = "mgmt-sr"; net.appendChild(nsr); tr.appendChild(net);
-    var link = td("mgmt-mark c-link " + (p.link_up ? "mgmt-up" : "mgmt-down"), "Link", p.link_cell_title);
-    var lg = cell("span", p.link); lg.className = "mgmt-glyph"; link.appendChild(lg);
-    var lsr = cell("span", " " + p.link_title); lsr.className = "mgmt-sr"; link.appendChild(lsr); tr.appendChild(link);
-    var speed = td("c-speed", "Speed", "", p.speed_sort); speed.textContent = p.speed; tr.appendChild(speed);
+    /* the Link badge (round 5): the link and its speed in one 3-character badge; a button on an access port */
+    var link = td("mgmt-mark c-link", "Link", p.badge_title, p.badge_sort);
+    var badge = document.createElement(p.link_action ? "button" : "span");
+    badge.className = "mgmt-link-badge " + (p.link_action ? "mgmt-link-button " : "") + p.badge_cls;
+    badge.dataset.cls = p.badge_cls; badge.dataset.text = p.badge;
+    if (p.link_action) {
+      badge.type = "button"; badge.title = p.badge_title; badge.dataset.title = p.badge_title;
+      badge.setAttribute("aria-label", "port " + p.port + ": " + p.badge_title);
+      badge.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
+      badge.dataset.port = String(p.port); badge.dataset.action = p.link_action; badge.dataset.powers = p.powers;
+    }
+    var bg = cell("span", p.badge); bg.className = "mgmt-link-glyph"; bg.setAttribute("aria-hidden", "true");
+    badge.appendChild(bg); link.appendChild(badge);
+    var lsr = cell("span", " " + p.badge_words); lsr.className = "mgmt-sr"; link.appendChild(lsr); tr.appendChild(link);
     var poe = td("mgmt-mark c-poe " + p.poe_cls, "PoE", p.poe_title, p.poe_sort); mark(poe, p.poe, p.poe_title);
     tr.appendChild(poe);
     var w = td("mgmt-n c-watts", "W"); w.textContent = p.watts; tr.appendChild(w);
@@ -183,7 +193,7 @@
      state. The refresh above rebuilds the table, so the keeper draws a record again after each refresh until a reading
      at least as new as the record has caught up with it. */
   document.addEventListener("DOMContentLoaded", function () {
-    if (window.PowerButton) { buttons = PowerButton.attach(window, powerUrl, tick); }
+    if (window.PowerButton) { buttons = PowerButton.attach(window, {power: powerUrl, link: linkUrl}, tick); }
     if (!window.SwitchEvents || !window.WebSocket) { return; }
     pushed = SwitchEvents.createKeeper();
     SwitchEvents.listen({WebSocket: window.WebSocket, location: location,
@@ -230,7 +240,6 @@
       <th scope="col" class="c-lease" title="{{ head_titles.lease }}">Lease</th>
       <th scope="col" class="mgmt-checkhead c-net" title="{{ head_titles.net }}">Net</th>
       <th scope="col" class="mgmt-checkhead c-link" title="{{ head_titles.link }}">Link</th>
-      <th scope="col" class="c-speed" title="{{ head_titles.speed }}">Speed</th>
       <th scope="col" class="mgmt-checkhead c-poe" title="{{ head_titles.poe }}">PoE</th>
       <th scope="col" class="c-watts" title="{{ head_titles.watts }}">W</th>
       <th scope="col" class="c-power" title="{{ head_titles.power }}"><span aria-hidden="true">⏻</span><span class="mgmt-sr">Power</span></th>
@@ -255,8 +264,7 @@
         <td class="c-serial" data-label="Serial" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.serial }}{% endif %}">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
         <td class="c-lease" data-label="Lease" data-sort="{{ p.lease_sort }}">{% for m in p.machines %}<div title="{{ m.lease_at }}">{{ m.lease_ago }}</div>{% endfor %}</td>
         <td class="mgmt-mark c-net" data-label="Net" data-sort="{{ p.net_ok|yesno:'1,0' }}" title="{{ p.net_title }}"><span class="{{ p.net_cls }}">{{ p.net }}</span><span class="mgmt-sr"> {{ p.net_title }}</span></td>
-        <td class="mgmt-mark c-link {% if p.link_up %}mgmt-up{% else %}mgmt-down{% endif %}" data-label="Link" title="{{ p.link_cell_title }}"><span class="mgmt-glyph">{{ p.link }}</span><span class="mgmt-sr"> {{ p.link_title }}</span></td>
-        <td class="c-speed" data-label="Speed" data-sort="{{ p.speed_sort }}">{{ p.speed }}</td>
+        <td class="mgmt-mark c-link" data-label="Link" data-sort="{{ p.badge_sort }}" title="{{ p.badge_title }}">{% if p.link_action %}<button type="button" class="mgmt-link-badge mgmt-link-button {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}" data-title="{{ p.badge_title }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.link_action }}" data-powers="{{ p.powers }}" aria-label="port {{ p.port }}: {{ p.badge_title }}" title="{{ p.badge_title }}">{% else %}<span class="mgmt-link-badge {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}">{% endif %}<span class="mgmt-link-glyph" aria-hidden="true">{{ p.badge }}</span>{% if p.link_action %}</button>{% else %}</span>{% endif %}<span class="mgmt-sr"> {{ p.badge_words }}</span></td>
         <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
         <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
         <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}"><span class="mgmt-poe-glyph" aria-hidden="true">{{ p.power_icon }}</span></button>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>
@@ -271,7 +279,7 @@
         <td class="c-role" data-label="Role">{{ p.role }}</td>
       </tr>
     {% empty %}
-      <tr><td colspan="22">No ports were read from this switch.</td></tr>
+      <tr><td colspan="21">No ports were read from this switch.</td></tr>
     {% endfor %}
     </tbody>
   </table>
