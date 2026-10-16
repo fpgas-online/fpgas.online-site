@@ -175,7 +175,9 @@ EVENT_KIND_TITLES = {
 
 @dataclass
 class Event:
-    """An Events row: its time, kind (coloured), stage, the test it is about, its result as a mark, and its detail."""
+    """An Events row: its time, kind (coloured), stage, the test it is about, its result as a mark, and its detail:
+    laid out as a registration's document is (jsonview.render, Tim 16 Oct 2026: "The details in the events of this
+    boot should be properly formatted like in the registration section.", #154), or "" when the event sent none."""
     ts: object
     kind: str
     stage: str
@@ -191,7 +193,7 @@ def _event(event):
     mark = _result_mark(result, _t(detail.get("reason", ""))) if result and event.stage in (
         "fpga-test-finished", "fpga-verified") else None
     return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test, mark,
-                 jsonview.compact(event.detail))
+                 jsonview.render(event.detail) if event.detail not in (None, {}) else "")
 
 
 RUNNING = Mark("⟳", "mgmt-test-running", "running")
