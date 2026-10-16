@@ -220,6 +220,12 @@ def pi_facts(machine, notes):
             notes.append(f"{named(event)}: rpi-hwid is not installed on this Pi, so nothing read "
                          "its power class, fan, RTC battery or HAT EEPROM")
             return event, {}
+        if "reader_error" in detail:
+            # rpi-hwid ran and failed (fpgas-verify reports the boot as an error too, td #76): said with its reason,
+            # and an older event's facts are not used in its place (fail loud, #153)
+            notes.append(f"{named(event)}: rpi-hwid on the Pi could not read its facts: "
+                         f"{shown(detail['reader_error'], 200)}")
+            return event, {}
         try:
             facts = pick(detail, PI_FIELDS)
         except ValueError as exc:
