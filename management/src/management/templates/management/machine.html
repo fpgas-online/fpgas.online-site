@@ -5,6 +5,9 @@
 {% block body %}
 <h1>{{ label }}</h1>
 
+{# the labels beside the summary, wrapping under it when there is no room (Tim, 16 Oct 2026: "Put labels next to the top level summary.", #156) #}
+<div class="mgmt-side mgmt-top">
+<section>
 {# the same names, order and marks as the Pi's row on /fleet/ (site #132) #}
 <table class="mgmt-table mgmt-facts mgmt-fit">
   <tbody>
@@ -25,6 +28,32 @@
     <tr><th scope="row" title="{{ boot_title }}">Boot</th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
   </tbody>
 </table>
+</section>
+<section class="mgmt-label-box">
+<h2>Labels</h2>
+{# the labels rpi-hwid makes from what the Pi sent, as it prints them; each links its PDF (#141) #}
+{% if label_images %}<div class="mgmt-labels">{% for title, png, pdf in label_images %}<figure><a href="{{ pdf }}"><img src="{{ png }}" width="240" height="144" alt="the label {{ title }}"></a><figcaption>{{ title }}</figcaption></figure>{% endfor %}</div>{% endif %}
+{% if labels or notes or label_refusals %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable">
+  <thead><tr><th scope="col" class="mgmt-checkhead" title="✗: rpi-hwid cannot make this label yet">State</th><th scope="col" title="the label rpi-hwid makes">Label</th><th scope="col" title="the field or event rpi-hwid still needs for it">Still needs</th><th scope="col" title="what sends it">Sent by</th></tr></thead>
+  <tbody>
+  {% for event, note in notes %}
+    <tr><td class="mgmt-mark" title="{{ note }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ note }}</span></td><td title="every label of this host">every</td><td title="{{ note }}"><code>{{ event }}</code></td><td title="the Pi itself: rpi-hwid on the Pi, through fpgas-verify">the Pi</td></tr>
+  {% endfor %}
+  {% for label_name, field, owner, owner_title in labels %}
+    <tr><td class="mgmt-mark" title="rpi-hwid still needs {{ field }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> rpi-hwid still needs {{ field }}</span></td><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
+  {% endfor %}
+  {% for kind, why in label_refusals %}
+    <tr><td class="mgmt-mark" title="{{ why }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ why }}</span></td><td>{{ kind }}</td><td title="{{ why }}">{{ why|truncatechars:60 }}</td><td title="rpi-hwid refuses to print a label with this gap">rpi-hwid</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>rpi-hwid has everything it needs for this host's labels.</p>
+{% endif %}
+{% if label_input %}<p><a href="{{ label_input }}">rpi-hwid's label input (.json)</a></p>{% endif %}
+</section>
+</div>
 
 <h2 id="boards">Boards</h2>
 {% if boards %}
@@ -141,28 +170,6 @@
 {% if net %}<p>The gateway last saw it acknowledged a DHCP lease {{ net_last_ack }}.</p>{% endif %}
 {% endif %}
 
-<h2>Labels</h2>
-{# the labels rpi-hwid makes from what the Pi sent, as it prints them; each links its PDF (#141) #}
-{% if label_images %}<div class="mgmt-labels">{% for title, png, pdf in label_images %}<figure><a href="{{ pdf }}"><img src="{{ png }}" width="240" height="144" alt="the label {{ title }}"></a><figcaption>{{ title }}</figcaption></figure>{% endfor %}</div>{% endif %}
-{% if labels or notes or label_refusals %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable">
-  <thead><tr><th scope="col" class="mgmt-checkhead" title="✗: rpi-hwid cannot make this label yet">State</th><th scope="col" title="the label rpi-hwid makes">Label</th><th scope="col" title="the field or event rpi-hwid still needs for it">Still needs</th><th scope="col" title="what sends it">Sent by</th></tr></thead>
-  <tbody>
-  {% for event, note in notes %}
-    <tr><td class="mgmt-mark" title="{{ note }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ note }}</span></td><td title="every label of this host">every</td><td title="{{ note }}"><code>{{ event }}</code></td><td title="the Pi itself: rpi-hwid on the Pi, through fpgas-verify">the Pi</td></tr>
-  {% endfor %}
-  {% for label_name, field, owner, owner_title in labels %}
-    <tr><td class="mgmt-mark" title="rpi-hwid still needs {{ field }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> rpi-hwid still needs {{ field }}</span></td><td>{{ label_name }}</td><td><code>{{ field }}</code></td><td title="{{ owner_title }}">{% if owner %}{{ owner }}{% else %}<span class="mgmt-reason">{{ owner_title }}</span>{% endif %}</td></tr>
-  {% endfor %}
-  {% for kind, why in label_refusals %}
-    <tr><td class="mgmt-mark" title="{{ why }}"><span class="mgmt-test-fail">✗</span><span class="mgmt-sr"> {{ why }}</span></td><td>{{ kind }}</td><td title="{{ why }}">{{ why|truncatechars:60 }}</td><td title="rpi-hwid refuses to print a label with this gap">rpi-hwid</td></tr>
-  {% endfor %}
-  </tbody>
-</table></div>
-{% else %}
-<p>rpi-hwid has everything it needs for this host's labels.</p>
-{% endif %}
-{% if label_input %}<p><a href="{{ label_input }}">rpi-hwid's label input (.json)</a></p>{% endif %}
 
 <h2 title="{{ registration_title }}">Registrations</h2>
 {# a registration is what the Pi says it is; a boot is one power-on: not the same thing (Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot checks Boot value?", #141) #}
