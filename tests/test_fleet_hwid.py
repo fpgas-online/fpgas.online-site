@@ -141,6 +141,36 @@ def test_pi_without_rpi_hwid_says_so(machine):
 
 
 @pytest.mark.django_db
+def test_a_failed_rpi_hwid_read_is_said_with_its_reason_and_no_older_read_stands_in(machine):
+    # fpgas-verify's pi-identified when rpi-hwid fails on the Pi: reader_error=<why> (agreed with fo-tools, td #76)
+    event(machine, "pi-identified", PI_IDENTIFIED, boot_id="b1")
+    sent = event(machine, "pi-identified", {"schema": "pi-identity/1", "reader_error": "i2c-1: no such device"})
+    built = hwid.build(machine)
+    assert "power_class" not in built.document["summary"]
+    assert f"{hwid.named(sent)}: rpi-hwid on the Pi could not read its facts: 'i2c-1: no such device'" \
+        in built.notes
+
+
+@pytest.mark.django_db
+def test_a_failed_read_with_facts_as_well_still_uses_none_of_them(machine):
+    sent = event(machine, "pi-identified", {**PI_IDENTIFIED, "reader_error": "hat: read timed out"})
+    built = hwid.build(machine)
+    assert "power_class" not in built.document["summary"]
+    assert f"{hwid.named(sent)}: rpi-hwid on the Pi could not read its facts: 'hat: read timed out'" in built.notes
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("why", ["", "  ", None, {"a": 1}, 3])
+def test_a_reader_error_that_is_not_a_reason_is_a_malformed_event(machine, why):
+    # the broker is open on the site LAN: anything can be sent; this event is dropped as any malformed one
+    event(machine, "pi-identified", PI_IDENTIFIED, boot_id="b1")
+    sent = event(machine, "pi-identified", {"schema": "pi-identity/1", "reader_error": why})
+    built = hwid.build(machine)
+    assert f"{hwid.named(sent)}: reader_error: not a reason: {hwid.shown(why)}: ignored" in built.notes
+    assert built.document["summary"]["power_class"] == "gpio-poe-hat"  # the event before it, as for any malformed one
+
+
+@pytest.mark.django_db
 def test_unknown_schema_major_is_refused(machine):
     event(machine, "pi-identified", {**PI_IDENTIFIED, "schema": "pi-identity/2"})
     event(machine, "fpga-board-identified", {**ACORN, "schema": "fpga-identity/2"})
@@ -344,3 +374,53 @@ def test_schema_major():
     assert hwid.schema_major({"schema": "pi-identity/1"}, "fpga-identity") is None
     assert hwid.schema_major({}, "fpga-identity") is None
     assert hwid.schema_major("x", "fpga-identity") is None
+
+
+# fo-tools' real `rpi-hwid label-input --pi-only` read of the Pi 3B+ 000000004fe3e7e4 (16 Oct 2026, td #76) as
+# fpgas-verify sends it: a value read as none is "-", a value not read is left out.
+PI3_REGISTRATION = {
+    "schema": 1,
+    "machine": {"serial": "000000004fe3e7e4", "model": "Raspberry Pi 3 Model B Plus Rev 1.3",
+                "revision_code": "a020d3", "mem_total_kb": 948304, "macs": {"eth0": "b8:27:eb:e3:e7:e4"}},
+    "connection": {"site": "welland", "hostname": "pi-sw1-p10"},
+    "peripherals": {"usb": [], "pcie": [], "cameras": [], "hats": []},
+}
+PI3_IDENTIFIED = {
+    "schema": "pi-identity/1", "reader": "rpi-hwid",
+    "compatible": "raspberrypi,3-model-b-plus brcm,bcm2837", "power_class": "undetermined",
+    "macs": json.dumps([{"kind": "eth", "mac": "b8:27:eb:e3:e7:e4", "signal": "derived-mac"}],
+                       separators=(",", ":"), sort_keys=True),
+    "usb_net": "[]", "hat_uuid": "-", "fan": "-", "rtc_battery": "-", "max_current_ma": "-", "ext5v_v": "-",
+}
+
+
+def _pi3(extra):
+    register_document(PI3_REGISTRATION)
+    status("000000004fe3e7e4", {"online": True, "boot_id": "b2", "uptime_s": 60})
+    m = Machine.objects.get()
+    event(m, "pi-identified", {**PI3_IDENTIFIED, **extra})
+    return hwid.build(m).document
+
+
+@pytest.mark.django_db
+def test_a_real_pi_read_with_the_header_not_read_gets_no_pi_label_and_says_why():
+    # Tim, 16 Oct 2026: "Why are there no RPi labels on .../fleet/55effc3376226b41/" (#153): the header must be read
+    from fleet import labelart
+
+    made, refused = labelart.made(_pi3({}))
+    assert made == []
+    assert [(kind, str(why)) for kind, why in refused] == [
+        ("rpi", "pi-sw1-p10: the board label needs header, which the label input does not carry "
+                "(docs/LABEL-INPUT.md lists what each label needs)")]
+
+
+@pytest.mark.django_db
+def test_a_real_pi_read_with_no_hat_makes_the_pi_label():
+    # the header read from /proc/device-tree/hat with no HAT fitted is "[]", a read value: the label is made
+    from fleet import labelart
+
+    document = _pi3({"header": "[]"})
+    assert not any(hwid.missing(document).values())
+    made, refused = labelart.made(document)
+    assert refused == []
+    assert [(m.kind, m.title) for m in made] == [("rpi", "Pi 3 Model B+ 1 GB 000000004fe3e7e4")]

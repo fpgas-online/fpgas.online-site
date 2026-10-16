@@ -241,6 +241,22 @@ def test_what_keeps_rpi_hwid_from_a_label_is_the_event_it_lacks_with_the_sentenc
 
 
 @pytest.mark.django_db
+def test_a_failed_pi_read_is_its_event_in_the_cell_and_its_whole_reason_on_hover():
+    # #153 review: a cell holds a value (the event), the note with rpi-hwid's whole reason is its title
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    why = "rpi-hwid label-input --pi-only: " + "x" * 300 + ": the cause at the end"
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="pi-identified", ts=timezone.now(),
+                             detail={"schema": "pi-identity/1", "reader_error": why})
+    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
+    row = re.search(r'<td title="(pi-identified \d+ at [^"]*)"><code>pi-identified</code></td>', labels)
+    assert row and row[1].endswith("could not read its facts: &#x27;" + why + "&#x27;")
+    # never as a cell's text: every cell of every row, its visible text (the screen-reader span aside), is a value
+    for cell in re.findall(r"<td[^>]*>(.*?)</td>", labels.split("<tbody>", 1)[1], re.S):
+        shown = re.sub(r'<span class="mgmt-sr">.*?</span>', "", cell, flags=re.S)
+        assert "could not read" not in shown and len(re.sub(r"<[^>]+>", "", shown)) <= 40, cell
+
+
+@pytest.mark.django_db
 def test_the_new_fpgas_verify_report_reads_the_same_on_the_pis_own_page():
     from tests.test_management_fpgas import NEW_VERIFY_TT_FPGA
 

@@ -45,6 +45,8 @@ SCHEMA_MAJOR = 1
 # How far back to look: the newest events of each kind, and the newest boots
 # that identified boards. A Pi sends a few of each per boot.
 PI_EVENTS_TRIED = 20
+# How much of rpi-hwid's reason for a failed read is kept (it is shown whole, on hover; this only bounds a forged one).
+READER_ERROR_SHOWN = 2000
 FPGA_BOOTS_TRIED = 5
 FPGA_EVENTS_PER_BOOT = 50
 
@@ -219,6 +221,16 @@ def pi_facts(machine, notes):
         if detail.get("reader") == "none":
             notes.append(f"{named(event)}: rpi-hwid is not installed on this Pi, so nothing read "
                          "its power class, fan, RTC battery or HAT EEPROM")
+            return event, {}
+        if "reader_error" in detail:
+            # rpi-hwid ran and failed (fpgas-verify reports the boot as an error too, td #76): said with its whole
+            # reason (rpi-hwid puts the cause last), and an older event's facts are not used in its place (fail loud,
+            # #153). A reason that is not text is a malformed event, dropped as any other (the broker is open).
+            why = detail["reader_error"]
+            if not isinstance(why, str) or not why.strip():
+                notes.append(f"{named(event)}: reader_error: not a reason: {shown(why)}: ignored")
+                continue
+            notes.append(f"{named(event)}: rpi-hwid on the Pi could not read its facts: {shown(why, READER_ERROR_SHOWN)}")
             return event, {}
         try:
             facts = pick(detail, PI_FIELDS)
