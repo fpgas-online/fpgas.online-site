@@ -7,6 +7,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from django.test import Client
@@ -686,7 +687,7 @@ def test_every_access_port_can_power_registered_or_not(reader):
     html = c.get("/management/switches/").content.decode()
     assert html.split("</head>")[1].count("<button") == 3  # the head's script only builds them
     assert ('class="mgmt-poe-button mgmt-poe-to-off" data-switch="1" data-port="1" data-action="off" '
-            'data-powers="pi-sw1-p1" aria-label="turn PoE off on port 1" title="turn PoE off">⏻</button>') \
+            'data-powers="pi-sw1-p1" aria-label="turn PoE off on port 1" title="turn PoE off"><span class="mgmt-poe-glyph" aria-hidden="true">⏻</span></button>') \
         in row_of(html, 1)
     for port in (2, 3):
         assert (f'data-port="{port}" data-action="off"' in row_of(html, port)
@@ -724,7 +725,7 @@ def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
     want = f"turn PoE {action}"
     assert port["power_title"] == want
     row = row_of(c.get("/management/switches/").content.decode(), 1)
-    assert f'aria-label="{want} on port 1" title="{want}">⏻</button>' in row and "mgmt-poe-none" not in row
+    assert f'aria-label="{want} on port 1" title="{want}"><span class="mgmt-poe-glyph" aria-hidden="true">⏻</span></button>' in row and "mgmt-poe-none" not in row
 
 
 def test_every_poe_port_has_the_power_symbol_and_a_port_without_poe_says_why_it_has_none():
@@ -760,8 +761,11 @@ def test_the_script_builds_the_button_without_innerhtml(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     script = html.split("<script>")[1].split("</script>")[0]
     assert "innerHTML" not in script and "insertAdjacentHTML" not in script and "outerHTML" not in script
-    assert 'createElement("td")' in script and "confirm(" in script and "Retry-After" in script
-    assert "/snmp/power" in script and '"on": ' not in script
+    assert 'createElement("td")' in script and "/snmp/power" in script and '"on": ' not in script
+    # round 5: the press, the confirm(), the hold and the toasts are power-button.js's (tests/js/power-button.test.mjs)
+    js = (Path(page.__file__).parents[1] / "static" / "management" / "power-button.js").read_text()
+    assert "innerHTML" not in js and "insertAdjacentHTML" not in js and "outerHTML" not in js
+    assert "confirm(" in js and "Retry-After" in js and "PowerButton.attach(window, powerUrl, tick)" in script
 
 
 @pytest.mark.django_db
@@ -980,8 +984,11 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     row = row_of(html, 1)
     poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[9:12]
     assert "⚡" in poe and "button" not in poe and watts == "3.5"
+    # round 5: no message beside the button (they are toasts at the top of the page); the ⏻ is a span that can turn
     assert power.startswith('<button type="button" class="mgmt-poe-button mgmt-poe-to-off"') and \
-        'class="mgmt-poe-msg"' in power
+        'mgmt-poe-msg' not in power and '<span class="mgmt-poe-glyph" aria-hidden="true">⏻</span>' in power
+    # each toast is its own role=status / role=alert live region: the stack is not one too (it would be read twice)
+    assert '<div class="mgmt-toasts" id="mgmt-toasts"></div>' in html
     script = html.split("<script>")[1].split("</script>")[0]
     assert 'var power = td("c-power", "", p.power_title)' in script and "poe.appendChild(powerButton" not in script
 

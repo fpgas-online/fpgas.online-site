@@ -171,10 +171,16 @@ CHANNEL_LAYERS = {
 # trunk, an uplink or a port outside the access range is refused with a 403.
 # On a flat site, a port a board registered on.
 SNMP_SWITCH_PORT_POLICY = "pibfpgas.poe.board_port"
-# One power cycle per port per this many seconds; a second request inside it
-# gets a 429 with Retry-After.
-SNMP_SWITCH_TOGGLE_INTERVAL = 60
-# Where the time of each port's last power cycle is kept: the "poe" cache
+# How long a port is held after it was switched (Tim, 17 Oct 2026: "The time
+# delay between power off to power on should be ~10 seconds. The time delay
+# from power on -> power off should be ~60 seconds."): after an off it may be
+# switched on again 10 s later; after an on or a Reset (a cycle ends on) it
+# may be switched off or reset 60 s later. A request inside the hold gets a
+# 429 with Retry-After, which the dashboard's button counts down. No other
+# limit.
+SNMP_SWITCH_ON_AFTER_OFF = 10
+SNMP_SWITCH_OFF_AFTER_ON = 60
+# Where each port's hold is kept: the "poe" cache
 # below. It is in redis because gunicorn runs several worker processes and a
 # per-process store would give each its own limit. If redis does not answer,
 # the power cycle is refused (503), not allowed.
