@@ -1,7 +1,7 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}Switch ports &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script><script src="{% static 'management/switch-events.js' %}" defer></script>
+{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script><script src="{% static 'management/switch-events.js' %}" defer></script><script src="{% static 'management/power-button.js' %}" defer></script>
 <script>
 /* Refresh the tables and panels in place every {{ refresh_seconds }} s, and draw a port's link change the moment the
    gateway publishes it (switch-events.js, over ws/switches/). The page is complete without this. */
@@ -21,27 +21,20 @@
     parent.appendChild(document.createTextNode(text));
     var sr = cell("span", " " + words); sr.className = "mgmt-sr"; parent.appendChild(sr);
   }
-  /* The PoE button (#67). There is no login (#66): the guard is the server, which answers /snmp/power for an access port
-     only (403 for a trunk, an uplink or a port outside the access range) and at most once per interval per port. The
-     confirm() below is a courtesy so that nobody switches a board off by a stray click; it is not a check, and nothing
-     here decides which ports may be switched. */
+  /* The PoE button (#67): power-button.js presses it, turns its ⏻ while the switch confirms, counts the port's hold
+     down inside it and says the result in a toast at the top of the page (round 5). There is no login (#66): the
+     guard is the server, which answers /snmp/power for an access port only (403 for a trunk, an uplink or a port
+     outside the access range) and holds a port after each switch (10 s after off, 60 s after on). */
   var powerUrl = "{{ power_url }}";
-  var results = {};  /* "switch/port" -> {text, at}: what the last press said, kept across the table refresh */
-  var RESULT_SECONDS = 60;
-  function key(sw, port) { return sw + "/" + port; }
-  function resultFor(sw, port) {
-    var r = results[key(sw, port)];
-    if (r && Date.now() - r.at > RESULT_SECONDS * 1000) { delete results[key(sw, port)]; r = null; }
-    return r ? r.text : "";
-  }
-  var busy = {};
+  var buttons = null;  /* power-button.js's glue, once the page has loaded */
   function powerButton(sw, p) {
-    var b = cell("button", p.power_icon);
+    var b = document.createElement("button");
+    var g = cell("span", p.power_icon); g.className = "mgmt-poe-glyph"; g.setAttribute("aria-hidden", "true");
+    b.appendChild(g);
     b.type = "button"; b.className = "mgmt-poe-button mgmt-poe-to-" + p.poe_action;
     b.setAttribute("aria-label", p.power_title + " on port " + p.port); b.title = p.power_title;
     b.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
     b.dataset.port = String(p.port); b.dataset.action = p.poe_action; b.dataset.powers = p.powers;
-    b.disabled = !!busy[key(b.dataset.switch, p.port)];
     return b;
   }
   /* one row, the same cells as the served table (#130) */
@@ -88,8 +81,6 @@
     var power = td("c-power", "", p.power_title);
     if (p.poe_action) {
       power.appendChild(powerButton(sw, p));
-      var msg = cell("span", resultFor(sw === null || sw === undefined ? "" : sw, p.port)); msg.className = "mgmt-poe-msg";
-      power.appendChild(msg);
     } else {
       if (p.power_icon) {
         var none = cell("span", p.power_icon); none.className = "mgmt-poe-none"; none.setAttribute("aria-hidden", "true");
@@ -172,6 +163,7 @@
       body.replaceWith(fresh);
       if (window.MgmtTable) { MgmtTable.resort(table); }  /* keep the order the reader chose */
     });
+    if (buttons) { buttons.redraw(); }  /* a button pressed, turning or counting down stays so in the new table */
   }
   var pushed = null;  /* the SwitchEvents keeper, once the page has loaded */
   function tick() {
@@ -187,41 +179,11 @@
       })
       .catch(function () { say("This page cannot reach the site just now. The tables below are from earlier."); });
   }
-  function show(k, text) {
-    results[k] = {text: text, at: Date.now()};
-    document.querySelectorAll(".mgmt-poe-button").forEach(function (b) {
-      if (key(b.dataset.switch, b.dataset.port) === k) { b.parentNode.querySelector(".mgmt-poe-msg").textContent = text; }
-    });
-  }
-  function press(b) {
-    var sw = b.dataset.switch, port = b.dataset.port, action = b.dataset.action, k = key(sw, port);
-    var where = (sw === "" ? "" : "switch " + sw + " ") + "port " + port;
-    var powers = b.dataset.powers || "nothing seen";
-    if (!confirm("Turn PoE " + action + " on " + where + "? It powers " + powers + ".")) { return; }
-    busy[k] = true; b.disabled = true; show(k, "");
-    var body = {switch: sw === "" ? null : Number(sw), port: String(port), on: action === "on"};
-    fetch(powerUrl, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
-      .then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (d) {
-          if (r.ok && d.state) { return "PoE is now " + d.state; }
-          if (r.status === 429) {
-            var wait = r.headers.get("Retry-After");
-            return "wait " + (wait || "a few") + " s, this port was switched a moment ago";
-          }
-          return (d.error || "refused") + " (HTTP " + r.status + ")";
-        });
-      })
-      .catch(function (e) { return "failed: " + e; })
-      .then(function (text) { delete busy[k]; show(k, text); tick(); });
-  }
-  document.addEventListener("click", function (e) {
-    var b = e.target.closest ? e.target.closest(".mgmt-poe-button") : null;
-    if (b && !b.disabled) { press(b); }
-  });
   /* A pushed link change is drawn from the record itself: tick() would read the 15 s server cache and show the old
      state. The refresh above rebuilds the table, so the keeper draws a record again after each refresh until a reading
      at least as new as the record has caught up with it. */
   document.addEventListener("DOMContentLoaded", function () {
+    if (window.PowerButton) { buttons = PowerButton.attach(window, powerUrl, tick); }
     if (!window.SwitchEvents || !window.WebSocket) { return; }
     pushed = SwitchEvents.createKeeper();
     SwitchEvents.listen({WebSocket: window.WebSocket, location: location,
@@ -233,6 +195,8 @@
 </script>{% endblock %}
 {% block body %}
 <h1>Switch ports</h1>
+{# the PoE button's messages float here, at the top of the page, over the content (power-button.js) #}
+<div class="mgmt-toasts" id="mgmt-toasts" aria-live="polite"></div>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
@@ -295,7 +259,7 @@
         <td class="c-speed" data-label="Speed" data-sort="{{ p.speed_sort }}">{{ p.speed }}</td>
         <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
         <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
-        <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}">{{ p.power_icon }}</button><span class="mgmt-poe-msg"></span>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>
+        <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}"><span class="mgmt-poe-glyph" aria-hidden="true">{{ p.power_icon }}</span></button>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>
         <td class="mgmt-n c-vlan" data-label="VLAN" data-sort="{{ p.vlan_sort }}" title="{{ p.vlan_title }}">{{ p.vlan }}</td>
         <td class="c-gw" data-label="GW" title="{{ p.gw_title }}">{{ p.gw }}</td>
         <td class="c-lldp" data-label="LLDP"{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}</td>

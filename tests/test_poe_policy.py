@@ -184,7 +184,9 @@ def test_the_rate_limit_store_is_shared_by_the_workers_in_production():
     each its own limit. (The tests swap in local memory: tests/conftest.py.)"""
     alias = pib.settings.SNMP_SWITCH_RATE_LIMIT_CACHE
     assert pib.settings.CACHES[alias]["BACKEND"] == "django.core.cache.backends.redis.RedisCache"
-    assert pib.settings.SNMP_SWITCH_TOGGLE_INTERVAL == 60
+    # Tim, 17 Oct 2026: off -> on ~10 s, on -> off ~60 s; the single interval is gone (the package refuses it by name)
+    assert (pib.settings.SNMP_SWITCH_ON_AFTER_OFF, pib.settings.SNMP_SWITCH_OFF_AFTER_ON) == (10, 60)
+    assert not hasattr(pib.settings, "SNMP_SWITCH_TOGGLE_INTERVAL")
 
 
 def test_the_deploy_check_passes_with_a_package_that_enforces_the_policy():
