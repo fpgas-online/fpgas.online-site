@@ -52,12 +52,14 @@
     /* the hardware columns sort the ports with a machine before the empty ones */
     var first = p.machines[0];
     var model = td("c-model", "Model", "", p.hw_sort + (first ? " " + first.model : ""));
+    var memory = td("c-memory", "RAM", "", p.memory_sort);
     var board = td("c-board", "Board", "", p.hw_sort + (first ? " " + first.board : ""));
     var state = td("mgmt-mark c-state", "State", "", p.state_sort);
     var serial = td("c-serial", "Serial", "", p.hw_sort + (first ? " " + first.serial : ""));
     var lease = td("c-lease", "Lease", "", p.lease_sort);
     p.machines.forEach(function (m) {
       var d = cell("div", m.model); d.title = m.model_title; model.appendChild(d);
+      d = cell("div", m.memory); if (m.memory_title) { d.title = m.memory_title; } memory.appendChild(d);
       d = cell("div", m.board); d.title = m.board_title; board.appendChild(d);
       d = document.createElement("div"); d.className = "mgmt-state-" + m.condition; d.title = m.state_title;
       mark(d, m.mark, m.state_title); state.appendChild(d);
@@ -70,7 +72,7 @@
       var u = document.createElement("div"); u.className = "mgmt-state-unregistered"; u.title = p.unregistered_title;
       mark(u, p.unregistered, p.unregistered_title); state.appendChild(u);
     }
-    [model, board, state, serial, lease].forEach(function (c) { tr.appendChild(c); });
+    [model, memory, board, state, serial, lease].forEach(function (c) { tr.appendChild(c); });
     var net = td("mgmt-mark c-net", "Net", p.net_title, p.net_ok ? 1 : 0), ns = cell("span", p.net);
     ns.className = p.net_cls; net.appendChild(ns);
     var nsr = cell("span", " " + p.net_title); nsr.className = "mgmt-sr"; net.appendChild(nsr); tr.appendChild(net);
@@ -257,6 +259,7 @@
     <thead><tr>
       <th scope="col" class="c-port" title="{{ head_titles.port }}">Port</th>
       <th scope="col" class="c-model" title="{{ head_titles.model }}">Model</th>
+      <th scope="col" class="c-memory" title="{{ head_titles.ram }}">RAM</th>
       <th scope="col" class="c-board" title="{{ head_titles.board }}">Board</th>
       <th scope="col" class="mgmt-checkhead c-state" title="{{ head_titles.state }}">State</th>
       <th scope="col" class="c-serial" title="{{ head_titles.serial }}">Serial</th>
@@ -282,6 +285,7 @@
       <tr id="switch-{{ anchor }}-port-{{ p.port }}"{% if p.empty %} class="mgmt-empty-port"{% endif %}>
         <th scope="row" class="c-port"{% if p.port_title %} title="{{ p.port_title }}"{% endif %}>{{ p.port }}</th>
         <td class="c-model" data-label="Model" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.model }}{% endif %}">{% for m in p.machines %}<div title="{{ m.model_title }}">{{ m.model }}</div>{% endfor %}</td>
+        <td class="c-memory" data-label="RAM" data-sort="{{ p.memory_sort }}">{% for m in p.machines %}<div{% if m.memory_title %} title="{{ m.memory_title }}"{% endif %}>{{ m.memory }}</div>{% endfor %}</td>
         <td class="c-board" data-label="Board" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.board }}{% endif %}">{% for m in p.machines %}<div title="{{ m.board_title }}">{{ m.board }}</div>{% endfor %}</td>
         <td class="mgmt-mark c-state" data-label="State" data-sort="{{ p.state_sort }}">{% for m in p.machines %}<div class="mgmt-state-{{ m.condition }}" title="{{ m.state_title }}">{{ m.mark }}<span class="mgmt-sr"> {{ m.state_title }}</span></div>{% endfor %}{% if p.unregistered %}<div class="mgmt-state-unregistered" title="{{ p.unregistered_title }}">{{ p.unregistered }}<span class="mgmt-sr"> {{ p.unregistered_title }}</span></div>{% endif %}</td>
         <td class="c-serial" data-label="Serial" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.serial }}{% endif %}">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
@@ -303,7 +307,7 @@
         <td class="c-role" data-label="Role">{{ p.role }}</td>
       </tr>
     {% empty %}
-      <tr><td colspan="21">No ports were read from this switch.</td></tr>
+      <tr><td colspan="22">No ports were read from this switch.</td></tr>
     {% endfor %}
     </tbody>
   </table>
