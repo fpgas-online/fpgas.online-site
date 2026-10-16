@@ -83,12 +83,12 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
     # on a phone each cell says its column (the review of #135: a row of bare marks at 390 px)
     assert re.search(r'<td class="mgmt-mark" data-label="jtag" data-sort="\d"', boards)
     docs = "https://docs.fpgas.online/en/latest/boards/"
-    # each mark links its check's docs page (by the name the check sent: pin-id), else the check's own section of the
-    # checks page (#140: "Why doesn't the check link take you to the docs for the specific check")
-    assert re.search(rf'title="wiring passed"><span class="mgmt-test-pass"><a href="{docs}acorn/checks/pin-id.html">✓</a>',
-                     boards)
-    assert re.search(rf'title="ddr fail"><span class="mgmt-test-fail"><a href="{docs}acorn/checks/ddr-memory.html">✗</a>',
-                     boards)
+    # each mark links its check's own section of the checks page, one target a check, the header's "?" the same (#140:
+    # "Why doesn't the check link take you to the docs for the specific check")
+    checks = "https://docs\\.fpgas\\.online/en/latest/verify/checks\\.html"
+    assert re.search(rf'title="wiring passed"><span class="mgmt-test-pass"><a href="{checks}#wiring">✓</a>', boards)
+    assert re.search(rf'title="ddr fail"><span class="mgmt-test-fail"><a href="{checks}#ddr">✗</a>', boards)
+    assert "acorn/checks/" not in html  # no link to a board's checks index: each check links its section
     assert re.search(r'title="sdk passed"><span class="mgmt-test-pass"><a href="https://docs\.fpgas\.online/en/latest/verify/checks\.html#sdk">✓</a>',
                      boards)
     # a check the Acorn gets and did not report is ⊘; one that does not apply is –

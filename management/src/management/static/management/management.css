@@ -307,5 +307,8 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-ev-test .mgmt-ev { background: #ccfbf1; color: #134e4a; }
 .mgmt-ev-other .mgmt-ev { background: #e5e5e5; color: #333; }
 
-/* a check's docs link beside its header (#140): a small "?" that opens the check's own section */
-.mgmt-doc { font-size: 0.75em; margin-left: 0.15em; text-decoration: none; vertical-align: super; }
+/* a check's docs link beside its header (#140): a "?" in a circle, the usual help mark, apart from the sort arrows,
+   that opens the check's own section */
+.mgmt-doc { display: inline-block; margin: 0.2em 0.15em 0; width: 1.15em; height: 1.15em; line-height: 1.15em;
+            border: 1px solid currentColor; border-radius: 50%; font-size: 0.8em; font-weight: 700; text-align: center;
+            text-decoration: none; writing-mode: horizontal-tb; }

@@ -45,16 +45,15 @@ REGISTRATION_TITLE = ("a registration: what the Pi says it is (model, serial, me
                       "by every boot and kept once for each different document; many boots send the same one")
 BOOT_TITLE = ("a boot: one power-on of the Pi, named by the id its kernel gives it; the boot check runs once in each, "
               "and each boot sends the registration again")
-# Each board kind's page on the docs site, and its checks' pages (by the check's own test name where the docs have
-# a page of that name; else the board's checks page). A kind with no page links nothing.
+# Each board kind's page on the docs site. A kind with no page links nothing. A check links its own section of the
+# checks page (check_docs, #140), one target a check, from its header and its marks alike.
 BOARD_DOCS = {
-    "acorn": ("boards/acorn/", "boards/acorn/checks/", {"pin-id": "boards/acorn/checks/pin-id.html",
-                                                        "ddr": "boards/acorn/checks/ddr-memory.html"}),
-    "arty": ("boards/arty-a7/", "boards/arty-a7/checks/", {}),
-    "fomu": ("boards/fomu-evt/", "boards/fomu-evt/checks/", {}),
-    "netv2": ("boards/netv2/", "boards/netv2/checks/", {}),
-    "tt-fpga": ("boards/tt-fpga/", "boards/tt-fpga/checks/", {}),
-    "tt-asic": ("boards/tt-asic/", None, {}),
+    "acorn": "boards/acorn/",
+    "arty": "boards/arty-a7/",
+    "fomu": "boards/fomu-evt/",
+    "netv2": "boards/netv2/",
+    "tt-fpga": "boards/tt-fpga/",
+    "tt-asic": "boards/tt-asic/",
 }
 HISTORY = 20  # boot checks listed, newest first
 # rpi-hwid's note for an event the Pi has not sent ("no usable pi-identified event from this Pi"): the event's name is
@@ -107,7 +106,6 @@ class Board:
     result_sort: int
     cells: list  # [(Mark, its sort, docs url or "")] a cell per check column
     page: str  # its docs page, or ""
-    checks_page: str
 
 
 # the mark of a board's result in its Boards row and in the history: one character, its words on hover
@@ -130,18 +128,14 @@ def _boards(host):
     columns = [name for _, members in groups for name in members]
     boards = []
     for b in host.boards:
-        docs = BOARD_DOCS.get(_docs_key(b))
-        page, checks, per_test = (DOCS + docs[0], DOCS + docs[1] if docs[1] else "", docs[2]) if docs else ("", "", {})
-        raw = {check_groups.name(n): n for n, _ in b["reported_tests"]}  # the docs pages use the names as sent
+        page = DOCS + BOARD_DOCS[_docs_key(b)] if _docs_key(b) in BOARD_DOCS else ""
         cells = []
         for name in columns:
             mark, sort = _mark(b, name)
-            # the check's own section (#140); a board page of its own where the board's docs have one for it
-            docs_url = DOCS + per_test[raw.get(name, name)] if raw.get(name, name) in per_test else check_docs.url(name)
-            cells.append((name, mark, sort, docs_url))
+            cells.append((name, mark, sort, check_docs.url(name)))  # the check's own section (#140)
         result = _result_mark(b["result"], b["reason"])
         boards.append(Board(b["title"], b["type"], b["label_id"], b["label"], result, 2 if b["result"] == "pass" else 0,
-                            cells, page, checks))
+                            cells, page))
     return groups, boards
 
 
@@ -232,14 +226,15 @@ def _history(machine):
 
 
 def _history_cell(check, name):
-    """(name, [Mark], sort) of one boot's cell in the column of check `name`: a mark per board, as on /fleet/."""
+    """(name, [Mark], sort, its docs) of one boot's cell in the column of check `name`: a mark per board, as on /fleet/,
+    each linking the check's own section (#140)."""
     if check.running:
-        return name, [RUNNING_TEST], NOT_APPLICABLE_SORT
+        return name, [RUNNING_TEST], NOT_APPLICABLE_SORT, check_docs.url(name)
     if not check.reports:
         return name, [Mark("–", "mgmt-test-none", f"{name} not applicable: no board was checked in this boot")], \
-            NOT_APPLICABLE_SORT
+            NOT_APPLICABLE_SORT, check_docs.url(name)
     marks, sorts = zip(*(_mark(b, name) for b in check.reports))
-    return name, list(marks), min(sorts)
+    return name, list(marks), min(sorts), check_docs.url(name)
 
 
 def _label_images(made, png, pdf):

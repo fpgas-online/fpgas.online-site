@@ -19,6 +19,17 @@ def anchor(name):
     return re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
 
 
+def known():
+    """Every check name the site can show and the docs page has a section for: the grouped names, each board type's
+    planned checks, the common ones."""
+    from . import check_groups
+
+    names = {name for _, members in check_groups.GROUPS for name in members}
+    names |= {name for checks in check_groups.PLANNED.values() for name in checks[0]}
+    return names | set(check_groups.COMMON)
+
+
 def url(name):
-    """The documentation of check `name`."""
-    return f"{PAGE}#{anchor(name)}"
+    """The documentation of check `name`; "" for a name the site does not know, which no section covers (a link to
+    the top of the page is what #140 removed)."""
+    return f"{PAGE}#{anchor(name)}" if name in known() else ""
