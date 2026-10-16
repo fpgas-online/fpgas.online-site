@@ -279,6 +279,11 @@ td.mgmt-c-state-word span { font-weight: 700; }
 /* A host's own page (#93): its facts as a two-column table; its registration as highlighted JSON, long strings cut
    (the whole in their title); a test's result coloured as well as said. */
 .mgmt-facts th { text-align: left; font-weight: normal; color: #555; }
+/* tables that sit side by side while the window has room and wrap one under another when not (#155): each as wide
+   as its values, tops aligned; a block wider than the window keeps its own scroller */
+.mgmt-side { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; align-items: flex-start; }
+.mgmt-side > section { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.mgmt-side > section > h3 { margin-top: 0.5rem; }
 .mgmt-json { background: #f7f7f7; padding: 0.6rem; overflow-x: auto; font-size: 0.85em; line-height: 1.35; }
 .mgmt-json .j-key { color: #0b4f8a; }
 .mgmt-json .j-str { color: #1b6e1b; }

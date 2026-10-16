@@ -79,6 +79,10 @@
 {% if net_error %}
 <p class="mgmt-reason">The newest network-state record cannot be shown: {{ net_error }}</p>
 {% elif net and net.event %}
+{# the four network tables side by side while the window has room, one under the other when not (Tim, 16 Oct 2026: "On the board page, the network sections should sit next to each other if there is space.", #155) #}
+<div class="mgmt-side">
+<section>
+<h3>Interface and record</h3>
 <table class="mgmt-table mgmt-facts mgmt-fit mgmt-network">
   <tbody>
     <tr><th scope="row">State</th><td>{{ net.operational_state }} / {{ net.administrative_state }}</td></tr>
@@ -88,6 +92,8 @@
     <tr><th scope="row">Boot</th><td><code>{{ net.event.boot_id|default:"–" }}</code> ({% if net.current_boot %}this boot{% else %}an earlier boot: this boot has sent no record{% endif %})</td></tr>
   </tbody>
 </table>
+</section>
+<section>
 <h3>Addresses</h3>
 {% if net_addresses %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-addresses">
@@ -101,6 +107,8 @@
 {% else %}
 <p>The record lists no address.</p>
 {% endif %}
+</section>
+<section>
 <h3>Default routes</h3>
 {% if net.default_routes %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-routes">
@@ -114,6 +122,8 @@
 {% else %}
 <p>The record lists no default route.</p>
 {% endif %}
+</section>
+<section>
 <h3>DHCP lease</h3>
 <table class="mgmt-table mgmt-facts mgmt-fit mgmt-lease">
   <tbody>
@@ -124,6 +134,8 @@
     <tr><th scope="row">Expires</th><td>{{ net_expires }}</td></tr>
   </tbody>
 </table>
+</section>
+</div>
 {% else %}
 <p>This host has sent no network-state record.</p>
 {% if net %}<p>The gateway last saw it acknowledged a DHCP lease {{ net_last_ack }}.</p>{% endif %}

@@ -365,6 +365,19 @@ def test_a_malformed_record_is_said_in_the_section_and_the_page_stands():
 
 
 @pytest.mark.django_db
+def test_the_four_network_tables_are_blocks_of_one_side_by_side_row():
+    # Tim, 16 Oct 2026: "the network sections should sit next to each other if there is space" (#155)
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc())
+    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split("<h2>Labels</h2>", 1)[0]
+    row = re.search(r'<div class="mgmt-side">(.*)</div>', section, re.S)
+    assert row
+    blocks = re.findall(r"<section>\s*<h3>([^<]+)</h3>", row[1])
+    assert blocks == ["Interface and record", "Addresses", "Default routes", "DHCP lease"]
+    assert row[1].count("<section>") == row[1].count("</section>") == 4
+
+
+@pytest.mark.django_db
 def test_the_events_table_lists_the_records_of_this_boot():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
