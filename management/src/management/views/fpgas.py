@@ -414,7 +414,10 @@ def _page(request):
         "summary": table, "total": total, "everything": everything, "rows": shown,
         "tables": [(title, lines) for title, lines in (("", present), ("Missing", missing)) if lines],
         "groups": [(group, len(names), ", ".join(names)) for group, names in groups],
-        "columns": [(name, check_titles[name], check_docs.url(name)) for name in columns],
+        # a check the docs have no section for says so in its header's title (it sits under "not grouped" too)
+        "columns": [(name, check_titles[name] + ("" if check_docs.url(name) else
+                                                 " No section on the docs' checks page for it yet."),
+                     check_docs.url(name)) for name in columns],
         "boot_check_docs": check_docs.BOOT_CHECK, "check_ran_docs": check_docs.CHECK_RAN,
         "conditions": [(c, fpga.CONDITION_TITLES[c]) for c in CONDITIONS],
         "reload_on": "?" + stay.urlencode(), "reload_off": "?" + off.urlencode(),

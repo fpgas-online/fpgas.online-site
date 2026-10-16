@@ -14,7 +14,6 @@ from django.test import Client
 
 from management import check_docs, check_groups
 
-
 @functools.cache
 def served_ids():
     # Read the Docs refuses Python's default user agent (403): name this test
@@ -23,14 +22,12 @@ def served_ids():
         assert response.status == 200
         return set(re.findall(r'id="([^"]+)"', response.read().decode()))
 
-
 def shown_names():
     """Every check name the site can put in a column: the grouped names, each board type's planned checks, the
     common ones."""
     names = {name for _, members in check_groups.GROUPS for name in members}
     names |= {name for checks in check_groups.PLANNED.values() for name in checks[0]}
     return names | set(check_groups.COMMON)
-
 
 def test_every_check_name_the_site_shows_has_its_section_on_the_served_page():
     ids = served_ids()
@@ -39,13 +36,10 @@ def test_every_check_name_the_site_shows_has_its_section_on_the_served_page():
     for url in (check_docs.BOOT_CHECK, check_docs.CHECK_RAN):
         assert url.split("#")[1] in ids
 
-
 def test_an_anchor_is_the_heading_as_the_docs_make_it():
     assert check_docs.anchor("p2-uart") == "p2-uart"
     assert check_docs.anchor("Boot check") == "boot-check"
     assert check_docs.url("jtag") == "https://docs.fpgas.online/en/latest/verify/checks.html#jtag"
-
-
 
 @pytest.mark.django_db
 def test_every_docs_link_the_pages_emit_lands_on_a_section_of_the_served_page():
@@ -65,7 +59,6 @@ def test_every_docs_link_the_pages_emit_lands_on_a_section_of_the_served_page():
     ids = served_ids()
     bad = sorted(link for link in links if "#" not in link or link.split("#", 1)[1] not in ids)
     assert not bad, f"links that land on no section: {bad}"
-
 
 def test_a_name_the_site_does_not_know_links_nothing():
     assert check_docs.url("not-a-check") == ""
