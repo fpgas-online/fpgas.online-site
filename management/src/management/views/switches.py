@@ -310,10 +310,11 @@ def _fleet_hosts():
 
 
 GATEWAY = "gateway"
-DEVICE = "device"
-# Names the public page may show (the coordinator, 2026-10-09): a fleet Pi's hostname, and a switch's own sysName
-# (welland's switches are sw-<make>-<model>-<n>). Every other host name is masked by its role word: the page never
-# names the gateway, the upstream host or any other machine.
+# What LLDP reports of a neighbour is shown as reported, for every neighbour, the gateway and the house uplink's device
+# included (Tim, 16 Oct 2026, site #148: "Why is the device's LLDP information hidden for port 11 on switch 2?", then
+# "Why are you hiding the gateway lldp information too? Stop hiding the lldp information."). The switch's own port
+# labels (label()) are its configuration, not LLDP, and keep their rule.
+# The VLAN names the page shows (vlan_cell): a board's or a switch's name; every other VLAN name is its number.
 SHOWN_NAME = re.compile(r"^(pi-sw\d+-p\d+|sw-[\w-]+)$", re.IGNORECASE)
 
 
@@ -331,22 +332,10 @@ def _gateway_names():
     return names
 
 
-def _host(name):
-    """A host name as the page may show it: kept when SHOWN_NAME allows it (its domain dropped), "gateway" for the
-    gateway's own names, else None."""
-    short = name.split(".")[0]
-    if name.lower() in _gateway_names() or short.lower() in _gateway_names():
-        return GATEWAY
-    return short if SHOWN_NAME.match(short) else None
-
-
 def neighbour(name):
-    """An LLDP neighbour's system name for the public page: the host name it announces (its domain dropped) where the
-    page may show it (a fleet Pi or a switch), else withheld and said by its role: "gateway", or "device" for any other
-    machine."""
-    if not name:
-        return ""
-    return _host(name) or DEVICE
+    """An LLDP neighbour's system name as the cell shows it: the host name it announces, its domain dropped (the whole
+    name is in the cell's title), whoever it is (#148)."""
+    return name.split(".")[0] if name else ""
 
 
 HOUSE_UPLINK = "house uplink"
@@ -382,11 +371,8 @@ def label(text, house=()):
 
 
 def switch_name(name):
-    """A switch's own sysName under the same rule as a neighbour's: shown when it is a switch's name (its domain
-    dropped), "gateway" for the gateway's, else "switch"."""
-    if not name:
-        return ""
-    return _host(name) or "switch"
+    """A switch's own sysName as it reports it, its domain dropped, as a neighbour's (#148)."""
+    return neighbour(name)
 
 
 INFRASTRUCTURE = "infrastructure"
@@ -438,9 +424,11 @@ def port_role(spec, port):
     return None if port <= spec.access_ports else INFRASTRUCTURE
 
 
-# The PoE button's action by the port's state: off while it delivers or searches, on while it is disabled. A port in
-# any other state (fault, not known) gets the greyed icon with the reason.
-POWER_ACTION = {"delivering": "off", "searching": "off", "disabled": "on"}
+# The PoE button's action by the port's state: on while it is disabled, off in every other state, a fault or a state
+# the switch did not give included (Tim, 16 Oct 2026: "All access ports should *always* be switchable": a port in a
+# fault is the one to switch off and on again).
+POWER_ACTION = {"disabled": "on"}
+POWER_DEFAULT = "off"
 # The power control is the power symbol on every PoE port (Tim, 16 Oct 2026, site #139: "The power button should be a
 # power button icon, not text", "Why does the PoE power button only appear on some switch ports?"): a button where a
 # press would be accepted, else the same symbol greyed with the reason on hover and for a screen reader.
@@ -451,9 +439,9 @@ POWER_URL = "/snmp/power"
 
 
 def _can_power(request, view, spec):
-    """{port numbers of `view` that get a PoE button}: the board ports, as the site's PoE policy (the one /snmp/power
-    enforces, pibfpgas.poe.board_port) says. ONE pass over the registry per switch, not one per port. A port the
-    inventory names as an uplink, trunk or other infrastructure is not asked at all."""
+    """{port numbers of `view` that get a PoE button}: every access port, as the site's PoE policy (the one /snmp/power
+    enforces, pibfpgas.poe.board_port) says; on a flat site, the registered ones, from ONE pass over the registry. A
+    port the inventory names as an uplink, trunk or other infrastructure is not asked at all."""
     from pibfpgas.poe import board_ports
 
     if spec is NO_INVENTORY:
@@ -462,27 +450,25 @@ def _can_power(request, view, spec):
     return board_ports(request, view.index, ports) if ports else set()
 
 
-def lldp_port(port, house=()):
+def lldp_port(port):
     """The port the neighbour reports: its port id, or, where that is its MAC (lldpd's default on the Pis, which
     the MACs column already shows), its port description, the interface name (fpgas-online/fpgas.online-infra#268
     makes the Pis announce the name as the id itself)."""
     ident = port.lldp_port or ""
     if not MAC_ID.match(ident):
-        return label(ident, house)
+        return ident
     # a poe older than fpgas-online/fpgas.online-poe#19 has no lldp_port_desc: the cell is empty, as before #89
-    return label(getattr(port, "lldp_port_desc", None) or "", house)
+    return getattr(port, "lldp_port_desc", None) or ""
 
 
 def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_site=False):
     """(icon, words) of a port's power control: words are what a press does where there is a button (`action`), else
-    why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: there is
-    no login, so a port is switched only where a board has registered on it), not a choice of this page."""
+    why there is none. The reasons are the policy the server enforces on /snmp/power (pibfpgas.poe.board_port: every
+    access port of a site with a switches file; on a flat site, a port a board registered on), not this page's."""
     if not has_poe:
         return "", "no PoE on this port"
     if can_power and action:
         return POWER_ICON, f"turn PoE {action}"
-    if can_power:
-        return POWER_ICON, f"not switched while the PoE state is not on or off ({poe_title})"
     if no_inventory:
         return POWER_ICON, "not switched: the switch inventory could not be read, so no port is known to be a board's"
     if role:
@@ -505,7 +491,6 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     macs = list(port.macs or [])
     role = port_role(spec, port.port) if spec is not NO_INVENTORY else None
     neighbour_name = neighbour(name)
-    shown_name = bool(name) and neighbour_name not in (GATEWAY, DEVICE)
     poe, poe_cls, poe_title, poe_sort = poe_cell(port.poe_state, has_poe)
     vlan, vlan_title = vlan_cell(port, vlan_names)
     # the gateway's interface for the port's VLAN belongs to a board port; an infrastructure port carries many
@@ -525,7 +510,7 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # is on the port number's title for a board port; an infrastructure port's can name a private device, so it is
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
-    action = POWER_ACTION.get(port.poe_state or "", "") if can_power and has_poe else ""
+    action = POWER_ACTION.get(port.poe_state or "", POWER_DEFAULT) if can_power and has_poe else ""
     power_icon, power_title = power_cell(has_poe, can_power, action, role, spec is NO_INVENTORY, poe_title,
                                          serves_ttsite(request))
     row = {
@@ -576,11 +561,13 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         # what the button's confirm() names as powered: the newest machine on the port, else the LLDP neighbour
         "powers": machines[0]["label"] if machines else neighbour_name,
         "lldp_name": neighbour_name,
-        "lldp_title": ("" if not name else "the name it announces" if shown_name else
-                       "its name is not shown: it is the gateway" if neighbour_name == GATEWAY else
-                       "its name is not shown: not a fleet Pi or a switch"),
+        # what LLDP says of the neighbour, on hover: whose name it is and its chassis id (#148); its port has a column
+        "lldp_title": "; ".join(t for t in (
+            (f"the name it announces: {name}" if name != neighbour_name else "the name it announces") if name else "",
+            # a neighbour that announces a chassis and no name still has its chassis said (nothing hidden, #148)
+            f"chassis {port.lldp_chassis}" if getattr(port, "lldp_chassis", None) else "") if t),
         "lldp_url": _fleet_url(request, serial) if serial else "",
-        "lldp_port": lldp_port(port, house),
+        "lldp_port": lldp_port(port),
         "rx": rate(port.rx_bps),
         "tx": rate(port.tx_bps),
         "rx_errors": _count(port.rx_errors),
@@ -626,7 +613,7 @@ def gateway_vlan_netdevs():
 
 def _vlan_names(views):
     """{VLAN id: name} for the names the page may show (SHOWN_NAME: a board's or a switch's name); every other
-    VLAN name is left out, as every other host name is masked."""
+    VLAN name is left out (VLAN names are the switch's configuration, not LLDP: #148 shows every LLDP name)."""
     names = {}
     for view in views:
         for vlan in getattr(view, "vlans", None) or []:
@@ -836,8 +823,8 @@ def head_titles():
         "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "
                "this port",
         "watts": "the watts the port delivers",
-        "power": "Power: a filled green ⏻ (the port is powered) turns its PoE off, a hollow red ⏻ (the port is off) "
-                 "turns it on; greyed where the site does not switch the port (only a board's own port is switched), "
+        "power": "Power: a filled green ⏻ (PoE on, or in a fault) turns its PoE off, a hollow red ⏻ (PoE off) "
+                 "turns it on; greyed where the port is not an access port (an uplink, a trunk, infrastructure), "
                  "the reason on hover",
         "vlan": "the port's VLAN (its PVID); its other untagged and its tagged VLANs on hover",
         "gw": "the gateway's interface for the port's VLAN: ↑ up, ↓ down",
