@@ -42,10 +42,6 @@ def test_a_document_is_laid_out_highlighted_and_escaped():
     assert "\n  " in html  # indented
 
 
-def test_a_compact_document_is_one_line():
-    assert jsonview.compact({"b": 1, "a": [1, 2]}) == '{"a": [1, 2], "b": 1}'
-
-
 # --- the page ------------------------------------------------------------------------------------------------------
 
 

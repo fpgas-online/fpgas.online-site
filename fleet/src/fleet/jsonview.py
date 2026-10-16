@@ -45,7 +45,3 @@ def render(value):
     out.append(escape(text[end:]))
     return mark_safe("".join(out))
 
-
-def compact(value):
-    """`value` as one line of JSON, for a table cell (keys sorted)."""
-    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(", ", ": "), default=str)
