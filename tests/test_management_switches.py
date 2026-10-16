@@ -387,7 +387,7 @@ def test_link_speeds_are_short():
         ["10M", "100M", "1G", "2.5G", "10G", "20G"]
 
 
-COLUMNS = ["Port", "Model", "Board", "State", "Serial", "Lease", "Net", "Link", "Speed", "PoE", "W", "⏻", "VLAN", "GW",
+COLUMNS = ["Port", "Model", "RAM", "Board", "State", "Serial", "Lease", "Net", "Link", "Speed", "PoE", "W", "⏻", "VLAN", "GW",
            "LLDP", "LLDP port", "In", "Out", "Rx err", "Tx err", "Role"]
 
 
@@ -978,7 +978,7 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     row = row_of(html, 1)
-    poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[8:11]
+    poe, watts, power = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)[9:12]
     assert "⚡" in poe and "button" not in poe and watts == "3.5"
     assert power.startswith('<button type="button" class="mgmt-poe-button mgmt-poe-to-off"') and \
         'class="mgmt-poe-msg"' in power
@@ -1415,3 +1415,46 @@ def test_a_chassis_with_no_name_is_still_said_and_the_panel_box_says_what_the_ro
     from management import panel
     assert ("LLDP: tweed; the name it announces: tweed.welland.example; chassis 00:11:22:33:44:55"
             in panel.title(ports[1]))
+
+
+
+@pytest.mark.django_db
+def test_each_machine_shows_its_ram_and_the_column_sorts_by_size(monkeypatch):
+    """Tim, 16 Oct 2026 (#151): "Why doesn't the switch page also report the RPi memory?" The RAM in /fleet/'s form, a
+    line a machine as Model has, sorted by size (MB), a port with no machine after every machine."""
+    views = make_views()
+    monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
+    machines = {(1, 1): [{"model": "Pi 5", "memory": "8 GB", "memory_mb": 8192, "memory_title": ""}],
+                (1, 2): [{"model": "Pi 3B+", "memory": "1 GB", "memory_mb": 1024, "memory_title": ""}]}
+    base = {"model_title": "", "board": "Acorn", "board_title": "", "condition": "operational", "mark": "●",
+            "state_title": "operational", "severity": 3, "serial": "s", "url": "", "label": "l", "lease_ago": "1 min",
+            "lease_at": "2026-10-16 10:00:00", "lease_sort": 1}
+    monkeypatch.setattr(page, "on_ports", lambda request: {k: [{**base, **m} for m in v] for k, v in machines.items()})
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    assert '<td class="c-memory" data-label="RAM" data-sort="8192"><div>8 GB</div></td>' in row_of(html, 1)
+    assert '<td class="c-memory" data-label="RAM" data-sort="1024"><div>1 GB</div></td>' in row_of(html, 2)
+    assert '<td class="c-memory" data-label="RAM" data-sort="1000000000"></td>' in row_of(html, 3)
+    assert "the Pi&#x27;s memory, as its label says" in html  # the header's title
+    script = html.split("<script>")[1].split("</script>")[0]
+    assert 'td("c-memory", "RAM", "", p.memory_sort)' in script and "[model, memory, board," in script
+
+
+def test_a_memory_the_page_cannot_size_says_why_on_hover(monkeypatch):
+    from types import SimpleNamespace
+
+    from django.utils import timezone
+
+    from management import fpga
+
+    class Fields:
+        serial, short, note, label, why, memory = "s", "Pi 5", "", "Pi 5 ? s", "", "?"
+
+        @property
+        def memory_mb(self):
+            raise ValueError("memory '?' is not a size")
+
+    monkeypatch.setattr(fpga, "pi_fields", lambda machine: Fields())
+    monkeypatch.setattr(fpga, "pi_label", lambda machine: "Pi 5 ? s")
+    host = SimpleNamespace(machine=None, boards=[], board_type="no board", condition="operational", why="")
+    m = page._machine(None, host, SimpleNamespace(at=timezone.now()))
+    assert (m["memory"], m["memory_mb"], m["memory_title"]) == ("?", 0, "memory '?' is not a size")

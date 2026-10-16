@@ -173,6 +173,12 @@ def _machine(request, host, observed):
 
     fields = fpga.pi_fields(host.machine)
     word = states.WORDS[host.condition]
+    # the memory in /fleet/'s form ("2 GB"), sorted by size (Tim, 16 Oct 2026, #151: "Why doesn't the switch page also
+    # report the RPi memory?"); one /fleet/ cannot size says why on hover, loud, and sorts as 0
+    try:
+        memory_mb, memory_title = fields.memory_mb, ""
+    except ValueError as exc:
+        memory_mb, memory_title = 0, str(exc)
     return {
         "serial": fields.serial,
         "url": _fleet_url(request, fields.serial),
@@ -180,6 +186,9 @@ def _machine(request, host, observed):
         # the model in the /fleet/ short form; a host with no label says what keeps it from one (fail loud)
         "model": fields.short or fields.note,
         "model_title": fields.label if not fields.why else fields.why,
+        "memory": fields.memory or "–",
+        "memory_mb": memory_mb,
+        "memory_title": memory_title,
         # the board's type alone, as /fleet/'s Board column ("Acorn"; "Acorn + TT FPGA" for two); its variant on hover
         "board": " + ".join(b["title"] for b in host.boards) or host.board_type,
         "board_title": " + ".join(b["type"] for b in host.boards) or host.board_type,
@@ -519,6 +528,7 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "machines": machines,
         # the hardware columns sort the ports with a machine before the empty ones (data-sort "0 ..." before "1")
         "hw_sort": "0" if machines else "1",
+        "memory_sort": machines[0]["memory_mb"] if machines else 10 ** 9,
         "role": role or "",
         "unregistered": unregistered,
         "unregistered_title": ("not registered: " + " and ".join(w for w, on in (("a link up", port.link_up),
@@ -807,6 +817,7 @@ def head_titles():
         "port": "the switch port; the switch's own label for a board port on hover (its configuration text)",
         "model": "the Pi's model, as its label says, of each machine the gateway last leased an address on this "
                  "port, newest first; its label on hover",
+        "ram": "the Pi's memory, as its label says (the Raspberry Pis page's RAM); sorts by size",
         "board": "the FPGA board's type on that machine; its variant on hover",
         "state": "the State of each machine, as the Raspberry Pis page has it: "
                  + ", ".join(f"{states.MARKS[c]} {w}" for c, w in states.WORDS.items()) + f". {HEAD_TITLES['state']}. "
