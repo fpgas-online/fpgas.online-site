@@ -9,6 +9,7 @@ from django.test import Client
 from django.utils import timezone
 from fleet.models import BootEvent, GatewayRecord, Machine
 
+from fleet import jsonview
 from management import network
 from tests.test_management_fpgas import REAL, pi
 
@@ -381,11 +382,45 @@ def test_the_events_table_lists_the_records_of_this_boot():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
     events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
-    # the detail is collapsed (#132: no page of JSON to read), the whole of it inside
+    # the detail is collapsed (#132: no page of JSON to read), the whole of it inside, laid out as a registration's
+    # document is (#154: indented, keys sorted, highlighted, in the same <pre>)
     row = re.search(r'<tr class="mgmt-ev-network"><td>[^<]*</td><td title="[^"]*"><span class="mgmt-ev">network</span>'
-                    r"</td><td>network-state</td><td>–</td><td[^>]*>.*?</td><td><details><summary>detail</summary>"
-                    r"<code>(.*?)</code></details></td></tr>", events)
-    assert row and "&quot;operational_state&quot;: &quot;routable&quot;" in row[1]
+                    r"</td><td>network-state</td><td>–</td><td[^>]*>.*?</td><td><details><summary>JSON</summary>"
+                    r'<pre class="mgmt-json">(.*?)</pre></details></td></tr>', events, re.S)
+    assert row
+    assert ('\n  <span class="j-key">&quot;operational_state&quot;</span>: '
+            '<span class="j-str">&quot;routable&quot;</span>') in row[1]
+
+
+@pytest.mark.django_db
+def test_an_event_detail_is_laid_out_as_a_registration_document_is():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    event = net_event(m, doc())
+    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    ev = re.search(r'<td><details><summary>JSON</summary><pre class="mgmt-json">(.*?)</pre></details></td></tr>',
+                   events, re.S)
+    # exactly what a registration's document gets (jsonview.render): indented, keys sorted, highlighted
+    assert ev and ev[1] == jsonview.render(event.detail)
+    assert ev[1].startswith('{\n  <span class="j-key">')
+
+
+@pytest.mark.django_db
+def test_an_event_detail_from_the_open_broker_is_escaped_in_the_events_table():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up", ts=NOW,
+                             detail={"<img src=x onerror=alert(1)>": "</pre><script>alert(1)</script>"})
+    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    assert "<script>" not in events and "<img src=x" not in events and "</pre><script>" not in events
+    assert "&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in events
+
+
+@pytest.mark.django_db
+def test_an_event_with_no_detail_shows_a_dash():
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="network-state", detail={}, ts=NOW)
+    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    row = re.search(r'<tr class="mgmt-ev-network">(.*?)</tr>', events, re.S)
+    assert row and row[1].endswith("<td>–</td>") and "<details>" not in row[1]
 
 
 @pytest.mark.django_db
