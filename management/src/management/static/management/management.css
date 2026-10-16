@@ -292,7 +292,6 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-json [title] { text-decoration: underline dotted; cursor: help; }
 .mgmt-test { white-space: nowrap; }
 .mgmt-this-boot td { font-weight: 600; }
-.mgmt-events td code { font-size: 0.85em; white-space: normal; overflow-wrap: anywhere; }
 .mgmt-notes { font-size: 0.9em; color: #444; }
 .badge.online { background: #c9f7c9; }
 .badge.offline { background: #f7c9c9; }
