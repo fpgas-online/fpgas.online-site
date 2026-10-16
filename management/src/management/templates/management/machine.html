@@ -16,8 +16,8 @@
     <tr><th scope="row" title="{{ head_titles.offered }}">Offered</th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
     <tr><th scope="row" title="{{ head_titles.up }}">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>
     <tr><th scope="row" title="{{ head_titles.seen }}">Seen</th><td>{{ seen }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.boot_check }}">Boot check</th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
-    <tr><th scope="row" title="{{ head_titles.check_ran }}">Check ran</th><td>{{ checked|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.boot_check }}">Boot check<a class="mgmt-doc" href="{{ boot_check_docs }}" title="Boot check: what it checks, in the docs" aria-label="Boot check in the docs">?</a></th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.check_ran }}">Check ran<a class="mgmt-doc" href="{{ check_ran_docs }}" title="Check ran: what it checks, in the docs" aria-label="Check ran in the docs">?</a></th><td>{{ checked|default:"–" }}</td></tr>
     <tr><th scope="row" title="the host name it booted with">Host name</th><td>{{ machine.hostname|default:"–" }}</td></tr>
     {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered); its form changes with fpgas.online-infra#297 #}
     <tr><th scope="row" title="whether its last status said it is online">Online</th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
@@ -32,7 +32,7 @@
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-boards">
   <thead>
   <tr class="mgmt-groups"><td colspan="3"></td>{% for group, n in groups %}<th scope="colgroup" colspan="{{ n }}" class="mgmt-group" title="{{ group }}: checks of this kind, as on /fleet/">{{ group }}</th>{% endfor %}<td></td></tr>
-  <tr><th scope="col" title="{{ head_titles.board }}">Board</th><th scope="col" title="{{ head_titles.id }}">ID</th><th scope="col" class="mgmt-checkhead" title="this board's result in the boot check of this boot">Result</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}</th>{% endfor %}<th scope="col" title="the board's page and its checks' page in the docs">Docs</th></tr>
+  <tr><th scope="col" title="{{ head_titles.board }}">Board</th><th scope="col" title="{{ head_titles.id }}">ID</th><th scope="col" class="mgmt-checkhead" title="this board's result in the boot check of this boot">Result</th>{% for name in columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}{% for n, u in column_docs.items %}{% if n == name and u %}<a class="mgmt-doc" href="{{ u }}" title="{{ name }}: what it checks, in the docs" aria-label="{{ name }} in the docs">?</a>{% endif %}{% endfor %}</th>{% endfor %}<th scope="col" title="the board's page in the docs (each check links its own section: the ? beside its header, and its mark)">Docs</th></tr>
   </thead>
   <tbody>
   {% for b in boards %}
@@ -41,7 +41,7 @@
       <td class="mgmt-c-id" data-label="ID"{% if b.label %} title="{{ b.label }}"{% endif %}>{{ b.ident|default:"–" }}</td>
       <td class="mgmt-mark" data-label="Result" data-sort="{{ b.result_sort }}" title="{{ b.result.title }}"><span class="{{ b.result.cls }}">{{ b.result.mark }}</span><span class="mgmt-sr"> {{ b.result.title }}</span></td>
       {% for name, mark, sort, docs in b.cells %}<td class="mgmt-mark" data-label="{{ name }}" data-sort="{{ sort }}" title="{{ mark.title }}"><span class="{{ mark.cls }}">{% if docs %}<a href="{{ docs }}">{{ mark.mark }}</a>{% else %}{{ mark.mark }}{% endif %}</span><span class="mgmt-sr"> {{ mark.title }}</span></td>{% endfor %}
-      <td data-label="Docs">{% if b.page %}<a href="{{ b.page }}">board</a>{% if b.checks_page %} &middot; <a href="{{ b.checks_page }}">checks</a>{% endif %}{% else %}–{% endif %}</td>
+      <td data-label="Docs">{% if b.page %}<a href="{{ b.page }}">board</a>{% else %}–{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
@@ -56,7 +56,7 @@
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-history">
   <thead>
   {% if history_groups %}<tr class="mgmt-groups"><td colspan="5"></td>{% for group, n in history_groups %}<th scope="colgroup" colspan="{{ n }}" class="mgmt-group" title="{{ group }}: checks of this kind, as on /fleet/">{{ group }}</th>{% endfor %}</tr>{% endif %}
-  <tr><th scope="col" title="{{ boot_title }}">Boot</th><th scope="col" class="mgmt-checkhead" title="● the boot it is running now; – an earlier boot">This boot</th><th scope="col" title="when the check of that boot reported">Check ran</th><th scope="col" class="mgmt-checkhead" title="the check's result in that boot">Result</th><th scope="col" title="each board that boot's check found, its type and result">Boards</th>{% for name in history_columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}</th>{% endfor %}</tr>
+  <tr><th scope="col" title="{{ boot_title }}">Boot</th><th scope="col" class="mgmt-checkhead" title="● the boot it is running now; – an earlier boot">This boot</th><th scope="col" title="when the check of that boot reported">Check ran<a class="mgmt-doc" href="{{ check_ran_docs }}" title="Check ran: what it checks, in the docs" aria-label="Check ran in the docs">?</a></th><th scope="col" class="mgmt-checkhead" title="the check's result in that boot">Result</th><th scope="col" title="each board that boot's check found, its type and result">Boards</th>{% for name in history_columns %}<th scope="col" class="mgmt-checkhead" title="{{ name }}: {{ head_titles.check }}">{{ name }}{% for n, u in column_docs.items %}{% if n == name and u %}<a class="mgmt-doc" href="{{ u }}" title="{{ name }}: what it checks, in the docs" aria-label="{{ name }} in the docs">?</a>{% endif %}{% endfor %}</th>{% endfor %}</tr>
   </thead>
   <tbody>
   {% for c in history %}
@@ -66,7 +66,7 @@
       <td data-sort="{{ c.sort }}">{{ c.when }}</td>
       <td class="mgmt-mark" title="{{ c.mark.title }}"><span class="{{ c.mark.cls }}">{{ c.mark.mark }}</span><span class="mgmt-sr"> {{ c.mark.title }}</span></td>
       <td>{% for type, mark in c.boards %}<div title="{{ mark.title }}">{{ type }} <span class="{{ mark.cls }}">{{ mark.mark }}</span></div>{% empty %}–{% endfor %}</td>
-      {% for name, marks, sort in c.cells %}<td class="mgmt-mark" data-label="{{ name }}" data-sort="{{ sort }}" title="{% for m in marks %}{{ m.title }}{% if not forloop.last %}; {% endif %}{% endfor %}">{% for m in marks %}<div class="{{ m.cls }}">{{ m.mark }}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
+      {% for name, marks, sort, docs in c.cells %}<td class="mgmt-mark" data-label="{{ name }}" data-sort="{{ sort }}" title="{% for m in marks %}{{ m.title }}{% if not forloop.last %}; {% endif %}{% endfor %}">{% for m in marks %}<div class="{{ m.cls }}">{% if docs %}<a href="{{ docs }}">{{ m.mark }}</a>{% else %}{{ m.mark }}{% endif %}<span class="mgmt-sr"> {{ m.title }}</span></div>{% endfor %}</td>{% endfor %}
     </tr>
   {% endfor %}
   </tbody>

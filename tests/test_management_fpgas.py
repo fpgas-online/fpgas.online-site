@@ -14,6 +14,8 @@ from fleet.services import ATTENTION, MISSING, OPERATIONAL, UNKNOWN, condition
 
 from management import fpga
 
+DOC_LINK = r'<a class="mgmt-doc"[^>]*>\?</a>'  # a header's docs link (#140)
+
 # Three Pis' fpga-verified events as welland's fleet registry received them on 4 October 2026: two Acorns that
 # passed, and a TT FPGA demo board that failed its pin-id and spiflash tests.
 REAL = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-welland-2026-10-04.json").read_text())
@@ -346,7 +348,8 @@ def _header(html):
     """The Pi table's column names, in order: the head's last row (a row above it names the checks' groups)."""
     head = _hosts_table(html).split("</thead>", 1)[0]
     last = re.findall(r"<tr[^>]*>(.*?)</tr>", head, re.S)[-1]
-    return [re.sub(r"<[^>]+>", "", th).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", last, re.S)]
+    # a header's docs link (#140) is not its text
+    return [re.sub(r"<[^>]+>", "", re.sub(DOC_LINK, "", th)).strip() for th in re.findall(r"<th[^>]*>(.*?)</th>", last, re.S)]
 
 
 def _groups(html):
