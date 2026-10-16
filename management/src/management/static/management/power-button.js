@@ -97,13 +97,14 @@
     b.setAttribute("aria-busy", view.busy ? "true" : "false");
     var words = view.busy ? "switching, waiting for the switch to confirm" :
       view.seconds ? "can be switched again in " + view.seconds + " s" : "turn PoE " + view.action;
-    b.title = words;
-    b.setAttribute("aria-label", words + " on port " + b.dataset.port);
+    /* only on a change: a screen reader re-reads a focused button's name each time it is set (every 250 ms here) */
+    if (b.title !== words) { b.title = words; b.setAttribute("aria-label", words + " on port " + b.dataset.port); }
   }
 
   /* The toasts: one stack fixed at the top of the page. A confirmation goes after a few seconds, a refusal or a failure
-     stays longer; each has a close button. */
-  function toast(doc, text, kind, setTimeout) {
+     stays longer; a "switched a moment ago" goes when the hold it names ends (`seconds`), so it never names a wait that
+     is over. Each has a close button. */
+  function toast(doc, text, kind, setTimeout, seconds) {
     var stack = doc.getElementById("mgmt-toasts");
     if (!stack) { return; }
     var t = doc.createElement("div");
@@ -115,7 +116,8 @@
     close.addEventListener("click", function () { t.remove(); });
     t.appendChild(close);
     stack.appendChild(t);
-    setTimeout(function () { t.remove(); }, kind === "ok" ? 6000 : 20000);
+    var ms = kind === "ok" ? 6000 : kind === "held" && seconds > 0 ? Math.min(seconds * 1000, 20000) : 20000;
+    setTimeout(function () { t.remove(); }, ms);
   }
 
   function key(sw, port) { return sw + "/" + port; }
@@ -152,7 +154,7 @@
           if (a.kind === "ok") { tracker.confirmed(k, a.state, a.seconds, now); }
           else if (a.kind === "held") { tracker.held(k, a.seconds, now); }
           else { tracker.failed(k); }
-          toast(doc, a.text, a.kind, win.setTimeout.bind(win));
+          toast(doc, a.text, a.kind, win.setTimeout.bind(win), a.seconds);
           redraw(); refresh();
         });
     }

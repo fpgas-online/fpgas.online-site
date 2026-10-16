@@ -987,7 +987,8 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
     # round 5: no message beside the button (they are toasts at the top of the page); the ⏻ is a span that can turn
     assert power.startswith('<button type="button" class="mgmt-poe-button mgmt-poe-to-off"') and \
         'mgmt-poe-msg' not in power and '<span class="mgmt-poe-glyph" aria-hidden="true">⏻</span>' in power
-    assert '<div class="mgmt-toasts" id="mgmt-toasts" aria-live="polite"></div>' in html
+    # each toast is its own role=status / role=alert live region: the stack is not one too (it would be read twice)
+    assert '<div class="mgmt-toasts" id="mgmt-toasts"></div>' in html
     script = html.split("<script>")[1].split("</script>")[0]
     assert 'var power = td("c-power", "", p.power_title)' in script and "poe.appendChild(powerButton" not in script
 

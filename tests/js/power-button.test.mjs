@@ -144,4 +144,9 @@ test("a toast goes into the stack at the top, and away by itself", () => {
   PB.toast(doc, "refused", "error", (fn, ms) => later.push([fn, ms]));
   assert.equal(stack.children[1].attrs.role, "alert");
   assert.equal(later[1][1], 20000);
+  // "switched a moment ago; ... in 8 s" goes when those 8 s are over, never naming a wait that has ended
+  PB.toast(doc, "port 9 was switched a moment ago; it can be switched again in 8 s", "held", (fn, ms) => later.push([fn, ms]), 8);
+  assert.equal(later[2][1], 8000);
+  PB.toast(doc, "held long", "held", (fn, ms) => later.push([fn, ms]), 60);
+  assert.equal(later[3][1], 20000);
 });

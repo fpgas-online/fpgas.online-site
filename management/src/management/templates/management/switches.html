@@ -196,7 +196,7 @@
 {% block body %}
 <h1>Switch ports</h1>
 {# the PoE button's messages float here, at the top of the page, over the content (power-button.js) #}
-<div class="mgmt-toasts" id="mgmt-toasts" aria-live="polite"></div>
+<div class="mgmt-toasts" id="mgmt-toasts"></div>
 {% if problem %}<p class="mgmt-problem" role="alert">{{ problem }}</p>{% endif %}
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
