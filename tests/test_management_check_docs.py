@@ -14,6 +14,7 @@ from django.test import Client
 
 from management import check_docs, check_groups
 
+
 @functools.cache
 def served_ids():
     # Read the Docs refuses Python's default user agent (403): name this test
