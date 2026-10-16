@@ -368,3 +368,17 @@ def test_each_event_has_its_kind_by_colour_and_name_and_a_tests_result_is_a_mark
            "management" / "management.css").read_text()
     assert all(f".mgmt-ev-{k} .mgmt-ev {{ background:" in css
                for k in ("network", "service", "identify", "check", "test", "other"))
+
+
+@pytest.mark.django_db
+def test_the_labels_sit_beside_the_top_level_summary():
+    # Tim, 16 Oct 2026: "Put labels next to the top level summary." (#156): one row at the top, the summary table
+    # then the Labels block, before any other section
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    html = page(m.serial)
+    top = re.search(r'<div class="mgmt-side mgmt-top">\s*<section>\s*(?:\{#.*?#\}\s*)?'
+                    r'<table class="mgmt-table mgmt-facts mgmt-fit">.*?</table>\s*</section>\s*'
+                    r'<section class="mgmt-label-box">\s*<h2>Labels</h2>(.*?)</section>\s*</div>', html, re.S)
+    assert top, "the summary and the labels are not one row at the top"
+    assert html.index("<h2>Labels</h2>") < html.index('<h2 id="boards">Boards</h2>')
+    assert html.count("<h2>Labels</h2>") == 1
