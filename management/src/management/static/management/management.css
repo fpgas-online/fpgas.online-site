@@ -295,7 +295,6 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-port text { pointer-events: none; }
 .mgmt-pnum { font-size: 11px; fill: #222; }
 .mgmt-bolt { font-size: 11px; fill: #b36b00; }
-.mgmt-more { font-size: 11px; fill: #222; }
 .mgmt-pmark { font-size: 13px; font-weight: 700; }
 .mgmt-net { font-size: 13px; font-weight: 700; fill: #b00020; }
 .mgmt-hw { font-size: 11px; fill: #222; }

@@ -434,6 +434,9 @@ class SeenPort:
     switch: int
     port: int
     at: object  # datetime
+    # the lease record's id: records are numbered as they arrive, so of two leases in the same second the higher is the
+    # later (management.views.switches.on_ports: one machine a port, the latest)
+    record: int = 0
 
     @property
     def text(self):
@@ -445,5 +448,5 @@ def seen_ports():
     newest = GatewayRecord.objects.filter(kind="lease", machine__isnull=False, switch__isnull=False,
                                           port__isnull=False).values("machine_id").annotate(last=Max("id")) \
         .values_list("last", flat=True)
-    return {r.machine_id: SeenPort(r.switch, r.port, r.at)
+    return {r.machine_id: SeenPort(r.switch, r.port, r.at, r.id)
             for r in GatewayRecord.objects.filter(id__in=list(newest))}

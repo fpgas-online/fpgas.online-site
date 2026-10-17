@@ -270,18 +270,26 @@ def _ago_moment(moment):
 
 
 def on_ports(request):
-    """{(switch, port): [machine]} of every machine the gateway has leased an address to on a port (fpga.seen_ports:
-    its newest lease record that names a port), newest lease first. An observation with its time, never a remembered
-    table: a machine moved to another port is shown there once the gateway leases it an address there."""
+    """{(switch, port): [machine]} of the machine the gateway leased an address to on each port most recently
+    (fpga.seen_ports: each machine's newest lease record that names a port). One machine a port: a port holds one
+    device (Tim, 18 Oct 2026: "When a device is switched to a port which already had a device, two devices appear on
+    the switch port. As there is suppose to be a strict one device per port, only the latest should."), so a machine
+    whose last lease on a port is older than another machine's there was moved out of it; it is still in the fleet,
+    and shows on a port again once the gateway leases it an address there. An observation with its time, never a
+    remembered table."""
     seen = fpga.seen_ports()
     if not seen:
         return {}
-    out = {}
+    latest = {}
     for host in fpga.hosts():
         observed = seen.get(host.machine.pk)
-        if observed is not None:
-            out.setdefault((observed.switch, observed.port), []).append((observed.at, _machine(request, host, observed)))
-    return {key: [m for _, m in sorted(found, key=lambda f: f[0], reverse=True)] for key, found in out.items()}
+        if observed is None:
+            continue
+        key = (observed.switch, observed.port)
+        # the newest lease wins; on the same second, the newer record (seen_ports' ids grow with time)
+        if key not in latest or (observed.at, observed.record) > (latest[key][0].at, latest[key][0].record):
+            latest[key] = (observed, host)
+    return {key: [_machine(request, host, observed)] for key, (observed, host) in latest.items()}
 
 
 def net_check(port, has_poe, role, machines, failures, known, vlans_checked, errors=None):
@@ -552,7 +560,7 @@ def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_sit
 
 def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, house=(), machines=(),
          has_poe=True, failures=(), known=(), errors_since="", errors_before=None):
-    """A port's row: the hardware the gateway last saw on it (`machines`, newest first), whether its network reading is
+    """A port's row: the hardware the gateway last saw on it (`machines`: on_ports's one, the latest), whether its network reading is
     as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one;
     `errors_since`, `errors_before`: the previous reading's time and this port's error counters then), then the
     switch's reading, one value a column (#130). `has_poe`: the switch's model gives the port PoE."""

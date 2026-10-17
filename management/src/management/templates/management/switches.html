@@ -168,7 +168,6 @@
           var pm = g.querySelector(".mgmt-pmark"); pm.textContent = p.mark; pm.setAttribute("class", "mgmt-pmark mgmt-state-" + p.kind);
           g.querySelectorAll(".mgmt-hw").forEach(function (t, i) { t.textContent = p.lines[i] || ""; });
           g.querySelector(".mgmt-bolt").textContent = p.bolt;
-          g.querySelector(".mgmt-more").textContent = p.more;
           g.querySelector(".mgmt-net").textContent = p.net;
           g.parentNode.setAttribute("aria-label", p.title);
         });
