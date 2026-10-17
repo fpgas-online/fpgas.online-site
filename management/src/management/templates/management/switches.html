@@ -1,119 +1,15 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}Switch ports &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script><script src="{% static 'management/switch-events.js' %}" defer></script><script src="{% static 'management/power-button.js' %}" defer></script>
+{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script><script src="{% static 'management/switch-events.js' %}" defer></script><script src="{% static 'management/power-button.js' %}" defer></script><script src="{% static 'management/port-row.js' %}"></script>
 <script>
 /* Refresh the tables and panels in place every {{ refresh_seconds }} s, and draw a port's link change the moment the
    gateway publishes it (switch-events.js, over ws/switches/). The page is complete without this. */
 (function () {
   var url = "{{ json_url }}";
-  function cell(tag, text) { var c = document.createElement(tag); c.textContent = text; return c; }
-  /* a cell as the served table has it: its class, its phone label, its title and sort key where it has them */
-  function td(cls, label, title, sort) {
-    var c = document.createElement("td"); c.className = cls;
-    if (label) { c.dataset.label = label; }
-    if (title) { c.title = title; }
-    if (sort !== undefined && sort !== null) { c.dataset.sort = String(sort); }
-    return c;
-  }
-  /* a one-character mark and its words for a screen reader */
-  function mark(parent, text, words) {
-    parent.appendChild(document.createTextNode(text));
-    var sr = cell("span", " " + words); sr.className = "mgmt-sr"; parent.appendChild(sr);
-  }
-  /* The PoE button (#67): power-button.js presses it, turns its ⏻ while the switch confirms, counts the port's hold
-     down inside it and says the result in a toast at the top of the page (round 5). There is no login (#66): the
-     guard is the server, which answers /snmp/power for an access port only (403 for a trunk, an uplink or a port
-     outside the access range) and holds a port after each switch (10 s after off, 60 s after on). */
   var powerUrl = "{{ power_url }}", linkUrl = "{{ link_url }}";
   var buttons = null;  /* power-button.js's glue, once the page has loaded */
-  function powerButton(sw, p) {
-    var b = document.createElement("button");
-    var g = cell("span", p.power_icon); g.className = "mgmt-poe-glyph"; g.setAttribute("aria-hidden", "true");
-    b.appendChild(g);
-    b.type = "button"; b.className = "mgmt-poe-button mgmt-poe-to-" + p.poe_action;
-    b.setAttribute("aria-label", p.power_title + " on port " + p.port); b.title = p.power_title;
-    b.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
-    b.dataset.port = String(p.port); b.dataset.action = p.poe_action; b.dataset.powers = p.powers;
-    return b;
-  }
-  /* one row, the same cells as the served table (#130) */
-  function fill(tr, p, sw) {
-    var th = cell("th", p.port); th.scope = "row"; th.className = "c-port"; if (p.port_title) { th.title = p.port_title; }
-    tr.appendChild(th);
-    if (p.empty) { tr.className = "mgmt-empty-port"; }
-    /* the hardware columns sort the ports with a machine before the empty ones */
-    var first = p.machines[0];
-    var model = td("c-model", "Model", "", p.hw_sort + (first ? " " + first.model : ""));
-    var memory = td("c-memory", "RAM", "", p.memory_sort);
-    var board = td("c-board", "Board", "", p.hw_sort + (first ? " " + first.board : ""));
-    var state = td("mgmt-mark c-state", "State", "", p.state_sort);
-    var serial = td("c-serial", "Serial", "", p.hw_sort + (first ? " " + first.serial : ""));
-    var lease = td("c-lease", "Lease", "", p.lease_sort);
-    p.machines.forEach(function (m) {
-      var d = cell("div", m.model); d.title = m.model_title; model.appendChild(d);
-      d = cell("div", m.memory); if (m.memory_title) { d.title = m.memory_title; } memory.appendChild(d);
-      d = cell("div", m.board); d.title = m.board_title; board.appendChild(d);
-      d = document.createElement("div"); d.className = "mgmt-state-" + m.condition; d.title = m.state_title;
-      mark(d, m.mark, m.state_title); state.appendChild(d);
-      d = document.createElement("div");
-      if (m.url) { var a = cell("a", m.serial); a.href = m.url; d.appendChild(a); } else { d.textContent = m.serial; }
-      serial.appendChild(d);
-      d = cell("div", m.lease_ago); d.title = m.lease_at; lease.appendChild(d);
-    });
-    if (p.unregistered) {
-      var u = document.createElement("div"); u.className = "mgmt-state-unregistered"; u.title = p.unregistered_title;
-      mark(u, p.unregistered, p.unregistered_title); state.appendChild(u);
-    }
-    [model, memory, board, state, serial, lease].forEach(function (c) { tr.appendChild(c); });
-    var net = td("mgmt-mark c-net", "Net", p.net_title, p.net_ok ? 1 : 0), ns = cell("span", p.net);
-    ns.className = p.net_cls; net.appendChild(ns);
-    var nsr = cell("span", " " + p.net_title); nsr.className = "mgmt-sr"; net.appendChild(nsr); tr.appendChild(net);
-    /* the Link badge (round 5): the link and its speed in one 3-character badge; a button on an access port */
-    var link = td("mgmt-mark c-link", "Link", p.badge_title, p.badge_sort);
-    var badge = document.createElement(p.link_action ? "button" : "span");
-    badge.className = "mgmt-link-badge " + (p.link_action ? "mgmt-link-button " : "") + p.badge_cls;
-    badge.dataset.cls = p.badge_cls; badge.dataset.text = p.badge;
-    if (p.link_action) {
-      badge.type = "button"; badge.title = p.badge_title; badge.dataset.title = p.badge_title;
-      badge.setAttribute("aria-label", "port " + p.port + ": " + p.badge_title);
-      badge.dataset.switch = sw === null || sw === undefined ? "" : String(sw);
-      badge.dataset.port = String(p.port); badge.dataset.action = p.link_action; badge.dataset.powers = p.powers;
-    }
-    var bg = cell("span", p.badge); bg.className = "mgmt-link-glyph"; bg.setAttribute("aria-hidden", "true");
-    badge.appendChild(bg); link.appendChild(badge);
-    var lsr = cell("span", " " + p.badge_words); lsr.className = "mgmt-sr"; link.appendChild(lsr); tr.appendChild(link);
-    var poe = td("mgmt-mark c-poe " + p.poe_cls, "PoE", p.poe_title, p.poe_sort); mark(poe, p.poe, p.poe_title);
-    tr.appendChild(poe);
-    var w = td("mgmt-n c-watts", "W"); w.textContent = p.watts; tr.appendChild(w);
-    /* the PoE button in a column of its own (#89), with what the last press said */
-    /* the power symbol on every PoE port (#139): a button where a press is accepted, else greyed with the reason */
-    var power = td("c-power", "", p.power_title);
-    if (p.poe_action) {
-      power.appendChild(powerButton(sw, p));
-    } else {
-      if (p.power_icon) {
-        var none = cell("span", p.power_icon); none.className = "mgmt-poe-none"; none.setAttribute("aria-hidden", "true");
-        power.appendChild(none);
-      }
-      var why = cell("span", p.power_title); why.className = "mgmt-sr"; power.appendChild(why);
-    }
-    tr.appendChild(power);
-    var vlan = td("mgmt-n c-vlan", "VLAN", p.vlan_title, p.vlan_sort); vlan.textContent = p.vlan; tr.appendChild(vlan);
-    var gw = td("c-gw", "GW", p.gw_title); gw.textContent = p.gw; tr.appendChild(gw);
-    var l = td("c-lldp", "LLDP", p.lldp_title);
-    if (p.lldp_url) { var la = cell("a", p.lldp_name); la.href = p.lldp_url; l.appendChild(la); }
-    else { l.textContent = p.lldp_name; }
-    tr.appendChild(l);
-    var lp = td("c-lldp-port", "LLDP port"); lp.textContent = p.lldp_port; tr.appendChild(lp);
-    /* an error count above zero is bold bright red (Tim, 17 Oct: "Make the numbers in the errors column bold and right
-       red."); the class comes from the view, which says why a zero is not */
-    [["c-rx", "In", p.rx, ""], ["c-tx", "Out", p.tx, ""], ["c-rx-errors", "Rx err", p.rx_errors, p.rx_errors_cls],
-     ["c-tx-errors", "Tx err", p.tx_errors, p.tx_errors_cls]].forEach(function (n) {
-      var c = td("mgmt-n " + n[0] + (n[3] ? " " + n[3] : ""), n[1]); c.textContent = n[2]; tr.appendChild(c);
-    });
-    var role = td("c-role", "Role"); role.textContent = p.role; tr.appendChild(role);
-  }
+  var cell = PortRow.cell, fill = PortRow.fill;
   function say(text) {
     var p = document.getElementById("mgmt-live");
     p.textContent = text; p.hidden = !text;
@@ -233,54 +129,10 @@
   {% endif %}
   <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Ports of {{ s.title }}">
   <table class="mgmt-table mgmt-ports mgmt-fit mgmt-striped mgmt-sortable">
-    <thead><tr>
-      <th scope="col" class="c-port" title="{{ head_titles.port }}">Port</th>
-      <th scope="col" class="c-model" title="{{ head_titles.model }}">Model</th>
-      <th scope="col" class="c-memory" title="{{ head_titles.ram }}">RAM</th>
-      <th scope="col" class="c-board" title="{{ head_titles.board }}">Board</th>
-      <th scope="col" class="mgmt-checkhead c-state" title="{{ head_titles.state }}">State</th>
-      <th scope="col" class="c-serial" title="{{ head_titles.serial }}">Serial</th>
-      <th scope="col" class="c-lease" title="{{ head_titles.lease }}">Lease</th>
-      <th scope="col" class="mgmt-checkhead c-net" title="{{ head_titles.net }}">Net</th>
-      <th scope="col" class="mgmt-checkhead c-link" title="{{ head_titles.link }}">Link</th>
-      <th scope="col" class="mgmt-checkhead c-poe" title="{{ head_titles.poe }}">PoE</th>
-      <th scope="col" class="c-watts" title="{{ head_titles.watts }}">W</th>
-      <th scope="col" class="c-power" title="{{ head_titles.power }}"><span aria-hidden="true">⏻</span><span class="mgmt-sr">Power</span></th>
-      <th scope="col" class="c-vlan" title="{{ head_titles.vlan }}">VLAN</th>
-      <th scope="col" class="c-gw" title="{{ head_titles.gw }}">GW</th>
-      <th scope="col" class="c-lldp" title="{{ head_titles.lldp }}">LLDP</th>
-      <th scope="col" class="c-lldp-port" title="{{ head_titles.lldp_port }}">LLDP port</th>
-      <th scope="col" class="c-rx" title="{{ head_titles.rx }}">In</th>
-      <th scope="col" class="c-tx" title="{{ head_titles.tx }}">Out</th>
-      <th scope="col" class="c-rx-errors" title="{{ head_titles.rx_errors }}">Rx err</th>
-      <th scope="col" class="c-tx-errors" title="{{ head_titles.tx_errors }}">Tx err</th>
-      <th scope="col" class="c-role" title="{{ head_titles.role }}">Role</th>
-    </tr></thead>
+    {% include "management/port_head.html" %}
     <tbody>
     {% for p in s.ports %}
-      <tr id="switch-{{ anchor }}-port-{{ p.port }}"{% if p.empty %} class="mgmt-empty-port"{% endif %}>
-        <th scope="row" class="c-port"{% if p.port_title %} title="{{ p.port_title }}"{% endif %}>{{ p.port }}</th>
-        <td class="c-model" data-label="Model" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.model }}{% endif %}">{% for m in p.machines %}<div title="{{ m.model_title }}">{{ m.model }}</div>{% endfor %}</td>
-        <td class="c-memory" data-label="RAM" data-sort="{{ p.memory_sort }}">{% for m in p.machines %}<div{% if m.memory_title %} title="{{ m.memory_title }}"{% endif %}>{{ m.memory }}</div>{% endfor %}</td>
-        <td class="c-board" data-label="Board" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.board }}{% endif %}">{% for m in p.machines %}<div title="{{ m.board_title }}">{{ m.board }}</div>{% endfor %}</td>
-        <td class="mgmt-mark c-state" data-label="State" data-sort="{{ p.state_sort }}">{% for m in p.machines %}<div class="mgmt-state-{{ m.condition }}" title="{{ m.state_title }}">{{ m.mark }}<span class="mgmt-sr"> {{ m.state_title }}</span></div>{% endfor %}{% if p.unregistered %}<div class="mgmt-state-unregistered" title="{{ p.unregistered_title }}">{{ p.unregistered }}<span class="mgmt-sr"> {{ p.unregistered_title }}</span></div>{% endif %}</td>
-        <td class="c-serial" data-label="Serial" data-sort="{{ p.hw_sort }}{% if p.machines %} {{ p.machines.0.serial }}{% endif %}">{% for m in p.machines %}<div>{% if m.url %}<a href="{{ m.url }}">{{ m.serial }}</a>{% else %}{{ m.serial }}{% endif %}</div>{% endfor %}</td>
-        <td class="c-lease" data-label="Lease" data-sort="{{ p.lease_sort }}">{% for m in p.machines %}<div title="{{ m.lease_at }}">{{ m.lease_ago }}</div>{% endfor %}</td>
-        <td class="mgmt-mark c-net" data-label="Net" data-sort="{{ p.net_ok|yesno:'1,0' }}" title="{{ p.net_title }}"><span class="{{ p.net_cls }}">{{ p.net }}</span><span class="mgmt-sr"> {{ p.net_title }}</span></td>
-        <td class="mgmt-mark c-link" data-label="Link" data-sort="{{ p.badge_sort }}" title="{{ p.badge_title }}">{% if p.link_action %}<button type="button" class="mgmt-link-badge mgmt-link-button {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}" data-title="{{ p.badge_title }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.link_action }}" data-powers="{{ p.powers }}" aria-label="port {{ p.port }}: {{ p.badge_title }}" title="{{ p.badge_title }}">{% else %}<span class="mgmt-link-badge {{ p.badge_cls }}" data-cls="{{ p.badge_cls }}" data-text="{{ p.badge }}">{% endif %}<span class="mgmt-link-glyph" aria-hidden="true">{{ p.badge }}</span>{% if p.link_action %}</button>{% else %}</span>{% endif %}<span class="mgmt-sr"> {{ p.badge_words }}</span></td>
-        <td class="mgmt-mark c-poe {{ p.poe_cls }}" data-label="PoE" data-sort="{{ p.poe_sort }}" title="{{ p.poe_title }}">{{ p.poe }}<span class="mgmt-sr"> {{ p.poe_title }}</span></td>
-        <td class="mgmt-n c-watts" data-label="W">{{ p.watts }}</td>
-        <td class="c-power" title="{{ p.power_title }}">{% if p.poe_action %}<button type="button" class="mgmt-poe-button mgmt-poe-to-{{ p.poe_action }}" data-switch="{{ s.index|default_if_none:'' }}" data-port="{{ p.port }}" data-action="{{ p.poe_action }}" data-powers="{{ p.powers }}" aria-label="{{ p.power_title }} on port {{ p.port }}" title="{{ p.power_title }}"><span class="mgmt-poe-glyph" aria-hidden="true">{{ p.power_icon }}</span></button>{% elif p.power_icon %}<span class="mgmt-poe-none" aria-hidden="true">{{ p.power_icon }}</span><span class="mgmt-sr">{{ p.power_title }}</span>{% else %}<span class="mgmt-sr">{{ p.power_title }}</span>{% endif %}</td>
-        <td class="mgmt-n c-vlan" data-label="VLAN" data-sort="{{ p.vlan_sort }}" title="{{ p.vlan_title }}">{{ p.vlan }}</td>
-        <td class="c-gw" data-label="GW" title="{{ p.gw_title }}">{{ p.gw }}</td>
-        <td class="c-lldp" data-label="LLDP"{% if p.lldp_title %} title="{{ p.lldp_title }}"{% endif %}>{% if p.lldp_url %}<a href="{{ p.lldp_url }}">{{ p.lldp_name }}</a>{% else %}{{ p.lldp_name }}{% endif %}</td>
-        <td class="c-lldp-port" data-label="LLDP port">{{ p.lldp_port }}</td>
-        <td class="mgmt-n c-rx" data-label="In">{{ p.rx }}</td>
-        <td class="mgmt-n c-tx" data-label="Out">{{ p.tx }}</td>
-        <td class="mgmt-n c-rx-errors{% if p.rx_errors_cls %} {{ p.rx_errors_cls }}{% endif %}" data-label="Rx err">{{ p.rx_errors }}</td>
-        <td class="mgmt-n c-tx-errors{% if p.tx_errors_cls %} {{ p.tx_errors_cls }}{% endif %}" data-label="Tx err">{{ p.tx_errors }}</td>
-        <td class="c-role" data-label="Role">{{ p.role }}</td>
-      </tr>
+      {% include "management/port_row.html" with sw=s.index %}
     {% empty %}
       <tr><td colspan="21">No ports were read from this switch.</td></tr>
     {% endfor %}
