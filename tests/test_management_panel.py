@@ -153,7 +153,7 @@ def machine(model="Pi 5", board="Acorn", condition="operational", mark="●", la
             "state_title": "operational", "lease_at": "2026-10-15 09:12:00"}
 
 
-def test_a_box_shows_the_newest_machine_its_board_and_its_state():
+def test_a_box_shows_the_ports_machine_its_board_and_its_state():
     assert panel.box(row(machines=[machine()])) == ("operational", "●", ["Pi 5", "Acorn", ""])
     assert panel.box(row(machines=[machine("Pi 4B", "TT chip", "missing", "○")])) == (
         "missing", "○", ["Pi 4B", "TT chip", ""])

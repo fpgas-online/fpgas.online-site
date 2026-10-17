@@ -5,7 +5,7 @@ is a remembered table of which board is on which port."""
 import re
 from dataclasses import dataclass, field
 
-from django.db.models import F, Max
+from django.db.models import F
 from django.utils import timezone
 from fleet.models import BootEvent, GatewayRecord, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
@@ -429,13 +429,13 @@ def summary(rows):
 
 @dataclass(frozen=True)
 class SeenPort:
-    """The port the gateway last saw a machine on: its newest lease record that names a port (fleet.GatewayRecord,
-    from dnsmasq on the gateway), and when. An observation with its time, never a remembered table."""
+    """The port a machine is on: its newest DHCPACK from the gateway on a port (fleet.GatewayRecord, from dnsmasq on
+    the gateway), and when. An observation with its time, never a remembered table."""
     switch: int
     port: int
     at: object  # datetime
     # the lease record's id: records are numbered as they arrive, so of two leases in the same second the higher is the
-    # later (management.views.switches.on_ports: one machine a port, the latest)
+    # later
     record: int = 0
 
     @property
@@ -444,9 +444,22 @@ class SeenPort:
 
 
 def seen_ports():
-    """{machine id: SeenPort} for every machine the gateway has leased an address to on a port, in two queries."""
-    newest = GatewayRecord.objects.filter(kind="lease", machine__isnull=False, switch__isnull=False,
-                                          port__isnull=False).values("machine_id").annotate(last=Max("id")) \
-        .values_list("last", flat=True)
-    return {r.machine_id: SeenPort(r.switch, r.port, r.at, r.id)
-            for r in GatewayRecord.objects.filter(id__in=list(newest))}
+    """{machine id: SeenPort} of every machine on a port: one device a port (Tim, 18 Oct 2026: "When a device is
+    switched to a port which already had a device, two devices appear on the switch port. As there is suppose to be a
+    strict one device per port, only the latest should.").
+
+    Only a DHCPACK counts (a record with doc["acked_at"]: a new lease or a renewal; a `del`, a release or dnsmasq's
+    re-read at its start says nothing about who is on the port now, so a lease expiring after a swap cannot hand the
+    port back). A machine is on the port of its newest ACK, and only while no other device has been ACKed on that
+    port since: a machine moved out is on no port until it is ACKed somewhere again, and a device not registered yet
+    (a record with no machine) takes the port too. Newest is by (at, id), here and for every page (/fleet/, a Pi's
+    page, the switch port dashboard)."""
+    acks = (GatewayRecord.objects.filter(kind="lease", switch__isnull=False, port__isnull=False,
+                                         doc__acked_at__isnull=False).exclude(doc__acked_at=None)
+            .order_by("at", "id").values_list("id", "at", "machine_id", "switch", "port"))
+    by_port, by_machine = {}, {}
+    for record, at, machine, switch, port in acks:  # oldest first: the last write wins
+        by_port[(switch, port)] = machine
+        if machine is not None:
+            by_machine[machine] = SeenPort(switch, port, at, record)
+    return {machine: seen for machine, seen in by_machine.items() if by_port[(seen.switch, seen.port)] == machine}

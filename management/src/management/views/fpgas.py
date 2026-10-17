@@ -320,12 +320,13 @@ def check_cell(host, name, link, planned=None):
 def _port(host, observed):
     """(port, its title, its sort key, a note or ""): the port the gateway last leased the Pi an address on, with the
     time, an observation (the dashboard spec: "switch port (observed, with its time, never a remembered table)").
-    A Pi the gateway has no lease record of (records are kept for days) has no port: the cell is empty and Notes
-    says so with the port its host name names, which is the Pi's word, not an observation (the review of #122). A
+    A Pi on no port (fpga.seen_ports: no DHCPACK on a port in the records, which are kept for days, or another device
+    ACKed on its port since: one device a port) has no port: the cell is empty and Notes says so with the port its
+    host name names, which is the Pi's word, not an observation (the review of #122). A
     host name naming another port than the gateway saw is a note too."""
     named = fpga.port_text(host.machine)
     if observed is None:
-        return "", "", "999999", f"no lease seen; named {named}" if host.pi else "no lease seen"
+        return "", "", "999999", f"on no port; named {named}" if host.pi else "on no port"
     when = timezone.localtime(observed.at).strftime("%-d %b %H:%M")
     note = f"named {named}" if host.pi and named != observed.text else ""
     return (observed.text, f"the gateway leased it an address on this port at {when}",

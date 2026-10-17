@@ -61,6 +61,10 @@ HOSTS = ["welland.fpgas.online", "ps1.fpgas.online", TT]
 COMMUNITY = "s3cret-community-xyzzy"
 READ_AT = "2026-10-09T10:00:00+09:30"
 
+# a lease record that is a DHCPACK (doc["acked_at"] set), as fpgas-lease-event writes it for a new lease or a renewal:
+# only an ACK puts a machine on a port (fpga.seen_ports)
+ACK = {"event": "add", "acked_at": "2026-10-18T09:00:00+10:30", "address": "10.21.1.2"}
+
 
 def make_views():
     return [SwitchView(
@@ -131,7 +135,7 @@ def seat(hostname, serial, model="Pi 5", board="acorn", result="pass", seen_ago=
     BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=seen, detail=detail)
     if lease is not None:
         GatewayRecord.objects.create(site="welland", kind="lease", switch=lease[0], port=lease[1], hostname=hostname,
-                                     at=timezone.now() - timedelta(minutes=lease_ago), doc={}, machine=m)
+                                     at=timezone.now() - timedelta(minutes=lease_ago), doc=ACK, machine=m)
     return m
 
 
@@ -1180,7 +1184,7 @@ def test_a_machine_is_on_the_port_the_gateway_saw_it_on_not_the_one_its_name_say
     m = seat("pi-sw1-p3", "10000000aaaa0003", lease=(1, 3), lease_ago=60)
     from fleet.models import GatewayRecord
     GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=1, hostname="pi-sw1-p3",
-                                 at=timezone.now(), doc={}, machine=m)
+                                 at=timezone.now(), doc=ACK, machine=m)
     ports = ports_json()
     assert [mm["serial"] for mm in ports[0]["machines"]] == ["10000000aaaa0003"] and ports[2]["machines"] == []
     seat("pi-sw1-p2", "10000000aaaa0002")  # registered, but the gateway has leased it nothing: on no port
@@ -1224,8 +1228,53 @@ def test_a_machine_moved_out_of_a_port_and_back_is_the_ports_again(reader):
     seat("pi-sw1-p2", "10000000aaaa0032", lease=(1, 2), lease_ago=60)
     assert [m["serial"] for m in ports_json()[1]["machines"]] == ["10000000aaaa0032"]
     GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=2, hostname="pi-sw1-p2",
-                                 at=timezone.now(), doc={}, machine=old)
+                                 at=timezone.now(), doc=ACK, machine=old)
     assert [m["serial"] for m in ports_json()[1]["machines"]] == ["10000000aaaa0031"]
+
+
+@pytest.mark.django_db
+def test_a_lease_ending_after_the_swap_does_not_hand_the_port_back(reader):
+    """The review of #172: only a DHCPACK puts a machine on a port; the swapped-out Pi's lease expiring (a `del`)
+    after the swapped-in Pi's ACK says nothing about who is on the port."""
+    from fleet.models import GatewayRecord
+
+    old = seat("pi-sw1-p2", "10000000aaaa0051", lease=(1, 2), lease_ago=120)
+    seat("pi-sw1-p2", "10000000aaaa0052", lease=(1, 2), lease_ago=60)
+    GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=2, hostname="pi-sw1-p2",
+                                 at=timezone.now(), doc={"event": "del", "acked_at": None, "address": "10.21.1.2"},
+                                 machine=old)
+    assert [m["serial"] for m in ports_json()[1]["machines"]] == ["10000000aaaa0052"]
+
+
+@pytest.mark.django_db
+def test_a_device_not_registered_yet_takes_the_port_from_the_one_before_it(reader):
+    """One device a port: a newcomer ACKed on the port (no registered machine yet) leaves the old Pi on no port, and
+    the port is drawn as unregistered (a link and power, no registered machine)."""
+    from fleet.models import GatewayRecord
+
+    seat("pi-sw1-p2", "10000000aaaa0061", lease=(1, 2), lease_ago=60)
+    GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=2, hostname="raspberrypi",
+                                 at=timezone.now(), doc=ACK, machine=None)
+    port = ports_json()[1]
+    assert port["machines"] == [] and port["unregistered"] == "?"
+
+
+@pytest.mark.django_db
+def test_every_page_agrees_on_the_port_of_a_pi_moved_out(reader):
+    """The review of #172: /fleet/ and the swapped-out Pi's own page say what the switch port dashboard says."""
+    from management import fpga
+
+    old = seat("pi-sw1-p2", "10000000aaaa0071", lease=(1, 2), lease_ago=120)
+    new = seat("pi-sw1-p2", "10000000aaaa0072", lease=(1, 2), lease_ago=60)
+    seen = fpga.seen_ports()
+    assert old.pk not in seen and (seen[new.pk].switch, seen[new.pk].port) == (1, 2)
+    c = Client(HTTP_HOST=HOSTS[0])
+    fleet = c.get("/fleet/").content.decode()
+    assert fleet.count(">sw1 p2<") == 1
+    page_old = c.get("/fleet/10000000aaaa0071/").content.decode()
+    assert re.search(r'>Port</th><td[^>]*>–</td>', page_old)
+    page_new = c.get("/fleet/10000000aaaa0072/").content.decode()
+    assert re.search(r'>Port</th><td[^>]*>sw1 p2', page_new)
 
 
 @pytest.mark.django_db
@@ -1237,7 +1286,7 @@ def test_two_leases_in_the_same_second_the_later_record_wins(reader):
     second = seat("pi-sw1-p2", "10000000aaaa0042")
     for m in (first, second):
         GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=2, hostname="pi-sw1-p2", at=at,
-                                     doc={}, machine=m)
+                                     doc=ACK, machine=m)
     assert [m["serial"] for m in ports_json()[1]["machines"]] == ["10000000aaaa0042"]
 
 

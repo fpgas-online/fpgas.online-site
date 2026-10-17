@@ -1,5 +1,5 @@
 """The switch port dashboard (#67, #130): every switch and every port, read side only: which hardware is on each port
-(the machines the gateway last leased an address to on it, with the /fleet/ model, board type and State), whether the
+(the one machine the gateway last ACKed on it, one device a port, with the /fleet/ model, board type and State), whether the
 port's network reading is as it should be, then the switch's own reading, one value a column.
 
 The reading is done by `snmp_switch.dashboard` (fpgas.online-poe), cached for 15 s in the site's "poe" cache, so
@@ -216,7 +216,7 @@ def _fleet_url(request, serial):
         return ""
 
 
-# --- the hardware on each port (#130): the machines the gateway last leased an address to on it ---
+# --- the hardware on each port (#130): the one machine the gateway last ACKed on it (fpga.seen_ports) ---
 
 # the speed a model's Ethernet links at (the Pi 3B+'s gigabit port sits behind USB 2, but links at 1G); a model not
 # here is not compared (its Net title says so)
@@ -270,26 +270,14 @@ def _ago_moment(moment):
 
 
 def on_ports(request):
-    """{(switch, port): [machine]} of the machine the gateway leased an address to on each port most recently
-    (fpga.seen_ports: each machine's newest lease record that names a port). One machine a port: a port holds one
-    device (Tim, 18 Oct 2026: "When a device is switched to a port which already had a device, two devices appear on
-    the switch port. As there is suppose to be a strict one device per port, only the latest should."), so a machine
-    whose last lease on a port is older than another machine's there was moved out of it; it is still in the fleet,
-    and shows on a port again once the gateway leases it an address there. An observation with its time, never a
+    """{(switch, port): [machine]} of the machine on each port (fpga.seen_ports, which keeps one device a port: the
+    one the gateway ACKed there last, as /fleet/ and a Pi's page have it). An observation with its time, never a
     remembered table."""
     seen = fpga.seen_ports()
     if not seen:
         return {}
-    latest = {}
-    for host in fpga.hosts():
-        observed = seen.get(host.machine.pk)
-        if observed is None:
-            continue
-        key = (observed.switch, observed.port)
-        # the newest lease wins; on the same second, the newer record (seen_ports' ids grow with time)
-        if key not in latest or (observed.at, observed.record) > (latest[key][0].at, latest[key][0].record):
-            latest[key] = (observed, host)
-    return {key: [_machine(request, host, observed)] for key, (observed, host) in latest.items()}
+    return {(observed.switch, observed.port): [_machine(request, host, observed)]
+            for host in fpga.hosts() if (observed := seen.get(host.machine.pk)) is not None}
 
 
 def net_check(port, has_poe, role, machines, failures, known, vlans_checked, errors=None):
