@@ -18,90 +18,100 @@ const AT = "2026-10-17T15:30:01.250+10:30";
 const AFTER = Date.parse(AT);
 const OLDER = AFTER - 5000, NEWER = AFTER + 2000;
 
+const V = (o) => Object.assign({ busy: false, disabled: false, seconds: 0, confirmed: null, stalled: false, text: "⏻" }, o);
+
 test("an untouched port's button is the reading's, ⏻, and can be pressed", () => {
   const t = PB.createTracker();
-  assert.deepEqual(t.view(K, "off", 0), { action: "off", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: null });
+  assert.deepEqual(t.view(K, "off", 0), V({ action: "off" }));
 });
 
-test("a pressed button turns until the switch confirms, and cannot be pressed twice", () => {
+test("from the press on the button shows the state pressed for, turning, and cannot be pressed twice", () => {
+  // Tim, 18 Oct 2026: an OFF press showed a red box, then a GREEN box with a countdown (site #170)
   const t = PB.createTracker();
-  t.start(K);
-  const v = t.view(K, "off", 1000);
-  assert.equal(v.busy, true);
-  assert.equal(v.disabled, true);
-  assert.equal(v.text, "⏻");
+  t.start(K, "off");
+  const v = t.view(K, "off", 1000, NEWER);  // even a newer reading cannot end a press that has no answer yet
+  assert.deepEqual(v, V({ action: "on", busy: true, disabled: true, confirmed: "off" }));
   assert.equal(t.ticking(1000), true);
 });
 
-test("once confirmed off, the button offers on and counts Tim's ten seconds down inside it", () => {
+test("off: turning while no reading follows the confirmation, then the stable look counts the hold down", () => {
+  // coord-85: "The countdown should only be shown when the state is stable ... the twirl should appear while
+  // transitioning"
   const t = PB.createTracker();
-  t.start(K);
+  t.start(K, "off");
   t.confirmed(K, "off", 10, 0, AFTER);
-  // the reading (15 s server cache) still says the port is powered: the confirmed state wins
-  assert.deepEqual(t.view(K, "off", 0, OLDER), { action: "on", text: "10", busy: false, disabled: true, seconds: 10, confirmed: "off" });
-  assert.equal(t.view(K, "off", 400, OLDER).text, "10");
-  assert.equal(t.view(K, "off", 1000, OLDER).text, "9");
-  assert.equal(t.view(K, "off", 9001, OLDER).text, "1");
-  const free = t.view(K, "off", 10000, OLDER);
-  assert.deepEqual(free, { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: "off" });
+  // the reading (15 s server cache) still says the port is powered: the OFF look, turning, no digits
+  assert.deepEqual(t.view(K, "off", 0, OLDER), V({ action: "on", busy: true, disabled: true, confirmed: "off" }));
+  assert.equal(t.view(K, "off", 3000, OLDER).busy, true);
+  // a reading begun after the confirmation, showing the port off: stable, the hold's seconds left count down
+  assert.deepEqual(t.view(K, "on", 4000, NEWER), V({ action: "on", text: "6", disabled: true, seconds: 6 }));
+  assert.equal(t.view(K, "on", 9001, NEWER).text, "1");
+  assert.deepEqual(t.view(K, "on", 10000, NEWER), V({ action: "on" }));
+  assert.equal(t.ticking(10000), false);
 });
 
-test("once confirmed on, the wait before the next off is sixty seconds", () => {
+test("on: the ON look from the press on, never the OFF look while the Pi boots and detection catches up", () => {
+  // Tim, 18 Oct 2026: "When turning the device back on I got the green for a few seconds and then it turned red".
+  // The reading carries the PoE admin state (poe #24), so a reading after the on shows "off" (the action) whatever
+  // the detection status says.
   const t = PB.createTracker();
-  t.start(K);
-  t.confirmed(K, "on", 60, 0, AFTER);
-  assert.equal(t.view(K, "on", 0, OLDER).text, "60");
+  t.start(K, "on");
   assert.equal(t.view(K, "on", 0, OLDER).action, "off");
-  assert.equal(t.view(K, "on", 59500, OLDER).text, "1");
-  assert.equal(t.view(K, "on", 60000, OLDER).disabled, false);
+  t.confirmed(K, "on", 60, 500, AFTER);
+  for (const now of [500, 5000, 14000]) {
+    const v = t.view(K, "on", now, OLDER);
+    assert.equal(v.action, "off"); assert.equal(v.busy, true); assert.equal(v.seconds, 0);
+  }
+  const v = t.view(K, "off", 15000, NEWER);
+  assert.equal(v.action, "off"); assert.equal(v.busy, false); assert.equal(v.text, "46");
+  assert.equal(t.view(K, "off", 60500, NEWER).disabled, false);
 });
 
-test("a reading begun after the switch confirmed ends the override", () => {
+test("a reading begun after the confirmation that contradicts it is believed (someone else switched the port)", () => {
   const t = PB.createTracker();
+  t.start(K, "off");
   t.confirmed(K, "off", 10, 0, AFTER);
-  assert.equal(t.view(K, "on", 11000, NEWER).action, "on");  // the reading caught up: the port is off, its button turns it on
-  // later readings are believed again, whatever they say (someone else may switch the port)
-  assert.equal(t.view(K, "off", 12000, NEWER + 15000).action, "off");
+  const v = t.view(K, "off", 20000, NEWER);
+  assert.equal(v.confirmed, null);
+  assert.equal(v.action, "off");
+  assert.equal(v.busy, false);
 });
 
-test("a newer reading that contradicts the confirmed state is believed (someone else switched the port)", () => {
+test("an older reading that happens to agree does not end the transition (the deploy 45 wart)", () => {
   const t = PB.createTracker();
-  t.confirmed(K, "off", 10, 0, AFTER);
-  assert.equal(t.view(K, "off", 20000, NEWER).confirmed, null);
-  assert.equal(t.view(K, "off", 20000, NEWER).action, "off");
-});
-
-test("an older reading that happens to agree does not end the override (the deploy 45 wart)", () => {
-  const t = PB.createTracker();
-  // a reading older than the press shows the state the press set: kept, not ended
+  t.start(K, "off");
   t.confirmed(K, "off", 10, 0, AFTER);
   assert.equal(t.view(K, "on", 1000, OLDER).confirmed, "off");
   // a reading stamped the same millisecond as the confirmation is not known to follow it
-  assert.equal(t.view(K, "on", 1000, AFTER).confirmed, "off");
-  assert.equal(t.view(K, "on", 1000, AFTER + 1).confirmed, null);
+  assert.equal(t.view(K, "on", 1000, AFTER).busy, true);
+  assert.equal(t.view(K, "on", 1000, AFTER + 1).busy, false);
 });
 
-test("the confirmed state is kept as long as no reading began after the change, however long that is", () => {
+test("no reading within SETTLE_MS: the twirl stops once, loud, on what the switch answered", () => {
   const t = PB.createTracker();
+  t.start(K, "off");
   t.confirmed(K, "off", 10, 0, AFTER);
-  assert.equal(t.view(K, "off", 10 * 60 * 1000, OLDER).action, "on");
-  // a switch that is not answering keeps its last ports: no fresh read (NaN), the press stands
-  assert.equal(t.view(K, "off", 10 * 60 * 1000, NaN).action, "on");
+  assert.equal(t.view(K, "off", PB.SETTLE_MS, NaN).busy, true);
+  const v = t.view(K, "off", PB.SETTLE_MS + 1, NaN);
+  assert.deepEqual(v, V({ action: "on", confirmed: "off", stalled: true }));
+  // said once; the switch's answer stays drawn until a reading begun after it arrives
+  assert.equal(t.view(K, "off", PB.SETTLE_MS + 500, NaN).stalled, false);
+  assert.equal(t.view(K, "off", PB.SETTLE_MS + 500, OLDER).action, "on");
+  assert.equal(t.view(K, "off", PB.SETTLE_MS + 900, NEWER).confirmed, null);
 });
 
 test("a press inside someone else's hold counts that hold down: never silently dropped", () => {
   const t = PB.createTracker();
-  t.start(K);
+  t.start(K, "on");
   t.held(K, 42, 0);
-  const v = t.view(K, "off", 0);
-  assert.deepEqual(v, { action: "off", text: "42", busy: false, disabled: true, seconds: 42, confirmed: null });
+  assert.deepEqual(t.view(K, "off", 0), V({ action: "off", text: "42", disabled: true, seconds: 42 }));
 });
 
-test("a failed press frees the button at once", () => {
+test("a failed press frees the button at once and draws the reading again", () => {
   const t = PB.createTracker();
-  t.start(K);
+  t.start(K, "off");
   t.failed(K);
-  assert.deepEqual(t.view(K, "on", 0), { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: null });
+  assert.deepEqual(t.view(K, "on", 0), V({ action: "on" }));
   assert.equal(t.ticking(0), false);
 });
 
@@ -192,40 +202,38 @@ test("a toast goes into the stack at the top, and away by itself", () => {
 
 // --- the Link badge (round 5, items 4-6) ---
 
-test("a link tracker offers enable once the switch confirmed the port disabled, and counts the short hold", () => {
+test("a link press shows the disabled look, turning, until a reading follows; then the short hold counts", () => {
   const t = PB.createTracker(PB.LINK_ACTION_OF);
-  t.start(K);
-  assert.equal(t.view(K, "disable", 0).busy, true);
+  t.start(K, "disabled");
+  let v = t.view(K, "disable", 0);
+  assert.equal(v.busy, true); assert.equal(v.confirmed, "disabled"); assert.equal(v.action, "enable");
   t.confirmed(K, "disabled", 10, 0, AFTER);
-  const v = t.view(K, "disable", 0, OLDER);
-  assert.equal(v.action, "enable");
-  assert.equal(v.confirmed, "disabled");
-  assert.equal(v.seconds, 10);
-  // a reading begun after the change, showing the port disabled, ends the override
-  assert.equal(t.view(K, "enable", 11000, NEWER).confirmed, null);
+  v = t.view(K, "disable", 0, OLDER);
+  assert.equal(v.busy, true); assert.equal(v.confirmed, "disabled"); assert.equal(v.seconds, 0);
+  // a reading begun after the change, showing the port disabled: stable, counting
+  v = t.view(K, "enable", 3000, NEWER);
+  assert.equal(v.confirmed, null); assert.equal(v.busy, false); assert.equal(v.seconds, 7); assert.equal(v.action, "enable");
 });
 
-test("disable then enable: no reading drawn during the enable's hold shows the port disabled (the deploy 45 wart)", () => {
+test("disable then enable: no reading drawn during the enable shows the port disabled (the deploy 45 wart)", () => {
   // As seen on deploy 45 (sw1 p1): disable at t=0, enable after the 10 s hold, the 15 s cached readings lagging.
   const t = PB.createTracker(PB.LINK_ACTION_OF);
   const disabledAt = AFTER, enabledAt = AFTER + 12000;
+  t.start(K, "disabled");
   t.confirmed(K, "disabled", 10, 0, disabledAt);
-  // a reading from before both presses still shows the port enabled (its badge offers "disable")
+  // a reading from before both presses still shows the port enabled: the disabled look, turning
   assert.equal(t.view(K, "disable", 1000, disabledAt - 3000).action, "enable");
-  t.start(K);
+  t.start(K, "enabled");
   t.confirmed(K, "enabled", 60, 12000, enabledAt);
-  // the same old reading "agrees" with the enable: the enabled state is kept, not handed to the reading
+  // the same old reading "agrees" with the enable: kept as the press's, turning
   let v = t.view(K, "disable", 12500, disabledAt - 3000);
-  assert.equal(v.confirmed, "enabled");
-  // the next reading caught up with the disable only (began between the two presses): still enabled, counting
+  assert.equal(v.confirmed, "enabled"); assert.equal(v.busy, true);
+  // the next reading caught up with the disable only (began between the two presses): still enabled, turning
   v = t.view(K, "enable", 15000, disabledAt + 4000);
-  assert.equal(v.confirmed, "enabled");
-  assert.equal(v.action, "disable");
-  assert.equal(v.text, "57");
-  // a reading begun after the enable is believed
+  assert.equal(v.confirmed, "enabled"); assert.equal(v.action, "disable"); assert.equal(v.busy, true);
+  // a reading begun after the enable is believed, and the hold's seconds left count on it
   v = t.view(K, "disable", 30000, enabledAt + 1000);
-  assert.equal(v.confirmed, null);
-  assert.equal(v.action, "disable");
+  assert.equal(v.confirmed, null); assert.equal(v.action, "disable"); assert.equal(v.text, "42");
 });
 
 test("the link answer is read from its own field", () => {
@@ -275,4 +283,53 @@ test("an enabled port with no link yet is the empty badge", () => {
   PB.drawLink(b, { action: "disable", busy: false, disabled: false, seconds: 0, confirmed: "enabled" });
   assert.equal(b.querySelector(".mgmt-link-glyph").textContent, "");
   assert.equal(b.className, "mgmt-link-badge mgmt-link-button mgmt-badge-none");
+});
+
+// --- the page's glue: what a press asks first (round 6, item 3) ---
+
+function fakePage(button) {
+  const asked = [], posted = [];
+  const doc = fakeDoc();
+  doc.querySelectorAll = (sel) => (sel === button.selector ? [button.el] : []);
+  doc.addEventListener = (type, fn) => { doc.click = fn; };
+  const win = {
+    document: doc, confirm: (q) => { asked.push(q); return false; },
+    fetch: (url, opts) => { posted.push([url, JSON.parse(opts.body)]); return new Promise(() => {}); },
+    setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1,
+  };
+  return { win, doc, asked, posted };
+}
+
+function pressable(doc, cls, action) {
+  const b = doc.createElement("button");
+  Object.assign(b.dataset, { switch: "1", port: "2", action, powers: "pi-sw1-p2" });
+  b.closest = (sel) => (sel === "." + cls ? b : sel === ".mgmt-switch" ? null : null);
+  const g = doc.createElement("span"); g.className = cls === "mgmt-poe-button" ? "mgmt-poe-glyph" : "mgmt-link-glyph";
+  b.appendChild(g);
+  return b;
+}
+
+test("a PoE press asks no question (Tim, 18 Oct 2026: no confirmation popup for power cycling)", () => {
+  for (const action of ["off", "on"]) {
+    const holder = { selector: ".mgmt-poe-button" };
+    const page = fakePage(holder);
+    holder.el = pressable(page.doc, "mgmt-poe-button", action);
+    PB.attach(page.win, { power: "/snmp/power", link: "/snmp/link" }, () => {});
+    page.doc.click({ target: holder.el });
+    assert.deepEqual(page.asked, []);
+    assert.deepEqual(page.posted, [["/snmp/power", { on: action === "on", switch: 1, port: "2" }]]);
+    // drawn at once as the state pressed for, turning
+    assert.match(holder.el.className, new RegExp("mgmt-poe-to-" + (action === "off" ? "on" : "off") + " mgmt-poe-busy"));
+  }
+});
+
+test("disabling a link still asks first; declining sends nothing", () => {
+  const holder = { selector: ".mgmt-link-button" };
+  const page = fakePage(holder);
+  holder.el = pressable(page.doc, "mgmt-link-button", "disable");
+  PB.attach(page.win, { power: "/snmp/power", link: "/snmp/link" }, () => {});
+  page.doc.click({ target: holder.el });
+  assert.equal(page.asked.length, 1);
+  assert.match(page.asked[0], /^Disable the link of switch 1 port 2\?/);
+  assert.deepEqual(page.posted, []);
 });
