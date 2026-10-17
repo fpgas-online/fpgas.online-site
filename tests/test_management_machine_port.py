@@ -21,7 +21,8 @@ def pi_page(serial=SERIAL):
 
 
 @pytest.mark.django_db
-def test_the_pi_page_has_its_ports_row_exactly_as_the_dashboard_draws_it(reader):
+@pytest.mark.usefixtures("reader")
+def test_the_pi_page_has_its_ports_row_exactly_as_the_dashboard_draws_it():
     seat("pi-sw1-p1", SERIAL, lease=(1, 1), lease_ago=5)
     dashboard = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     html = pi_page()
@@ -39,7 +40,8 @@ def test_the_pi_page_has_its_ports_row_exactly_as_the_dashboard_draws_it(reader)
 
 
 @pytest.mark.django_db
-def test_the_pi_page_presses_and_refreshes_with_the_dashboards_scripts(reader):
+@pytest.mark.usefixtures("reader")
+def test_the_pi_page_presses_and_refreshes_with_the_dashboards_scripts():
     seat("pi-sw1-p1", SERIAL, lease=(1, 1))
     html = pi_page()
     head = html.split("</head>")[0]
@@ -56,7 +58,8 @@ def test_the_pi_page_presses_and_refreshes_with_the_dashboards_scripts(reader):
 
 
 @pytest.mark.django_db
-def test_a_pi_on_no_port_says_why_and_loads_no_buttons(reader):
+@pytest.mark.usefixtures("reader")
+def test_a_pi_on_no_port_says_why_and_loads_no_buttons():
     seat("pi-sw1-p1", SERIAL)  # registered, but the gateway has leased it nothing on a port
     html = pi_page()
     assert ("No switch port to show: the gateway has leased this Pi an address on no port of the switches it "
