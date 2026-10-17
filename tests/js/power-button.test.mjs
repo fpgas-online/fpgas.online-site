@@ -295,7 +295,7 @@ function fakePage(button) {
   const win = {
     document: doc, confirm: (q) => { asked.push(q); return false; },
     fetch: (url, opts) => { posted.push([url, JSON.parse(opts.body)]); return new Promise(() => {}); },
-    setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1,
+    setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1, clearTimeout: () => {},
   };
   return { win, doc, asked, posted };
 }
@@ -332,4 +332,28 @@ test("disabling a link still asks first; declining sends nothing", () => {
   assert.equal(page.asked.length, 1);
   assert.match(page.asked[0], /^Disable the link of switch 1 port 2\?/);
   assert.deepEqual(page.posted, []);
+});
+
+test("a press the site never answers stops turning after ANSWER_MS, loud", async () => {
+  const holder = { selector: ".mgmt-poe-button" };
+  const page = fakePage(holder);
+  holder.el = pressable(page.doc, "mgmt-poe-button", "off");
+  const stack = page.doc.createElement("div"); page.doc.byId["mgmt-toasts"] = stack;
+  const timers = [];
+  page.win.setTimeout = (fn, ms) => { timers.push([fn, ms]); return timers.length; };
+  class Abort { constructor() { this.signal = { aborted: false }; this.rejects = []; }
+                abort() { this.signal.aborted = true; this.rejects.forEach((r) => r(new Error("AbortError"))); } }
+  let ctl = null;
+  page.win.AbortController = function () { ctl = new Abort(); return ctl; };
+  page.win.fetch = (url, opts) => new Promise((_, reject) => { ctl.rejects.push(reject); });
+  PB.attach(page.win, { power: "/snmp/power", link: "/snmp/link" }, () => {});
+  page.doc.click({ target: holder.el });
+  assert.match(holder.el.className, /mgmt-poe-busy/);
+  const late = timers.find(([, ms]) => ms === PB.ANSWER_MS);
+  assert.ok(late, "a timer for the answer");
+  late[0]();
+  await new Promise((r) => setImmediate(r));
+  assert.doesNotMatch(holder.el.className, /mgmt-poe-busy/);
+  assert.equal(holder.el.disabled, false);
+  assert.match(stack.children[0].children[0].textContent, /no answer from the site in 30 s/);
 });
