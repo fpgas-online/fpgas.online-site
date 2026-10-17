@@ -847,15 +847,11 @@ def _switch_dicts(request):
             "status": _status(v) + (f" ({NO_INVENTORY_NOTE})" if specs[id(v)] is NO_INVENTORY else ""),
             "read_at": when(v.read_at),
             "read_ago": _ago(v.read_at),
-            # when the ports below were last read well, as an ISO 8601 time with its offset: switch-events.js keeps a
-            # pushed link change until a reading at least this new has caught up with it (a failed read keeps the
-            # old ports, so good_at, not read_at)
-            "good_at_iso": getattr(v, "good_at", None) or v.read_at or "",
             # when the read that gave the ports below STARTED (the PoE service stamps read_at before it reads the
             # ports), in milliseconds since the epoch; "" where the ports are older than that read (a switch not
-            # answering keeps its last ports). power-button.js keeps a press's confirmed state until a reading that
-            # started after the switch confirmed it (good_at is stamped after the ports were read, so a read begun
-            # before the write can carry a later one)
+            # answering keeps its last ports). power-button.js keeps a press's confirmed state, and switch-events.js
+            # a pushed link change, until a reading that started after it (good_at is stamped after the ports were
+            # read, so a read begun before the change can carry a later one)
             "read_from_ms": read_from_ms(v),
             "known_issues": issues,
             "empty_ports": sum(r["empty"] for r in rows),

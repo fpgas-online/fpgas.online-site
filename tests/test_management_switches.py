@@ -1120,20 +1120,6 @@ def test_on_a_phone_every_shown_cell_says_its_column(reader):
 
 
 @pytest.mark.django_db
-def test_the_json_carries_the_good_read_time_with_its_offset(reader):
-    """switch-events.js compares a pushed record's time with this: ISO 8601 with an offset, good_at (a failed read keeps
-    the old ports), read_at where the reader gave no good_at."""
-    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
-    assert switches[0]["good_at_iso"] == READ_AT
-    older = "2026-10-09T09:59:00+09:30"
-    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=False, error="timeout", read_at=READ_AT,
-                            good_at=older),
-                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
-    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
-    assert [s["good_at_iso"] for s in switches] == [older, READ_AT]
-
-
-@pytest.mark.django_db
 def test_the_page_says_when_the_read_that_gave_its_ports_started(reader):
     """power-button.js keeps a press's confirmed state until a reading that started after the switch confirmed it: the
     start of the read (read_at), never good_at (stamped after the ports were read), and none for a switch that is not

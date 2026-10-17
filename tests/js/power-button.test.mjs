@@ -117,6 +117,13 @@ test("the answer is read as confirmation, hold or error", () => {
   assert.equal(PB.readAnswer(200, { at: AT }, null, "port 9", "power").kind, "error");
 });
 
+test("the PoE service's own form of `at` (microseconds, an offset) is read to the millisecond", () => {
+  const a = PB.readAnswer(200, { link: "enabled", next_in: 60, at: "2026-10-17T15:30:01.250731+10:30" }, null,
+    "switch 2 port 9", "link");
+  assert.equal(a.kind, "ok");
+  assert.equal(a.after, Date.parse("2026-10-17T05:00:01.250Z"));
+});
+
 test("a confirmation without its time fails loud: the page cannot tell which readings follow it", () => {
   // none, empty, not a time, and a time with no offset (a browser would read it in its own zone)
   for (const at of [undefined, "", "yesterday", "2026-10-17T15:30:01"]) {
