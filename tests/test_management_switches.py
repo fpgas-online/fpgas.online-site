@@ -107,6 +107,14 @@ def reader(monkeypatch):
     return views
 
 
+def page_script(html):
+    """The page's own script and the row builder it loads (port-row.js, shared with a Pi's own page): what draws the
+    table after a refresh."""
+    inline = html.split("<script>")[1].split("</script>")[0]
+    assert "management/port-row.js" in html.split("<script>")[0]
+    return inline + (Path(page.__file__).parents[1] / "static" / "management" / "port-row.js").read_text()
+
+
 def machine(serial, hostname, seen_ago=0):
     return Machine.objects.create(serial=serial, site="welland", hostname=hostname,
                                   last_seen=timezone.now() - timedelta(minutes=seen_ago))
@@ -436,7 +444,7 @@ def test_each_row_has_a_cell_for_every_column_in_the_page_and_the_script(reader)
         assert len(re.findall(r"<td ", row_of(html, port))) == len(COLUMNS) - 1  # the port is the row's <th>
     classes = re.findall(r'<th scope="col" class="(?:mgmt-checkhead )?(c-[\w-]+)"', html)
     assert len(classes) == len(COLUMNS)
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     for cls in classes[1:]:
         assert f'"{cls}' in script or f' {cls}"' in script or f'"mgmt-mark {cls}' in script or \
             f'"mgmt-n {cls}' in script or f'"mgmt-label {cls}' in script, cls
@@ -777,7 +785,7 @@ def test_the_page_names_the_power_url_and_the_key_explains_the_button(reader):
 @pytest.mark.django_db
 def test_the_script_builds_the_button_without_innerhtml(reader):
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert "innerHTML" not in script and "insertAdjacentHTML" not in script and "outerHTML" not in script
     assert 'createElement("td")' in script and "/snmp/power" in script and '"on": ' not in script
     # round 5: the press, the confirm(), the hold and the toasts are power-button.js's (tests/js/power-button.test.mjs)
@@ -796,7 +804,7 @@ def test_a_poe_cell_is_one_mark_with_its_words_and_the_watts_beside_it(reader):
     assert ('<td class="mgmt-mark c-poe mgmt-poe-on" data-label="PoE" data-sort="1" title="PoE delivering power">⚡'
             '<span class="mgmt-sr"> PoE delivering power</span></td>\n        <td class="mgmt-n c-watts" '
             'data-label="W">3.5</td>') in row_of(html, 1)
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert 'mark(poe, p.poe, p.poe_title)' in script and 'w.textContent = p.watts' in script
 
 
@@ -947,7 +955,7 @@ def test_the_vlan_columns_in_the_page_and_the_script(gateway_host, monkeypatch, 
     assert '<td class="c-gw" data-label="GW" title="gateway interface v2110, up">v2110 ↑</td>' in html
     assert "title=\"the port&#x27;s VLAN (its PVID); its other untagged and its tagged VLANs on hover\"" in html
     assert "title=\"the gateway&#x27;s interface for the port&#x27;s VLAN: ↑ up, ↓ down\"" in html
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert "p.vlan_title" in script and "p.gw_title" in script and "innerHTML" not in script
     for body in (html, c.get("/management/switches.json").content.decode()):
         assert "gwhost" not in body.lower() and "example.org" not in body
@@ -1010,7 +1018,7 @@ def test_the_poe_button_has_a_column_of_its_own(monkeypatch):
         'mgmt-poe-msg' not in power and '<span class="mgmt-poe-glyph" aria-hidden="true">⏻</span>' in power
     # each toast is its own role=status / role=alert live region: the stack is not one too (it would be read twice)
     assert '<div class="mgmt-toasts" id="mgmt-toasts"></div>' in html
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert 'var power = td("c-power", "", p.power_title)' in script and "poe.appendChild(powerButton" not in script
 
 
@@ -1091,7 +1099,7 @@ def test_the_read_time_is_x_ago_with_the_exact_time_in_the_title(reader, setting
     html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     # READ_AT is 10:00 at +09:30 on 9 Oct: 11:00 in Adelaide (+10:30), days ago now
     assert re.search(r'read <span class="mgmt-readat" title="2026-10-09 11:00:00">\d+ d ago</span>', html)
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert "readat.textContent = s.read_ago; readat.title = s.read_at;" in script
 
 
@@ -1452,7 +1460,7 @@ def test_empty_board_ports_are_marked_and_counted_for_the_phone(reader):
     assert '<tr id="switch-1-port-3" class="mgmt-empty-port">' in html and '<tr id="switch-1-port-1">' in html
     assert ('<span class="mgmt-empty-count"> &middot; <span class="mgmt-empty-n">1</span> empty board ports not '
             'listed</span>') in html
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert 'tr.className = "mgmt-empty-port"' in script and '.mgmt-empty-n").textContent = s.empty_ports' in script
 
 
@@ -1546,7 +1554,7 @@ def test_each_machine_shows_its_ram_and_the_column_sorts_by_size(monkeypatch):
     assert '<td class="c-memory" data-label="RAM" data-sort="1024"><div>1 GB</div></td>' in row_of(html, 2)
     assert '<td class="c-memory" data-label="RAM" data-sort="1000000000"></td>' in row_of(html, 3)
     assert "the Pi&#x27;s memory, as its label says" in html  # the header's title
-    script = html.split("<script>")[1].split("</script>")[0]
+    script = page_script(html)
     assert 'td("c-memory", "RAM", "", p.memory_sort)' in script and "[model, memory, board," in script
 
 

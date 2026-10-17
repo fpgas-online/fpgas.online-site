@@ -1,7 +1,55 @@
 {% extends "management/base.html" %}
 {% load static %}
 {% block title %}{{ label }} &mdash; Raspberry Pis &mdash; Management &mdash; fpgas.online{% endblock %}
-{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script>{% endblock %}
+{% block extra_head %}<script src="{% static 'management/table.js' %}" defer></script>{% if switch_port.row %}<script src="{% static 'management/switch-events.js' %}" defer></script><script src="{% static 'management/power-button.js' %}" defer></script><script src="{% static 'management/port-row.js' %}"></script>
+<script>
+/* Its switch port's row refreshes in place every {{ refresh_seconds }} s from the switch port dashboard's own reading
+   (switches.json), drawn by the same builder (port-row.js), and its PoE and link buttons press as on the dashboard
+   (power-button.js); a pushed link change draws at once (switch-events.js). A Pi moved to another port: the page is
+   drawn afresh. The page is complete without this. */
+(function () {
+  var url = "{{ switches_json_url }}", serial = "{{ machine.serial|escapejs }}";
+  var anchor = "switch-{{ switch_port.anchor }}", buttons = null, pushed = null;
+  function say(text) { var p = document.getElementById("mgmt-live"); p.textContent = text; p.hidden = !text; }
+  function update(d) {
+    var box = document.getElementById(anchor), found = null;
+    d.switches.forEach(function (s, n) {
+      if ("switch-" + (s.index !== null ? s.index : n) !== anchor) { return; }
+      s.ports.forEach(function (p) {
+        if (p.machines.some(function (m) { return m.serial === serial; })) { found = {s: s, p: p}; }
+      });
+    });
+    var row = box && box.querySelector("tbody tr");
+    if (!found || !row || row.id !== anchor + "-port-" + found.p.port) { location.reload(); return; }
+    say("");
+    box.querySelector(".mgmt-status").textContent = found.s.status;
+    var readat = box.querySelector(".mgmt-readat"); readat.textContent = found.s.read_ago; readat.title = found.s.read_at;
+    box.classList.toggle("mgmt-dead", !found.s.reachable);
+    box.dataset.readFrom = found.s.read_from_ms;  /* power-button.js: which presses this reading follows */
+    var tr = document.createElement("tr"); tr.id = row.id; PortRow.fill(tr, found.p, found.s.index); row.replaceWith(tr);
+    if (buttons) { buttons.redraw(); }
+    if (pushed) { pushed.reapply(document, d.switches); }
+  }
+  function tick() {
+    fetch(url, {headers: {"Accept": "application/json"}})
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (d.switches && d.switches.length && !d.error) { update(d); }
+        else { say((d.error || "The switches could not be read just now.") + " The port's row below is from earlier."); }
+      })
+      .catch(function () { say("This page cannot reach the site just now. The port's row below is from earlier."); });
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    if (window.PowerButton) { buttons = PowerButton.attach(window, {power: "{{ power_url }}", link: "{{ link_url }}"}, tick); }
+    if (!window.SwitchEvents || !window.WebSocket) { return; }
+    pushed = SwitchEvents.createKeeper();
+    SwitchEvents.listen({WebSocket: window.WebSocket, location: location,
+                         setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window)},
+                        function (record) { pushed.apply(document, record); });
+  });
+  setInterval(tick, {{ refresh_seconds }} * 1000);
+})();
+</script>{% endif %}{% endblock %}
 {% block body %}
 <h1>{{ label }}</h1>
 
@@ -54,6 +102,28 @@
 {% if label_input %}<p><a href="{{ label_input }}">rpi-hwid's label input (.json)</a></p>{% endif %}
 </section>
 </div>
+
+{# its switch port as the switch port dashboard shows it: the same row, badges, counters and buttons (Tim, 18 Oct 2026: "You should be able to power cycle the PoE power from this page.") #}
+<h2 id="switch-port">Switch port</h2>
+{% if switch_port.row %}
+{% with s=switch_port.switch p=switch_port.row %}
+<div class="mgmt-toasts" id="mgmt-toasts"></div>
+<p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
+<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ switch_port.anchor }}" data-read-from="{{ s.read_from_ms }}">
+  <p class="mgmt-readline"><a href="{{ switches_url }}#switch-{{ switch_port.anchor }}-port-{{ p.port }}">{{ s.title }}, port {{ p.port }}</a> &middot; <span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span></p>
+  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Port {{ p.port }} of {{ s.title }}">
+  <table class="mgmt-table mgmt-ports mgmt-fit mgmt-striped">
+    {% include "management/port_head.html" with head_titles=switch_head_titles %}
+    <tbody>
+      {% include "management/port_row.html" with sw=s.index anchor=switch_port.anchor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endwith %}
+{% else %}
+<p>No switch port to show: {{ switch_port.problem }}.</p>
+{% endif %}
 
 <h2 id="boards">Boards</h2>
 {% if boards %}
