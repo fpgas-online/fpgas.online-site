@@ -460,10 +460,12 @@ def seen_ports():
     newest = Machine.objects.annotate(last=Subquery(
         acks.filter(machine=OuterRef("pk")).order_by("-at", "-id").values("pk")[:1])).exclude(last=None) \
         .values_list("last", flat=True)
-    # ...unless another device (registered or not) was ACKed on that port after it. No (switch, port, at) index: on
-    # the deployed sqlite, which Django never ANALYZEs, it made this 35 times slower (the review of #172, round 3)
-    later = acks.filter(switch=OuterRef("switch"), port=OuterRef("port")) \
-        .filter(Q(at__gt=OuterRef("at")) | Q(at=OuterRef("at"), id__gt=OuterRef("id"))) \
+    # ...unless another device (registered or not) was ACKed on that port after it: one range seek of the (switch,
+    # port, at) index from the machine's ACK on (at >= its time; of two in the same second the higher id is the later),
+    # so a Pi unplugged for days costs only the rows on its own port since (an "at > ? OR (at = ? AND id > ?)" test
+    # instead walked every newer row of every port on sqlite)
+    later = acks.filter(switch=OuterRef("switch"), port=OuterRef("port"), at__gte=OuterRef("at")) \
+        .exclude(Q(at=OuterRef("at")) & Q(id__lte=OuterRef("id"))) \
         .filter(Q(machine__isnull=True) | ~Q(machine=OuterRef("machine")))
     held = GatewayRecord.objects.filter(id__in=list(newest)).annotate(taken=Exists(later)).filter(taken=False)
     return {r.machine_id: SeenPort(r.switch, r.port, r.at, r.id) for r in held}
