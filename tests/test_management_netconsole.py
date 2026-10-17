@@ -102,6 +102,14 @@ def test_a_site_with_no_receiver_says_so(settings):
 
 
 @pytest.mark.django_db
+def test_a_lease_record_without_an_address_is_said(receiver):
+    m = pi(leased=False)
+    GatewayRecord.objects.create(site="welland", kind="lease", switch=1, port=2, hostname="pi-sw1-p2",
+                                 at=timezone.now(), doc={}, machine=m)
+    assert "No kernel console to show: the gateway&#x27;s newest lease record of the Pi" in page()
+
+
+@pytest.mark.django_db
 def test_a_line_not_in_the_receivers_form_fails_loud(receiver):
     pi()
     (receiver / "10.21.1.2.log").write_text("no time here\n")

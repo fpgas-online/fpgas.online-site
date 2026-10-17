@@ -57,7 +57,10 @@ def address(machine):
     record = machine.gateway_records.filter(kind="lease").order_by("-at", "-id").first()
     if record is None:
         raise Unavailable("the gateway has leased the Pi no address, so its netconsole sender is not known")
-    return record.doc["address"]
+    sender = record.doc.get("address")
+    if not isinstance(sender, str) or not sender:  # parse_gateway_record requires one: a record from elsewhere
+        raise Unavailable(f"the gateway's newest lease record of the Pi (at {record.at.isoformat()}) carries no address")
+    return sender
 
 
 def parse(line, path, number):
@@ -74,9 +77,10 @@ def parse(line, path, number):
 
 def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
     """This boot's lines of `machine` (a fleet Machine), as a Console; Unavailable says why there are none to show."""
+    where = directory()
     since = boot_start(machine)
     sender = address(machine)
-    path = directory() / f"{sender}.log"
+    path = where / f"{sender}.log"
     console = Console(address=sender, path=str(path), since=since)
     try:
         with open(path, "rb") as f:
