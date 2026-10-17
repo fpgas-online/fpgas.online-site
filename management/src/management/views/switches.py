@@ -759,6 +759,27 @@ def _switches(request):
         return _switch_dicts(request)
 
 
+def port_of(request, serial):
+    """The switch port the machine `serial` is on, as the switch port dashboard shows it, for its own page (Tim, 18 Oct
+    2026: "The RPi status page ... should have the same set of data as shown for the port on the switches dashboard,
+    IE badges (link, poe state, poe control), info (In / Out / Err), etc. You should be able to power cycle the PoE
+    power from this page."): {"switch": the switch's dict without its ports and panel, "anchor", "row": the port's row
+    (_row), "problem": ""}, the same values the dashboard draws. Where there is no row: {"problem": why} (the switches
+    cannot be read, or the gateway has leased the machine an address on no port of a switch it reads)."""
+    try:
+        data = _switches(request)
+    except _Unavailable as exc:
+        return {"problem": exc.message}
+    for position, sw in enumerate(data):
+        for row in sw["ports"]:
+            if any(m["serial"] == serial for m in row["machines"]):
+                anchor = str(sw["index"] if sw["index"] is not None else position)
+                switch = {k: v for k, v in sw.items() if k != "ports" and not k.startswith("panel") and
+                          k not in ("narrow_width", "narrow_height")}
+                return {"switch": switch, "anchor": anchor, "row": row, "problem": ""}
+    return {"problem": "the gateway has leased this Pi an address on no port of the switches it reads"}
+
+
 def title(view):
     """"Switch 1: sw-netgear-gsm7252ps-s2 (GSM7252PS)". The number is the installation's switch index, from the
     switches configuration the PoE views use: the number in every Pi's name (pi-sw1-p10) and port. The sysName alone
