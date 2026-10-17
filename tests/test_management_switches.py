@@ -6,7 +6,7 @@ tests use minimal stand-ins with the same fields as its SwitchView and PortView 
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -187,6 +187,10 @@ def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     assert (d[2]["rx"], d[2]["tx"]) == ("–", "–")
     # receive and transmit errors, a column each
     assert (d[0]["rx_errors"], d[0]["tx_errors"]) == ("0", "2") and (d[2]["rx_errors"], d[2]["tx_errors"]) == ("–", "–")
+    # Tim, 17 Oct: "Make the numbers in the errors column bold and right red": a count above zero carries the class; a
+    # zero, and a count not read, do not
+    assert (d[0]["rx_errors_cls"], d[0]["tx_errors_cls"]) == ("", "mgmt-errors")
+    assert (d[2]["rx_errors_cls"], d[2]["tx_errors_cls"]) == ("", "")
     # the MACs the switch saw are in the Link mark's title (the review of #137: the machine is named by the hardware
     # columns, so the MACs have no column of their own)
     assert d[0]["macs"] == ["aa:00:00:00:00:01", "aa:00:00:00:00:02", "aa:00:00:00:00:03", "aa:00:00:00:00:04"]
@@ -1125,6 +1129,33 @@ def test_the_json_carries_the_good_read_time_with_its_offset(reader):
                  SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
     switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
     assert [s["good_at_iso"] for s in switches] == [older, READ_AT]
+
+
+@pytest.mark.django_db
+def test_the_page_says_when_the_read_that_gave_its_ports_started(reader):
+    """power-button.js keeps a press's confirmed state until a reading that started after the switch confirmed it: the
+    start of the read (read_at), never good_at (stamped after the ports were read), and none for a switch that is not
+    answering (its ports are from an earlier read)."""
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    read_from = round(datetime.fromisoformat(READ_AT).timestamp() * 1000)
+    assert f'id="switch-1" data-read-from="{read_from}"' in html
+    later = "2026-10-09T10:00:07+09:30"
+    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=False, error="timeout", read_at=READ_AT,
+                            good_at="2026-10-09T09:59:00+09:30"),
+                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT, good_at=later)]
+    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
+    assert [s["read_from_ms"] for s in switches] == ["", read_from]
+    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=True, error="", read_at="2026-10-09T10:00:00")]
+    with pytest.raises(ValueError, match="no offset"):
+        Client(HTTP_HOST=HOSTS[0], raise_request_exception=True).get("/management/switches.json")
+
+
+@pytest.mark.django_db
+def test_an_error_count_above_zero_is_marked_in_the_served_table(reader):
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    row = row_of(html, 1)
+    assert '<td class="mgmt-n c-rx-errors" data-label="Rx err">0</td>' in row
+    assert '<td class="mgmt-n c-tx-errors mgmt-errors" data-label="Tx err">2</td>' in row
 
 
 # --- #130: the hardware on each port, from the gateway's observation ---------------------------------------------

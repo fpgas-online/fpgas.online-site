@@ -189,6 +189,16 @@ def _count(n):
     return NONE if n is None else str(n)
 
 
+# Tim, 17 Oct 2026 16:4x: "Make the numbers in the errors column bold and right red." A count above zero is bold bright
+# red; a zero stays plain, or every row of every switch would be red and a red count would no longer pick out the port
+# that has errors by scanning (dashboard-spec.md section 1); "–" (not read) is not a number.
+ERRORS_CLASS = "mgmt-errors"
+
+
+def errors_class(n):
+    return ERRORS_CLASS if n else ""
+
+
 def _fleet_url(request, serial):
     try:
         return reverse("fleet-detail", args=[serial], urlconf=getattr(request, "urlconf", None))
@@ -636,6 +646,8 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
         "tx": rate(port.tx_bps),
         "rx_errors": _count(port.rx_errors),
         "tx_errors": _count(port.tx_errors),
+        "rx_errors_cls": errors_class(port.rx_errors),
+        "tx_errors_cls": errors_class(port.tx_errors),
     }
     return row
 
@@ -829,12 +841,29 @@ def _switch_dicts(request):
             # pushed link change until a reading at least this new has caught up with it (a failed read keeps the
             # old ports, so good_at, not read_at)
             "good_at_iso": getattr(v, "good_at", None) or v.read_at or "",
+            # when the read that gave the ports below STARTED (the PoE service stamps read_at before it reads the
+            # ports), in milliseconds since the epoch; "" where the ports are older than that read (a switch not
+            # answering keeps its last ports). power-button.js keeps a press's confirmed state until a reading that
+            # started after the switch confirmed it (good_at is stamped after the ports were read, so a read begun
+            # before the write can carry a later one)
+            "read_from_ms": read_from_ms(v),
             "known_issues": issues,
             "empty_ports": sum(r["empty"] for r in rows),
             "ports": rows,
             **_panel(v, model, problem, rows, position),
         })
     return out
+
+
+def read_from_ms(view):
+    """When the read that gave `view`'s ports started, in ms since the epoch; "" for a switch that is not answering. A
+    read_at that is not an ISO 8601 time with its offset is the PoE service's fault and fails loud."""
+    if not view.reachable:
+        return ""
+    at = datetime.fromisoformat(view.read_at)
+    if at.tzinfo is None:
+        raise ValueError(f"the PoE service gave a read time with no offset: {view.read_at!r}")
+    return round(at.timestamp() * 1000)
 
 
 def _panel(view, model, problem, rows, position):
