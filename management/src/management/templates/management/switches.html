@@ -106,9 +106,11 @@
     else { l.textContent = p.lldp_name; }
     tr.appendChild(l);
     var lp = td("c-lldp-port", "LLDP port"); lp.textContent = p.lldp_port; tr.appendChild(lp);
-    [["c-rx", "In", p.rx], ["c-tx", "Out", p.tx], ["c-rx-errors", "Rx err", p.rx_errors],
-     ["c-tx-errors", "Tx err", p.tx_errors]].forEach(function (n) {
-      var c = td("mgmt-n " + n[0], n[1]); c.textContent = n[2]; tr.appendChild(c);
+    /* an error count above zero is bold bright red (Tim, 17 Oct: "Make the numbers in the errors column bold and right
+       red."); the class comes from the view, which says why a zero is not */
+    [["c-rx", "In", p.rx, ""], ["c-tx", "Out", p.tx, ""], ["c-rx-errors", "Rx err", p.rx_errors, p.rx_errors_cls],
+     ["c-tx-errors", "Tx err", p.tx_errors, p.tx_errors_cls]].forEach(function (n) {
+      var c = td("mgmt-n " + n[0] + (n[3] ? " " + n[3] : ""), n[1]); c.textContent = n[2]; tr.appendChild(c);
     });
     var role = td("c-role", "Role"); role.textContent = p.role; tr.appendChild(role);
   }
@@ -138,6 +140,7 @@
       box.querySelector(".mgmt-status").textContent = s.status;
       var readat = box.querySelector(".mgmt-readat"); readat.textContent = s.read_ago; readat.title = s.read_at;
       box.classList.toggle("mgmt-dead", !s.reachable);
+      box.dataset.readFrom = s.read_from_ms;  /* power-button.js: which presses this reading follows */
       known(box, s.known_issues);
       box.querySelector(".mgmt-empty-n").textContent = s.empty_ports;
       box.querySelector(".mgmt-empty-count").hidden = !s.empty_ports;
@@ -211,7 +214,7 @@
 <p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
 {% for s in switches %}
 {% with anchor=s.index|default_if_none:forloop.counter0|stringformat:"s" %}
-<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ anchor }}">
+<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ anchor }}" data-read-from="{{ s.read_from_ms }}">
   <h2>{{ s.title }}</h2>
   <p class="mgmt-readline"><span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span><span class="mgmt-empty-count"{% if not s.empty_ports %} hidden{% endif %}> &middot; <span class="mgmt-empty-n">{{ s.empty_ports }}</span> empty board ports not listed</span></p>
   {% if s.panel_problem %}<p class="mgmt-problem">{{ s.panel_problem }}</p>{% endif %}
@@ -274,8 +277,8 @@
         <td class="c-lldp-port" data-label="LLDP port">{{ p.lldp_port }}</td>
         <td class="mgmt-n c-rx" data-label="In">{{ p.rx }}</td>
         <td class="mgmt-n c-tx" data-label="Out">{{ p.tx }}</td>
-        <td class="mgmt-n c-rx-errors" data-label="Rx err">{{ p.rx_errors }}</td>
-        <td class="mgmt-n c-tx-errors" data-label="Tx err">{{ p.tx_errors }}</td>
+        <td class="mgmt-n c-rx-errors{% if p.rx_errors_cls %} {{ p.rx_errors_cls }}{% endif %}" data-label="Rx err">{{ p.rx_errors }}</td>
+        <td class="mgmt-n c-tx-errors{% if p.tx_errors_cls %} {{ p.tx_errors_cls }}{% endif %}" data-label="Tx err">{{ p.tx_errors }}</td>
         <td class="c-role" data-label="Role">{{ p.role }}</td>
       </tr>
     {% empty %}

@@ -12,6 +12,11 @@ const PB = require(
   join(here, "..", "..", "management", "src", "management", "static", "management", "power-button.js"));
 
 const K = "2/9";
+// the gateway's clock (ms) at which the switch confirmed a press (the answer's `at`); a reading that started before it
+// is "older", one after it "newer"
+const AT = "2026-10-17T15:30:01.250+10:30";
+const AFTER = Date.parse(AT);
+const OLDER = AFTER - 5000, NEWER = AFTER + 2000;
 
 test("an untouched port's button is the reading's, ⏻, and can be pressed", () => {
   const t = PB.createTracker();
@@ -31,39 +36,57 @@ test("a pressed button turns until the switch confirms, and cannot be pressed tw
 test("once confirmed off, the button offers on and counts Tim's ten seconds down inside it", () => {
   const t = PB.createTracker();
   t.start(K);
-  t.confirmed(K, "off", 10, 0);
+  t.confirmed(K, "off", 10, 0, AFTER);
   // the reading (15 s server cache) still says the port is powered: the confirmed state wins
-  assert.deepEqual(t.view(K, "off", 0), { action: "on", text: "10", busy: false, disabled: true, seconds: 10, confirmed: "off" });
-  assert.equal(t.view(K, "off", 400).text, "10");
-  assert.equal(t.view(K, "off", 1000).text, "9");
-  assert.equal(t.view(K, "off", 9001).text, "1");
-  const free = t.view(K, "off", 10000);
+  assert.deepEqual(t.view(K, "off", 0, OLDER), { action: "on", text: "10", busy: false, disabled: true, seconds: 10, confirmed: "off" });
+  assert.equal(t.view(K, "off", 400, OLDER).text, "10");
+  assert.equal(t.view(K, "off", 1000, OLDER).text, "9");
+  assert.equal(t.view(K, "off", 9001, OLDER).text, "1");
+  const free = t.view(K, "off", 10000, OLDER);
   assert.deepEqual(free, { action: "on", text: "⏻", busy: false, disabled: false, seconds: 0, confirmed: "off" });
 });
 
 test("once confirmed on, the wait before the next off is sixty seconds", () => {
   const t = PB.createTracker();
   t.start(K);
-  t.confirmed(K, "on", 60, 0);
-  assert.equal(t.view(K, "on", 0).text, "60");
-  assert.equal(t.view(K, "on", 0).action, "off");
-  assert.equal(t.view(K, "on", 59500).text, "1");
-  assert.equal(t.view(K, "on", 60000).disabled, false);
+  t.confirmed(K, "on", 60, 0, AFTER);
+  assert.equal(t.view(K, "on", 0, OLDER).text, "60");
+  assert.equal(t.view(K, "on", 0, OLDER).action, "off");
+  assert.equal(t.view(K, "on", 59500, OLDER).text, "1");
+  assert.equal(t.view(K, "on", 60000, OLDER).disabled, false);
 });
 
-test("a reading that agrees with the confirmed state ends the override", () => {
+test("a reading begun after the switch confirmed ends the override", () => {
   const t = PB.createTracker();
-  t.confirmed(K, "off", 10, 0);
-  assert.equal(t.view(K, "on", 11000).action, "on");  // the reading caught up: the port is off, its button turns it on
+  t.confirmed(K, "off", 10, 0, AFTER);
+  assert.equal(t.view(K, "on", 11000, NEWER).action, "on");  // the reading caught up: the port is off, its button turns it on
   // later readings are believed again, whatever they say (someone else may switch the port)
-  assert.equal(t.view(K, "off", 12000).action, "off");
+  assert.equal(t.view(K, "off", 12000, NEWER + 15000).action, "off");
 });
 
-test("a confirmed state the reading never shows is believed for a while only", () => {
+test("a newer reading that contradicts the confirmed state is believed (someone else switched the port)", () => {
   const t = PB.createTracker();
-  t.confirmed(K, "off", 10, 0);
-  assert.equal(t.view(K, "off", PB.CONFIRMED_KEPT_MS - 1).action, "on");
-  assert.equal(t.view(K, "off", PB.CONFIRMED_KEPT_MS + 1).action, "off");
+  t.confirmed(K, "off", 10, 0, AFTER);
+  assert.equal(t.view(K, "off", 20000, NEWER).confirmed, null);
+  assert.equal(t.view(K, "off", 20000, NEWER).action, "off");
+});
+
+test("an older reading that happens to agree does not end the override (the deploy 45 wart)", () => {
+  const t = PB.createTracker();
+  // a reading older than the press shows the state the press set: kept, not ended
+  t.confirmed(K, "off", 10, 0, AFTER);
+  assert.equal(t.view(K, "on", 1000, OLDER).confirmed, "off");
+  // a reading stamped the same millisecond as the confirmation is not known to follow it
+  assert.equal(t.view(K, "on", 1000, AFTER).confirmed, "off");
+  assert.equal(t.view(K, "on", 1000, AFTER + 1).confirmed, null);
+});
+
+test("the confirmed state is kept as long as no reading began after the change, however long that is", () => {
+  const t = PB.createTracker();
+  t.confirmed(K, "off", 10, 0, AFTER);
+  assert.equal(t.view(K, "off", 10 * 60 * 1000, OLDER).action, "on");
+  // a switch that is not answering keeps its last ports: no fresh read (NaN), the press stands
+  assert.equal(t.view(K, "off", 10 * 60 * 1000, NaN).action, "on");
 });
 
 test("a press inside someone else's hold counts that hold down: never silently dropped", () => {
@@ -83,15 +106,31 @@ test("a failed press frees the button at once", () => {
 });
 
 test("the answer is read as confirmation, hold or error", () => {
-  assert.deepEqual(PB.readAnswer(200, { state: "off", next_in: 10 }, null, "switch 2 port 9"),
-    { kind: "ok", state: "off", seconds: 10, text: "PoE off on switch 2 port 9" });
+  assert.deepEqual(PB.readAnswer(200, { state: "off", next_in: 10, at: AT }, null, "switch 2 port 9", "power"),
+    { kind: "ok", state: "off", seconds: 10, after: AFTER, text: "PoE off on switch 2 port 9" });
   assert.deepEqual(PB.readAnswer(429, { error: "x" }, "37", "switch 2 port 9"),
     { kind: "held", seconds: 37, text: "switch 2 port 9 was switched a moment ago; it can be switched again in 37 s" });
   assert.equal(PB.readAnswer(429, {}, null, "port 9").seconds, 1);
   assert.deepEqual(PB.readAnswer(403, { error: "not a board" }, null, "port 9"),
     { kind: "error", text: "port 9: not a board (HTTP 403)" });
   // a 200 without a state is not a confirmation
-  assert.equal(PB.readAnswer(200, {}, null, "port 9").kind, "error");
+  assert.equal(PB.readAnswer(200, { at: AT }, null, "port 9", "power").kind, "error");
+});
+
+test("the PoE service's own form of `at` (microseconds, an offset) is read to the millisecond", () => {
+  const a = PB.readAnswer(200, { link: "enabled", next_in: 60, at: "2026-10-17T15:30:01.250731+10:30" }, null,
+    "switch 2 port 9", "link");
+  assert.equal(a.kind, "ok");
+  assert.equal(a.after, Date.parse("2026-10-17T05:00:01.250Z"));
+});
+
+test("a confirmation without its time fails loud: the page cannot tell which readings follow it", () => {
+  // none, empty, not a time, and a time with no offset (a browser would read it in its own zone)
+  for (const at of [undefined, "", "yesterday", "2026-10-17T15:30:01"]) {
+    const a = PB.readAnswer(200, { state: "off", next_in: 10, at }, null, "switch 2 port 9", "power");
+    assert.equal(a.kind, "error");
+    assert.match(a.text, /^PoE off on switch 2 port 9, but the answer carried no time/);
+  }
 });
 
 class Element {
@@ -157,21 +196,44 @@ test("a link tracker offers enable once the switch confirmed the port disabled, 
   const t = PB.createTracker(PB.LINK_ACTION_OF);
   t.start(K);
   assert.equal(t.view(K, "disable", 0).busy, true);
-  t.confirmed(K, "disabled", 10, 0);
-  const v = t.view(K, "disable", 0);
+  t.confirmed(K, "disabled", 10, 0, AFTER);
+  const v = t.view(K, "disable", 0, OLDER);
   assert.equal(v.action, "enable");
   assert.equal(v.confirmed, "disabled");
   assert.equal(v.seconds, 10);
-  // a reading that shows the port disabled ends the override
-  assert.equal(t.view(K, "enable", 11000).confirmed, null);
+  // a reading begun after the change, showing the port disabled, ends the override
+  assert.equal(t.view(K, "enable", 11000, NEWER).confirmed, null);
+});
+
+test("disable then enable: no reading drawn during the enable's hold shows the port disabled (the deploy 45 wart)", () => {
+  // As seen on deploy 45 (sw1 p1): disable at t=0, enable after the 10 s hold, the 15 s cached readings lagging.
+  const t = PB.createTracker(PB.LINK_ACTION_OF);
+  const disabledAt = AFTER, enabledAt = AFTER + 12000;
+  t.confirmed(K, "disabled", 10, 0, disabledAt);
+  // a reading from before both presses still shows the port enabled (its badge offers "disable")
+  assert.equal(t.view(K, "disable", 1000, disabledAt - 3000).action, "enable");
+  t.start(K);
+  t.confirmed(K, "enabled", 60, 12000, enabledAt);
+  // the same old reading "agrees" with the enable: the enabled state is kept, not handed to the reading
+  let v = t.view(K, "disable", 12500, disabledAt - 3000);
+  assert.equal(v.confirmed, "enabled");
+  // the next reading caught up with the disable only (began between the two presses): still enabled, counting
+  v = t.view(K, "enable", 15000, disabledAt + 4000);
+  assert.equal(v.confirmed, "enabled");
+  assert.equal(v.action, "disable");
+  assert.equal(v.text, "57");
+  // a reading begun after the enable is believed
+  v = t.view(K, "disable", 30000, enabledAt + 1000);
+  assert.equal(v.confirmed, null);
+  assert.equal(v.action, "disable");
 });
 
 test("the link answer is read from its own field", () => {
-  assert.deepEqual(PB.readAnswer(200, { link: "disabled", next_in: 10 }, null, "switch 2 port 9", "link"),
-    { kind: "ok", state: "disabled", seconds: 10, text: "link disabled on switch 2 port 9" });
+  assert.deepEqual(PB.readAnswer(200, { link: "disabled", next_in: 10, at: AT }, null, "switch 2 port 9", "link"),
+    { kind: "ok", state: "disabled", seconds: 10, after: AFTER, text: "link disabled on switch 2 port 9" });
   // a power answer is not a link confirmation, nor the reverse
-  assert.equal(PB.readAnswer(200, { state: "off" }, null, "port 9", "link").kind, "error");
-  assert.equal(PB.readAnswer(200, { link: "enabled" }, null, "port 9", "power").kind, "error");
+  assert.equal(PB.readAnswer(200, { state: "off", at: AT }, null, "port 9", "link").kind, "error");
+  assert.equal(PB.readAnswer(200, { link: "enabled", at: AT }, null, "port 9", "power").kind, "error");
   assert.equal(PB.readAnswer(429, {}, "8", "switch 2 port 9", "link").text,
     "the link of switch 2 port 9 was switched a moment ago; it can be switched again in 8 s");
 });

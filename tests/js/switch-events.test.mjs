@@ -175,7 +175,8 @@ function rebuild(p) {
   p.badge.dataset = { cls: "mgmt-badge-fast", text: "1G" };
   p.box.attrs.class = "mgmt-port mgmt-box-operational mgmt-link-up";
 }
-const reading = (goodAt) => [{ index: 2, good_at_iso: goodAt }];
+// the dashboard JSON's read_from_ms: when the read that gave the ports started
+const reading = (startedAt) => [{ index: 2, read_from_ms: Date.parse(startedAt) }];
 
 test("a record, then a tick with an older reading, keeps the pushed state", () => {
   const p = page({});
@@ -188,6 +189,16 @@ test("a record, then a tick with an older reading, keeps the pushed state", () =
   // and again on the next older reading: still kept
   rebuild(p);
   keeper.reapply(p.doc, reading("2026-10-14T01:02:02+00:00"));
+  assert.equal(p.glyph.textContent, "");
+  assert.equal(keeper.size(), 1);
+});
+
+test("a switch not answering has no fresh reading: the pushed state is kept", () => {
+  const p = page({});
+  const keeper = createKeeper();
+  keeper.apply(p.doc, record("down", { at: "2026-10-14T01:02:03+00:00" }));
+  rebuild(p);  // the switch's last good ports, from before the change
+  keeper.reapply(p.doc, [{ index: 2, read_from_ms: "" }]);
   assert.equal(p.glyph.textContent, "");
   assert.equal(keeper.size(), 1);
 });
@@ -219,7 +230,7 @@ test("the keeper keeps the newest record per port, ignores records the page cann
   assert.equal(keeper.size(), 1);
   rebuild(p);
   // another switch's fresh reading says nothing about switch 2; no reading for switch 2 at all: forget it
-  keeper.reapply(p.doc, [{ index: 1, good_at_iso: "2026-10-14T02:00:00+00:00" }]);
+  keeper.reapply(p.doc, [{ index: 1, read_from_ms: Date.parse("2026-10-14T02:00:00+00:00") }]);
   assert.equal(p.glyph.textContent, "1G");
   assert.equal(keeper.size(), 0);
 });

@@ -18,21 +18,25 @@
  * down: a press is never silently dropped.
  *
  * The table is rebuilt from the dashboard's reading every refresh, and that reading comes through a 15 s server cache:
- * it can still show the old PoE state after the switch confirmed the new one. The tracker therefore keeps each port's
- * confirmed state and draws the button from it until a reading agrees (or CONFIRMED_KEPT_MS has passed, after which the
- * reading is believed: someone else may have switched the port since).
+ * it can still show the old state after the switch confirmed the new one. The tracker therefore keeps each port's
+ * confirmed state and draws the button from it until a reading that STARTED after the switch confirmed it arrives;
+ * that reading is then believed, whatever it says (someone else may have switched the port since). A reading that
+ * merely agrees is not enough (round 5b, the wart seen on deploy 45): after a disable and then an enable, a reading
+ * older than both still shows the port enabled, "agreed" with the enable, and the next reading, which had caught up with
+ * the disable only, drew the badge "off" during the enable's hold. Both times are the gateway's clock: the reading's
+ * start (the switch section's data-read-from, ms) and the answer's `at` (the PoE service's time once the switch was
+ * written and read back).
  *
  * The Link badge (round 5, items 4-6: "Clicking the badge should turn the link on / off") is pressed the same way:
  * the same tracker, confirmation, countdown and toasts, against /snmp/link, which holds a port's link apart from its
  * power. While it waits its text turns as the ⏻ does; once confirmed it shows the confirmed state (the PoE-off look for
- * a disabled port, the empty badge for an enabled one with no link yet) until a reading agrees.
+ * a disabled port, the empty badge for an enabled one with no link yet) until a reading begun after the change arrives.
  *
  * The tracker is plain data and functions (tested with node: tests/js/power-button.test.mjs); attach() is the page's
  * glue.
  */
 (function () {
   var ICON = "⏻";
-  var CONFIRMED_KEPT_MS = 90 * 1000;  /* longer than the longest hold plus a server cache period */
   var ACTION_OF = {on: "off", off: "on"};  /* a powered port's button turns it off, an unpowered port's turns it on */
   var LINK_ACTION_OF = {enabled: "disable", disabled: "enable"};
   var BUSY = "⟳";  /* the Link badge's text while the switch confirms */
@@ -40,29 +44,31 @@
   /* `actionOf`: {confirmed state: the action a press then does}; the power button's by default */
   function createTracker(actionOf) {
     actionOf = actionOf || ACTION_OF;
-    var ports = {};  /* "switch/port" -> {busy, until, confirmed, confirmedAt} */
-    function get(k) { return ports[k] || (ports[k] = {busy: false, until: 0, confirmed: null, confirmedAt: 0}); }
+    var ports = {};  /* "switch/port" -> {busy, until, confirmed, after} */
+    function get(k) { return ports[k] || (ports[k] = {busy: false, until: 0, confirmed: null, after: 0}); }
     return {
       /* the press was sent */
       start: function (k) { get(k).busy = true; },
-      /* the switch confirmed `state` ("on"/"off") and the port is held for `seconds` */
-      confirmed: function (k, state, seconds, now) {
+      /* the switch confirmed `state` ("on"/"off"; "enabled"/"disabled") and the port is held for `seconds`; `after`:
+         the gateway's time (ms) from which a reading is sure to show the change (readAnswer's) */
+      confirmed: function (k, state, seconds, now, after) {
         var p = get(k);
         p.busy = false; p.until = now + seconds * 1000;
-        if (Object.prototype.hasOwnProperty.call(actionOf, state)) { p.confirmed = state; p.confirmedAt = now; }
+        if (Object.prototype.hasOwnProperty.call(actionOf, state)) { p.confirmed = state; p.after = after; }
       },
       /* the port is held by an earlier switch for `seconds` (a 429); nothing was sent */
       held: function (k, seconds, now) { var p = get(k); p.busy = false; p.until = Math.max(p.until, now + seconds * 1000); },
       /* the press failed: nothing is known to have changed, the button is free again */
       failed: function (k) { get(k).busy = false; },
       /* How the button of port `k` is drawn, given the action the latest reading gives it ("on"/"off"; for a link
-         "disable"/"enable"). {action, text, busy, disabled, seconds, confirmed}: `confirmed` is the state the switch
-         confirmed that the reading does not show yet, else null; `text` is the power button's. */
-      view: function (k, readAction, now) {
+         "disable"/"enable") and when that reading started (`readFrom`, the gateway's ms; NaN where the ports are not
+         from a fresh read). {action, text, busy, disabled, seconds, confirmed}: `confirmed` is the state the switch
+         confirmed that no reading since has shown or contradicted, else null; `text` is the power button's. */
+      view: function (k, readAction, now, readFrom) {
         var p = ports[k], action = readAction;
         if (!p) { return {action: action, text: ICON, busy: false, disabled: false, seconds: 0, confirmed: null}; }
         if (p.confirmed) {
-          if (actionOf[p.confirmed] === readAction || now - p.confirmedAt > CONFIRMED_KEPT_MS) { p.confirmed = null; }
+          if (readFrom > p.after) { p.confirmed = null; }  /* a reading begun after the change: believe it */
           else { action = actionOf[p.confirmed]; }
         }
         var confirmed = p.confirmed;
@@ -81,16 +87,24 @@
     };
   }
 
-  /* What the PoE service's answer to a press means: {kind: "ok"|"held"|"error", state, seconds, text}. `where` names
-     the port ("switch 2 port 9"); `what` is "power" (/snmp/power answers {"state"}) or "link" (/snmp/link answers
-     {"link"}). */
+  /* What the PoE service's answer to a press means: {kind: "ok"|"held"|"error", state, seconds, after, text}. `where`
+     names the port ("switch 2 port 9"); `what` is "power" (/snmp/power answers {"state"}) or "link" (/snmp/link answers
+     {"link"}). A confirmation's `at` is the PoE service's time once the switch was written and read back: `after`, in
+     ms, the moment after which a reading that started is sure to show the change. An answer with no `at` cannot say
+     which readings follow the change: that fails loud, as an error, and the next reading shows the port as it is. */
   function readAnswer(status, body, retryAfter, where, what) {
     var link = what === "link", state = body && (link ? body.link : body.state);
     var states = link ? LINK_ACTION_OF : ACTION_OF;
     if (status >= 200 && status < 300 && typeof state === "string" && Object.prototype.hasOwnProperty.call(states, state)) {
       var seconds = typeof body.next_in === "number" && body.next_in > 0 ? body.next_in : 0;
-      return {kind: "ok", state: state, seconds: seconds,
-              text: (link ? "link " : "PoE ") + state + " on " + where};
+      var text = (link ? "link " : "PoE ") + state + " on " + where;
+      /* an ISO 8601 time with its offset, never a bare one (which a browser reads in its own zone) */
+      var at = typeof body.at === "string" && /([+-]\d\d:\d\d|Z)$/.test(body.at) ? Date.parse(body.at) : NaN;
+      if (!(at === at)) {  /* NaN */
+        return {kind: "error", text: text + ", but the answer carried no time it was confirmed (at: " +
+                                     JSON.stringify(body.at) + "), so this page cannot tell which readings follow it"};
+      }
+      return {kind: "ok", state: state, seconds: seconds, after: at, text: text};
     }
     if (status === 429) {
       var wait = parseInt(retryAfter, 10);
@@ -198,7 +212,10 @@
         var kind = KINDS[what], tracker = trackers[what];
         doc.querySelectorAll(kind.selector).forEach(function (b) {
           if (!b.dataset.readAction) { b.dataset.readAction = b.dataset.action; }  /* what the reading said */
-          kind.draw(b, tracker.view(key(b.dataset.switch, b.dataset.port), b.dataset.readAction, now));
+          /* when the reading the table shows started (ms, the gateway's clock); none for a switch not answering */
+          var box = b.closest(".mgmt-switch"), from = box ? box.dataset.readFrom : "";
+          var readFrom = from ? Number(from) : NaN;
+          kind.draw(b, tracker.view(key(b.dataset.switch, b.dataset.port), b.dataset.readAction, now, readFrom));
         });
         ticking = ticking || tracker.ticking(now);
       });
@@ -223,7 +240,7 @@
         .catch(function (e) { return {kind: "error", text: where + ": the site did not answer (" + e + ")"}; })
         .then(function (a) {
           var now = Date.now();
-          if (a.kind === "ok") { tracker.confirmed(k, a.state, a.seconds, now); }
+          if (a.kind === "ok") { tracker.confirmed(k, a.state, a.seconds, now, a.after); }
           else if (a.kind === "held") { tracker.held(k, a.seconds, now); }
           else { tracker.failed(k); }
           toast(doc, a.text, a.kind, win.setTimeout.bind(win), a.seconds);
@@ -242,8 +259,7 @@
   }
 
   var api = {createTracker: createTracker, readAnswer: readAnswer, draw: draw, drawLink: drawLink, toast: toast,
-             attach: attach, ICON: ICON, BUSY: BUSY, LINK_ACTION_OF: LINK_ACTION_OF,
-             CONFIRMED_KEPT_MS: CONFIRMED_KEPT_MS};
+             attach: attach, ICON: ICON, BUSY: BUSY, LINK_ACTION_OF: LINK_ACTION_OF};
   if (typeof module !== "undefined") { module.exports = api; }
   if (typeof window !== "undefined") { window.PowerButton = api; }
 })();

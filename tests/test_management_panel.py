@@ -316,7 +316,8 @@ def test_the_legacy_switch_links_to_rows_by_its_place_on_the_page(one_switch):
     data = page_json()
     assert data[1]["index"] is None and data[1]["panel"][0]["href"] == "#switch-1-port-1"  # second on the page
     html = page_html()
-    assert '<section class="mgmt-switch" id="switch-1">' in html and 'id="switch-1-panel-1"' in html
+    assert re.search(r'<section class="mgmt-switch" id="switch-1" data-read-from="\d+">', html)
+    assert 'id="switch-1-panel-1"' in html
     assert '<tr id="switch-1-port-1" class="mgmt-empty-port">' in html
 
 

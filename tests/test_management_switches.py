@@ -6,7 +6,7 @@ tests use minimal stand-ins with the same fields as its SwitchView and PortView 
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,7 @@ except ImportError:  # poe without the dashboard module: stand-ins with the same
         port: int
         label: str | None = None
         link_up: bool = False
+        oper_status: int | None = None
         speed_mbps: int | None = None
         poe_state: str | None = None
         poe_watts: float | None = None
@@ -187,6 +188,10 @@ def test_traffic_is_rates_and_a_dash_when_unknown(reader):
     assert (d[2]["rx"], d[2]["tx"]) == ("–", "–")
     # receive and transmit errors, a column each
     assert (d[0]["rx_errors"], d[0]["tx_errors"]) == ("0", "2") and (d[2]["rx_errors"], d[2]["tx_errors"]) == ("–", "–")
+    # Tim, 17 Oct: "Make the numbers in the errors column bold and right red": a count above zero carries the class; a
+    # zero, and a count not read, do not
+    assert (d[0]["rx_errors_cls"], d[0]["tx_errors_cls"]) == ("", "mgmt-errors")
+    assert (d[2]["rx_errors_cls"], d[2]["tx_errors_cls"]) == ("", "")
     # the MACs the switch saw are in the Link mark's title (the review of #137: the machine is named by the hardware
     # columns, so the MACs have no column of their own)
     assert d[0]["macs"] == ["aa:00:00:00:00:01", "aa:00:00:00:00:02", "aa:00:00:00:00:03", "aa:00:00:00:00:04"]
@@ -904,9 +909,10 @@ def test_the_devices_are_read_once_per_request(monkeypatch, netdevs):
 
 @pytest.mark.django_db
 def test_an_older_poe_without_vlan_fields_shows_dashes(monkeypatch, netdevs):
-    class Old:  # a PortView from a poe before the VLAN fields (admin_enabled is required: the Link badge needs it)
+    class Old:  # a PortView from a poe before the VLAN fields (admin_enabled and oper_status are required: the Link
+        # badge needs them)
         port, label, link_up, speed_mbps, poe_state, poe_watts = 1, None, False, None, None, None
-        admin_enabled = True
+        admin_enabled, oper_status = True, 2
         lldp_name = lldp_port = rx_bps = tx_bps = rx_errors = tx_errors = None
         macs = []
     ports = vlan_json(monkeypatch, [Old()])
@@ -1114,17 +1120,30 @@ def test_on_a_phone_every_shown_cell_says_its_column(reader):
 
 
 @pytest.mark.django_db
-def test_the_json_carries_the_good_read_time_with_its_offset(reader):
-    """switch-events.js compares a pushed record's time with this: ISO 8601 with an offset, good_at (a failed read keeps
-    the old ports), read_at where the reader gave no good_at."""
-    switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
-    assert switches[0]["good_at_iso"] == READ_AT
-    older = "2026-10-09T09:59:00+09:30"
+def test_the_page_says_when_the_read_that_gave_its_ports_started(reader):
+    """power-button.js keeps a press's confirmed state until a reading that started after the switch confirmed it: the
+    start of the read (read_at), never good_at (stamped after the ports were read), and none for a switch that is not
+    answering (its ports are from an earlier read)."""
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    read_from = round(datetime.fromisoformat(READ_AT).timestamp() * 1000)
+    assert f'id="switch-1" data-read-from="{read_from}"' in html
+    later = "2026-10-09T10:00:07+09:30"
     reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=False, error="timeout", read_at=READ_AT,
-                            good_at=older),
-                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT)]
+                            good_at="2026-10-09T09:59:00+09:30"),
+                 SwitchView(index=2, name="sw", model="X", reachable=True, error="", read_at=READ_AT, good_at=later)]
     switches = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"]
-    assert [s["good_at_iso"] for s in switches] == [older, READ_AT]
+    assert [s["read_from_ms"] for s in switches] == ["", read_from]
+    reader[:] = [SwitchView(index=1, name="sw", model="X", reachable=True, error="", read_at="2026-10-09T10:00:00")]
+    with pytest.raises(ValueError, match="no offset"):
+        Client(HTTP_HOST=HOSTS[0], raise_request_exception=True).get("/management/switches.json")
+
+
+@pytest.mark.django_db
+def test_an_error_count_above_zero_is_marked_in_the_served_table(reader):
+    html = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
+    row = row_of(html, 1)
+    assert '<td class="mgmt-n c-rx-errors" data-label="Rx err">0</td>' in row
+    assert '<td class="mgmt-n c-tx-errors mgmt-errors" data-label="Tx err">2</td>' in row
 
 
 # --- #130: the hardware on each port, from the gateway's observation ---------------------------------------------
@@ -1480,31 +1499,49 @@ def test_a_memory_the_page_cannot_size_says_why_on_hover(monkeypatch):
 class BadgePort:
     admin_enabled: bool = True
     link_up: bool = True
+    oper_status: int | None = 1
     speed_mbps: int | None = 1000
+    rx_errors: int | None = 0
+    tx_errors: int | None = 0
 
 
-@pytest.mark.parametrize("port, rose, want", [
-    (BadgePort(link_up=False, speed_mbps=None), [], ("", "mgmt-badge-none")),        # empty / transparent: no link
-    (BadgePort(speed_mbps=1000), ["rx errors +3 since 09:00"], ("1G", "mgmt-badge-err")),  # red: error
-    (BadgePort(speed_mbps=100), [], ("100", "mgmt-badge-fast")),                       # green 100
-    (BadgePort(speed_mbps=1000), [], ("1G", "mgmt-badge-fast")),                       # green 1G
-    (BadgePort(speed_mbps=10), [], ("10", "mgmt-badge-slow")),                         # yellow 10
-    (BadgePort(admin_enabled=False, link_up=False, speed_mbps=None), [], ("off", "mgmt-badge-off")),  # disabled
-    (BadgePort(admin_enabled=False, link_up=False), ["rx errors +1"], ("off", "mgmt-badge-off")),  # disabled wins
-    (BadgePort(speed_mbps=10000), [], ("10G", "mgmt-badge-fast")),
-    (BadgePort(speed_mbps=2500), [], ("2G5", "mgmt-badge-fast")),
-    (BadgePort(speed_mbps=None), [], ("↑", "mgmt-badge-fast")),  # up, no speed read: as switch-events.js draws it
+DOWN = {"link_up": False, "oper_status": 2, "speed_mbps": None}
+
+
+@pytest.mark.parametrize("port, want", [
+    (BadgePort(**DOWN), ("", "mgmt-badge-none")),                                   # empty / transparent: no link
+    (BadgePort(link_up=False, oper_status=7, speed_mbps=None), ("err", "mgmt-badge-err")),  # red: a link fault
+    (BadgePort(speed_mbps=100), ("100", "mgmt-badge-fast")),                       # green 100
+    (BadgePort(speed_mbps=1000), ("1G", "mgmt-badge-fast")),                       # green 1G
+    (BadgePort(speed_mbps=10), ("10", "mgmt-badge-slow")),                         # yellow 10
+    (BadgePort(admin_enabled=False, **DOWN), ("off", "mgmt-badge-off")),            # disabled
+    (BadgePort(admin_enabled=False, link_up=False, oper_status=7, speed_mbps=None), ("off", "mgmt-badge-off")),  # wins
+    (BadgePort(speed_mbps=10000), ("10G", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=2500), ("2G5", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=None), ("↑", "mgmt-badge-fast")),  # up, no speed read: as switch-events.js draws it
+    (BadgePort(oper_status=None), ("1G", "mgmt-badge-fast")),  # a backend that cannot tell: no fault
 ])
-def test_each_of_tims_six_badges(port, rose, want):
-    text, cls, words, _ = page.link_badge(port, rose)
+def test_each_of_tims_six_badges(port, want):
+    text, cls, words, _ = page.link_badge(port)
     assert (text, cls) == want
     assert len(text) <= 3 and words
 
 
-def test_the_red_rule_is_one_line_the_error_counters_rising():
-    """welland-r5-1 (Tim's answer pending): red = an error counter rose since the previous reading."""
-    assert page.link_in_error(["tx errors +1 since 09:00"]) is True
-    assert page.link_in_error([]) is False
+@pytest.mark.parametrize("code, name", [(3, "testing"), (4, "unknown"), (5, "dormant"), (6, "not present"),
+                                        (7, "lower layer down"), (9, "a state IF-MIB does not define")])
+def test_red_means_a_link_fault_only(code, name):
+    """Tim's welland-r5-1 answer, 17 Oct 2026: "Link fault only": red only when the switch reports the link as neither
+    up nor down; the words say which state, with its IF-MIB number."""
+    text, cls, words, _ = page.link_badge(BadgePort(link_up=False, oper_status=code, speed_mbps=None))
+    assert (text, cls) == ("err", "mgmt-badge-err")
+    assert words == f"link fault: the switch reports the link {name} (ifOperStatus {code})"
+
+
+def test_rising_error_counters_do_not_turn_the_badge_red():
+    """The error counts have their own Rx err / Tx err columns (bold bright red above zero); the badge stays the
+    link's."""
+    assert page.link_badge(BadgePort(rx_errors=500, tx_errors=7))[1] == "mgmt-badge-fast"
+    assert page.link_fault(1) == page.link_fault(2) == page.link_fault(None) == ""
 
 
 @pytest.mark.django_db

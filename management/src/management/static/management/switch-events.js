@@ -81,12 +81,17 @@
         if (drawn) { kept[k] = record; }
         return drawn;
       },
-      /* After the table was rebuilt from `switches` (the dashboard JSON: index and good_at_iso, when the ports were
-         last read well): forget each record the reading has caught up with, draw the others again. A switch the
-         JSON gives no reading time for cannot be compared, so its records are forgotten (the poll is the truth). */
+      /* After the table was rebuilt from `switches` (the dashboard JSON: index and read_from_ms, when the read that
+         gave the ports STARTED, in ms; "" for a switch not answering, whose ports are older): forget each record the
+         reading has caught up with (a read begun at or after the change), draw the others again. good_at is not
+         used: it is stamped after the ports were read, so a read begun before the change could carry a later one
+         (round 5b). A switch not answering has no fresh reading, so its records are kept; a switch the JSON does not
+         list cannot be compared, so its records are forgotten (the poll is the truth). */
       reapply: function (doc, switches) {
         var read = {};
-        (switches || []).forEach(function (s) { read[s.index] = Date.parse(s.good_at_iso); });
+        (switches || []).forEach(function (s) {
+          read[s.index] = s.read_from_ms === "" ? -Infinity : Number(s.read_from_ms);
+        });
         Object.keys(kept).forEach(function (k) {
           var record = kept[k], at = when(record), seen = read[record.switch];
           if (!(seen < at) || !(at === at)) { delete kept[k]; return; }  /* caught up, unknown, or a bad time */
