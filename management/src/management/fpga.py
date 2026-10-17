@@ -460,7 +460,8 @@ def seen_ports():
     newest = Machine.objects.annotate(last=Subquery(
         acks.filter(machine=OuterRef("pk")).order_by("-at", "-id").values("pk")[:1])).exclude(last=None) \
         .values_list("last", flat=True)
-    # ...unless another device (registered or not) was ACKed on that port after it (the (switch, port, at) index)
+    # ...unless another device (registered or not) was ACKed on that port after it. No (switch, port, at) index: on
+    # the deployed sqlite, which Django never ANALYZEs, it made this 35 times slower (the review of #172, round 3)
     later = acks.filter(switch=OuterRef("switch"), port=OuterRef("port")) \
         .filter(Q(at__gt=OuterRef("at")) | Q(at=OuterRef("at"), id__gt=OuterRef("id"))) \
         .filter(Q(machine__isnull=True) | ~Q(machine=OuterRef("machine")))
