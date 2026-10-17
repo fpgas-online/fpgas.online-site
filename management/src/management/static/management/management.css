@@ -361,3 +361,6 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-doc { display: inline-block; margin: 0.2em 0.15em 0; width: 1.15em; height: 1.15em; line-height: 1.15em;
             border: 1px solid currentColor; border-radius: 50%; font-size: 0.8em; font-weight: 700; text-align: center;
             text-decoration: none; writing-mode: horizontal-tb; }
+
+/* the Pi page's kernel console (round 6 item 5): the kernel's text kept as sent, wrapping on a narrow window */
+.mgmt-console-text { white-space: pre-wrap; word-break: break-word; }
