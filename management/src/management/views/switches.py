@@ -153,10 +153,20 @@ def link_speed(mbps):
 LINK_OFF_TEXT = "off"
 
 
-def link_in_error(rose):
-    """Whether the port's Link badge is red: the rule Tim's welland-r5-1 answer sets (default while it is open: an
-    error counter rose since the previous reading, the rule the Net column uses)."""
-    return bool(rose)
+# IF-MIB ifOperStatus (RFC 2863): the codes that are neither up (1) nor down (2), each a link fault, in words
+OPER_FAULTS = {3: "testing", 4: "unknown", 5: "dormant", 6: "not present", 7: "lower layer down"}
+LINK_FAULT_TEXT = "err"
+
+
+def link_fault(oper_status):
+    """The words for a link fault, or "" for none: Tim's welland-r5-1 answer (17 Oct 2026), "Link fault only": the badge
+    is red only when the switch reports the link as neither up nor down. Rising error counters do not turn it red
+    (they have their own Rx err / Tx err columns); None (a backend that cannot tell) is no fault; a code IF-MIB does not
+    define is a fault, said with its number."""
+    if oper_status in (None, 1, 2):
+        return ""
+    name = OPER_FAULTS.get(oper_status, "a state IF-MIB does not define")
+    return f"link fault: the switch reports the link {name} (ifOperStatus {oper_status})"
 
 
 def badge_speed(mbps):
@@ -167,20 +177,20 @@ def badge_speed(mbps):
     return f"{whole}G" if not part else f"{whole}G{str(part).rstrip('0')}"[:3]
 
 
-def link_badge(port, rose):
-    """(text, class, words, sort) of a port's Link badge. `rose`: what of its error counters rose since the previous
-    reading. A port disabled at the switch is the PoE-off look whatever else is true of it; a port with no link is the
-    empty badge; a link whose error counters rose is red with its speed in it; else its speed, green from 100 Mbit/s,
-    yellow below."""
+def link_badge(port):
+    """(text, class, words, sort) of a port's Link badge. A port disabled at the switch is the PoE-off look whatever else
+    is true of it; a link fault (neither up nor down at the switch) is red; a port with no link is the empty badge; else
+    its speed, green from 100 Mbit/s, yellow below."""
     if not port.admin_enabled:
         return LINK_OFF_TEXT, "mgmt-badge-off", "link disabled at the switch", 1
+    fault = link_fault(port.oper_status)
+    if fault:
+        return LINK_FAULT_TEXT, "mgmt-badge-err", fault, 2
     if not port.link_up:
         return "", "mgmt-badge-none", "no link", 0
     mbps = port.speed_mbps
     text = badge_speed(mbps) if mbps else "↑"
     speed_words = f"link up at {link_speed(mbps)}" if mbps else "link up; the switch gave no speed"
-    if link_in_error(rose):
-        return text, "mgmt-badge-err", f"{speed_words}; errors: {', '.join(rose)}", 2
     cls = "mgmt-badge-slow" if mbps and mbps < 100 else "mgmt-badge-fast"  # a link with no speed read: up, green
     return text, cls, speed_words, 10 + (mbps or 0)
 
@@ -571,7 +581,7 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
     action = POWER_ACTION.get(port.poe_state or "", POWER_DEFAULT) if can_power and has_poe else ""
-    badge, badge_cls, badge_words, badge_sort = link_badge(port, errors[0])
+    badge, badge_cls, badge_words, badge_sort = link_badge(port)
     # what a click on the badge does, on the ports the power button may switch (the access ports the PoE service's
     # /snmp/link accepts); "" where the badge is not a button
     link_action = ("enable" if not port.admin_enabled else "disable") if can_power else ""
@@ -863,7 +873,8 @@ def read_from_ms(view):
     at = datetime.fromisoformat(view.read_at)
     if at.tzinfo is None:
         raise ValueError(f"the PoE service gave a read time with no offset: {view.read_at!r}")
-    return round(at.timestamp() * 1000)
+    # whole ms, rounded down: a reading counts as after a press only when it started strictly later (power-button.js)
+    return int(at.timestamp() * 1000)
 
 
 def _panel(view, model, problem, rows, position):
@@ -911,8 +922,9 @@ def head_titles():
         "net": "the port's network reading against what it should be: ✓ as it should be, ✗ not, why on hover "
                "(VLANs as the inventory says, PoE read and not at fault, the link up and as fast as the Pi on it, no "
                "error counter risen since the previous reading)",
-        "link": "the link and its speed: green 100 / 1G / 10G, yellow 10, red when an error counter rose since the "
-                "previous reading, empty when there is no link, a hollow red off when the port is disabled at the switch "
+        "link": "the link and its speed: green 100 / 1G / 10G, yellow 10, red err for a link fault (the switch reports "
+                "the link neither up nor down), empty when there is no link, a hollow red off when the port is disabled "
+                "at the switch "
                 "(in the drawing above: the port's light, green while the link is up); the MAC addresses the switch saw "
                 "on hover; on an access port a click disables or enables the port",
         "poe": "⚡ PoE delivering power, 🔍 PoE on and searching (nothing drawing power), ⊗ PoE off, ! PoE fault, – no PoE on "

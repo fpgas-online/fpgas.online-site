@@ -12,11 +12,11 @@ const PB = require(
   join(here, "..", "..", "management", "src", "management", "static", "management", "power-button.js"));
 
 const K = "2/9";
-// the gateway's clock (ms) at which the switch confirmed a press, plus the second the HTTP Date drops; a reading that
-// started before it is "older", one at or after it "newer"
-const AFTER = Date.parse("2026-10-17T05:00:01Z");
+// the gateway's clock (ms) at which the switch confirmed a press (the answer's `at`); a reading that started before it
+// is "older", one after it "newer"
+const AT = "2026-10-17T15:30:01.250+10:30";
+const AFTER = Date.parse(AT);
 const OLDER = AFTER - 5000, NEWER = AFTER + 2000;
-const DATE = "Sat, 17 Oct 2026 05:00:00 GMT";
 
 test("an untouched port's button is the reading's, ⏻, and can be pressed", () => {
   const t = PB.createTracker();
@@ -76,6 +76,9 @@ test("an older reading that happens to agree does not end the override (the depl
   // a reading older than the press shows the state the press set: kept, not ended
   t.confirmed(K, "off", 10, 0, AFTER);
   assert.equal(t.view(K, "on", 1000, OLDER).confirmed, "off");
+  // a reading stamped the same millisecond as the confirmation is not known to follow it
+  assert.equal(t.view(K, "on", 1000, AFTER).confirmed, "off");
+  assert.equal(t.view(K, "on", 1000, AFTER + 1).confirmed, null);
 });
 
 test("the confirmed state is kept as long as no reading began after the change, however long that is", () => {
@@ -103,7 +106,7 @@ test("a failed press frees the button at once", () => {
 });
 
 test("the answer is read as confirmation, hold or error", () => {
-  assert.deepEqual(PB.readAnswer(200, { state: "off", next_in: 10 }, null, "switch 2 port 9", "power", DATE),
+  assert.deepEqual(PB.readAnswer(200, { state: "off", next_in: 10, at: AT }, null, "switch 2 port 9", "power"),
     { kind: "ok", state: "off", seconds: 10, after: AFTER, text: "PoE off on switch 2 port 9" });
   assert.deepEqual(PB.readAnswer(429, { error: "x" }, "37", "switch 2 port 9"),
     { kind: "held", seconds: 37, text: "switch 2 port 9 was switched a moment ago; it can be switched again in 37 s" });
@@ -111,12 +114,13 @@ test("the answer is read as confirmation, hold or error", () => {
   assert.deepEqual(PB.readAnswer(403, { error: "not a board" }, null, "port 9"),
     { kind: "error", text: "port 9: not a board (HTTP 403)" });
   // a 200 without a state is not a confirmation
-  assert.equal(PB.readAnswer(200, {}, null, "port 9", "power", DATE).kind, "error");
+  assert.equal(PB.readAnswer(200, { at: AT }, null, "port 9", "power").kind, "error");
 });
 
-test("a confirmation without an HTTP Date fails loud: the page cannot tell which readings follow it", () => {
-  for (const date of [null, "", "yesterday"]) {
-    const a = PB.readAnswer(200, { state: "off", next_in: 10 }, null, "switch 2 port 9", "power", date);
+test("a confirmation without its time fails loud: the page cannot tell which readings follow it", () => {
+  // none, empty, not a time, and a time with no offset (a browser would read it in its own zone)
+  for (const at of [undefined, "", "yesterday", "2026-10-17T15:30:01"]) {
+    const a = PB.readAnswer(200, { state: "off", next_in: 10, at }, null, "switch 2 port 9", "power");
     assert.equal(a.kind, "error");
     assert.match(a.text, /^PoE off on switch 2 port 9, but the answer carried no time/);
   }
@@ -218,11 +222,11 @@ test("disable then enable: no reading drawn during the enable's hold shows the p
 });
 
 test("the link answer is read from its own field", () => {
-  assert.deepEqual(PB.readAnswer(200, { link: "disabled", next_in: 10 }, null, "switch 2 port 9", "link", DATE),
+  assert.deepEqual(PB.readAnswer(200, { link: "disabled", next_in: 10, at: AT }, null, "switch 2 port 9", "link"),
     { kind: "ok", state: "disabled", seconds: 10, after: AFTER, text: "link disabled on switch 2 port 9" });
   // a power answer is not a link confirmation, nor the reverse
-  assert.equal(PB.readAnswer(200, { state: "off" }, null, "port 9", "link", DATE).kind, "error");
-  assert.equal(PB.readAnswer(200, { link: "enabled" }, null, "port 9", "power", DATE).kind, "error");
+  assert.equal(PB.readAnswer(200, { state: "off", at: AT }, null, "port 9", "link").kind, "error");
+  assert.equal(PB.readAnswer(200, { link: "enabled", at: AT }, null, "port 9", "power").kind, "error");
   assert.equal(PB.readAnswer(429, {}, "8", "switch 2 port 9", "link").text,
     "the link of switch 2 port 9 was switched a moment ago; it can be switched again in 8 s");
 });

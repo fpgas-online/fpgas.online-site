@@ -24,8 +24,8 @@
  * merely agrees is not enough (round 5b, the wart seen on deploy 45): after a disable and then an enable, a reading
  * older than both still shows the port enabled, "agreed" with the enable, and the next reading, which had caught up with
  * the disable only, drew the badge "off" during the enable's hold. Both times are the gateway's clock: the reading's
- * start (the switch section's data-read-from) and the answer's HTTP Date, plus a second because Date drops the
- * fraction (a reading started at or after Date + 1 s started after the switch confirmed).
+ * start (the switch section's data-read-from, ms) and the answer's `at` (the PoE service's time once the switch was
+ * written and read back).
  *
  * The Link badge (round 5, items 4-6: "Clicking the badge should turn the link on / off") is pressed the same way:
  * the same tracker, confirmation, countdown and toasts, against /snmp/link, which holds a port's link apart from its
@@ -68,7 +68,7 @@
         var p = ports[k], action = readAction;
         if (!p) { return {action: action, text: ICON, busy: false, disabled: false, seconds: 0, confirmed: null}; }
         if (p.confirmed) {
-          if (readFrom >= p.after) { p.confirmed = null; }  /* a reading begun after the change: believe it */
+          if (readFrom > p.after) { p.confirmed = null; }  /* a reading begun after the change: believe it */
           else { action = actionOf[p.confirmed]; }
         }
         var confirmed = p.confirmed;
@@ -89,20 +89,22 @@
 
   /* What the PoE service's answer to a press means: {kind: "ok"|"held"|"error", state, seconds, after, text}. `where`
      names the port ("switch 2 port 9"); `what` is "power" (/snmp/power answers {"state"}) or "link" (/snmp/link answers
-     {"link"}); `date` is the answer's HTTP Date header, sent once the switch had confirmed: `after` is the gateway's
-     time (ms) from which a reading started is sure to show the change. An answer with no Date cannot say which
-     readings follow the change: that fails loud, as an error, and the next reading shows the port as it is. */
-  function readAnswer(status, body, retryAfter, where, what, date) {
+     {"link"}). A confirmation's `at` is the PoE service's time once the switch was written and read back: `after`, in
+     ms, the moment after which a reading that started is sure to show the change. An answer with no `at` cannot say
+     which readings follow the change: that fails loud, as an error, and the next reading shows the port as it is. */
+  function readAnswer(status, body, retryAfter, where, what) {
     var link = what === "link", state = body && (link ? body.link : body.state);
     var states = link ? LINK_ACTION_OF : ACTION_OF;
     if (status >= 200 && status < 300 && typeof state === "string" && Object.prototype.hasOwnProperty.call(states, state)) {
       var seconds = typeof body.next_in === "number" && body.next_in > 0 ? body.next_in : 0;
-      var text = (link ? "link " : "PoE ") + state + " on " + where, sent = Date.parse(date);
-      if (!(sent === sent)) {  /* NaN: no Date, or not a date */
-        return {kind: "error", text: text + ", but the answer carried no time (HTTP Date " + JSON.stringify(date) +
-                                     "), so this page cannot tell which readings follow it"};
+      var text = (link ? "link " : "PoE ") + state + " on " + where;
+      /* an ISO 8601 time with its offset, never a bare one (which a browser reads in its own zone) */
+      var at = typeof body.at === "string" && /([+-]\d\d:\d\d|Z)$/.test(body.at) ? Date.parse(body.at) : NaN;
+      if (!(at === at)) {  /* NaN */
+        return {kind: "error", text: text + ", but the answer carried no time it was confirmed (at: " +
+                                     JSON.stringify(body.at) + "), so this page cannot tell which readings follow it"};
       }
-      return {kind: "ok", state: state, seconds: seconds, after: sent + 1000, text: text};
+      return {kind: "ok", state: state, seconds: seconds, after: at, text: text};
     }
     if (status === 429) {
       var wait = parseInt(retryAfter, 10);
@@ -232,7 +234,7 @@
       win.fetch(urls[what], {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
         .then(function (r) {
           return r.json().catch(function () { return {}; }).then(function (d) {
-            return readAnswer(r.status, d, r.headers.get("Retry-After"), where, what, r.headers.get("Date"));
+            return readAnswer(r.status, d, r.headers.get("Retry-After"), where, what);
           });
         })
         .catch(function (e) { return {kind: "error", text: where + ": the site did not answer (" + e + ")"}; })

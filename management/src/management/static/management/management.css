@@ -94,7 +94,7 @@
   .mgmt-poe-busy .mgmt-poe-glyph { animation: mgmt-pulse 1.2s ease-in-out infinite; }
 }
 /* the Link badge (Tim, 17 Oct 2026, round 5): one size, 3 characters, like the power button beside it. Empty and
-   transparent with no link; red when an error counter rose; green 100 / 1G / 10G; yellow 10; a disabled port the PoE-off
+   transparent with no link; red for a link fault (neither up nor down at the switch); green 100 / 1G / 10G; yellow 10; a disabled port the PoE-off
    look (hollow, red edge and text, as the ⏻ that turns PoE on). On an access port it is a button. */
 .mgmt-link-badge { display: inline-block; box-sizing: border-box; width: 2.4em; height: 1.45em; line-height: 1.3em;
   border: 1px solid transparent; border-radius: 3px; padding: 0; overflow: hidden; text-align: center;

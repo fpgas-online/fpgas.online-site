@@ -23,6 +23,7 @@ except ImportError:  # poe without the dashboard module: stand-ins with the same
         port: int
         label: str | None = None
         link_up: bool = False
+        oper_status: int | None = None
         speed_mbps: int | None = None
         poe_state: str | None = None
         poe_watts: float | None = None
@@ -908,9 +909,10 @@ def test_the_devices_are_read_once_per_request(monkeypatch, netdevs):
 
 @pytest.mark.django_db
 def test_an_older_poe_without_vlan_fields_shows_dashes(monkeypatch, netdevs):
-    class Old:  # a PortView from a poe before the VLAN fields (admin_enabled is required: the Link badge needs it)
+    class Old:  # a PortView from a poe before the VLAN fields (admin_enabled and oper_status are required: the Link
+        # badge needs them)
         port, label, link_up, speed_mbps, poe_state, poe_watts = 1, None, False, None, None, None
-        admin_enabled = True
+        admin_enabled, oper_status = True, 2
         lldp_name = lldp_port = rx_bps = tx_bps = rx_errors = tx_errors = None
         macs = []
     ports = vlan_json(monkeypatch, [Old()])
@@ -1511,31 +1513,49 @@ def test_a_memory_the_page_cannot_size_says_why_on_hover(monkeypatch):
 class BadgePort:
     admin_enabled: bool = True
     link_up: bool = True
+    oper_status: int | None = 1
     speed_mbps: int | None = 1000
+    rx_errors: int | None = 0
+    tx_errors: int | None = 0
 
 
-@pytest.mark.parametrize("port, rose, want", [
-    (BadgePort(link_up=False, speed_mbps=None), [], ("", "mgmt-badge-none")),        # empty / transparent: no link
-    (BadgePort(speed_mbps=1000), ["rx errors +3 since 09:00"], ("1G", "mgmt-badge-err")),  # red: error
-    (BadgePort(speed_mbps=100), [], ("100", "mgmt-badge-fast")),                       # green 100
-    (BadgePort(speed_mbps=1000), [], ("1G", "mgmt-badge-fast")),                       # green 1G
-    (BadgePort(speed_mbps=10), [], ("10", "mgmt-badge-slow")),                         # yellow 10
-    (BadgePort(admin_enabled=False, link_up=False, speed_mbps=None), [], ("off", "mgmt-badge-off")),  # disabled
-    (BadgePort(admin_enabled=False, link_up=False), ["rx errors +1"], ("off", "mgmt-badge-off")),  # disabled wins
-    (BadgePort(speed_mbps=10000), [], ("10G", "mgmt-badge-fast")),
-    (BadgePort(speed_mbps=2500), [], ("2G5", "mgmt-badge-fast")),
-    (BadgePort(speed_mbps=None), [], ("↑", "mgmt-badge-fast")),  # up, no speed read: as switch-events.js draws it
+DOWN = {"link_up": False, "oper_status": 2, "speed_mbps": None}
+
+
+@pytest.mark.parametrize("port, want", [
+    (BadgePort(**DOWN), ("", "mgmt-badge-none")),                                   # empty / transparent: no link
+    (BadgePort(link_up=False, oper_status=7, speed_mbps=None), ("err", "mgmt-badge-err")),  # red: a link fault
+    (BadgePort(speed_mbps=100), ("100", "mgmt-badge-fast")),                       # green 100
+    (BadgePort(speed_mbps=1000), ("1G", "mgmt-badge-fast")),                       # green 1G
+    (BadgePort(speed_mbps=10), ("10", "mgmt-badge-slow")),                         # yellow 10
+    (BadgePort(admin_enabled=False, **DOWN), ("off", "mgmt-badge-off")),            # disabled
+    (BadgePort(admin_enabled=False, link_up=False, oper_status=7, speed_mbps=None), ("off", "mgmt-badge-off")),  # wins
+    (BadgePort(speed_mbps=10000), ("10G", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=2500), ("2G5", "mgmt-badge-fast")),
+    (BadgePort(speed_mbps=None), ("↑", "mgmt-badge-fast")),  # up, no speed read: as switch-events.js draws it
+    (BadgePort(oper_status=None), ("1G", "mgmt-badge-fast")),  # a backend that cannot tell: no fault
 ])
-def test_each_of_tims_six_badges(port, rose, want):
-    text, cls, words, _ = page.link_badge(port, rose)
+def test_each_of_tims_six_badges(port, want):
+    text, cls, words, _ = page.link_badge(port)
     assert (text, cls) == want
     assert len(text) <= 3 and words
 
 
-def test_the_red_rule_is_one_line_the_error_counters_rising():
-    """welland-r5-1 (Tim's answer pending): red = an error counter rose since the previous reading."""
-    assert page.link_in_error(["tx errors +1 since 09:00"]) is True
-    assert page.link_in_error([]) is False
+@pytest.mark.parametrize("code, name", [(3, "testing"), (4, "unknown"), (5, "dormant"), (6, "not present"),
+                                        (7, "lower layer down"), (9, "a state IF-MIB does not define")])
+def test_red_means_a_link_fault_only(code, name):
+    """Tim's welland-r5-1 answer, 17 Oct 2026: "Link fault only": red only when the switch reports the link as neither
+    up nor down; the words say which state, with its IF-MIB number."""
+    text, cls, words, _ = page.link_badge(BadgePort(link_up=False, oper_status=code, speed_mbps=None))
+    assert (text, cls) == ("err", "mgmt-badge-err")
+    assert words == f"link fault: the switch reports the link {name} (ifOperStatus {code})"
+
+
+def test_rising_error_counters_do_not_turn_the_badge_red():
+    """The error counts have their own Rx err / Tx err columns (bold bright red above zero); the badge stays the
+    link's."""
+    assert page.link_badge(BadgePort(rx_errors=500, tx_errors=7))[1] == "mgmt-badge-fast"
+    assert page.link_fault(1) == page.link_fault(2) == page.link_fault(None) == ""
 
 
 @pytest.mark.django_db
