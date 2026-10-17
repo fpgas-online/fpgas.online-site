@@ -625,7 +625,7 @@ wheels = [
 [[package]]
 name = "fpgas-online-poe"
 version = "0.1.0"
-source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#ce612e3b7bfde11e25f2574977d5526af2051e0e" }
+source = { git = "https://github.com/fpgas-online/fpgas.online-poe.git#73704a6b98224a1fc9edd1f8a9b065d364697df5" }
 dependencies = [
     { name = "channels" },
     { name = "django", version = "5.2.17", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1204,14 +1204,14 @@ wheels = [
 
 [[package]]
 name = "python-netgear-switch-library"
-version = "0.1.post2"
+version = "0.1.post29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/87/df1c94b1129f8b9999ebaa84d2011022e4fd22a85b8e0529edf06eec8b84/python_netgear_switch_library-0.1.post2.tar.gz", hash = "sha256:644230f9b9f901a8bccd22cf933cd607b1e6997dd0a71f343e3a5a6cc6eeb69f", size = 1973368, upload-time = "2026-08-22T04:46:01.076Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/fe/6d7be21aa4d3fde43bfa43b72dbcb6b474bf8ed920980fef5abc407825be/python_netgear_switch_library-0.1.post29.tar.gz", hash = "sha256:7082598a3435f34e9ba2647a0c7d70c3a2c157beaa23c434d9fa01c6dee5744a", size = 1974548, upload-time = "2026-10-17T07:13:39.112Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/23/e38e358f6ddb1d5e15528bcb24db51a262a246d815cdfbd489036359c511/python_netgear_switch_library-0.1.post2-py3-none-any.whl", hash = "sha256:3596e5e0c22efa8ca521ed6561d98b52acbde164e6c0441a4ab0e2a6aae5a2e7", size = 503815, upload-time = "2026-08-22T04:45:59.416Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/70/adc423ceb866707b683664987ae7349ec39b04479099aa74320204518b46/python_netgear_switch_library-0.1.post29-py3-none-any.whl", hash = "sha256:093f5d2828f1e89440db262ac7d2825a05c5e7eecaf0e8178f2628a534718479", size = 505370, upload-time = "2026-10-17T07:13:37.164Z" },
 ]
 
 [[package]]
