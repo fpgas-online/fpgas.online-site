@@ -20,6 +20,7 @@ from fleet.timeago import ago_time, exact
 from fleet import hwid, jsonview, labelart
 
 from .. import check_docs, check_groups, fpga, localtime, network, states
+from . import switches
 from .fpgas import (
     CHECK_WORDS,
     CONDITION_KEYS,
@@ -312,6 +313,11 @@ def _page(request, entry):
               else entry.events.order_by("-ts")[:EVENTS])
     net, net_error = _network(entry)
     return render(request, "management/machine.html", {
+        # its switch port's row, as the switch port dashboard draws it, with the PoE and link buttons (round 6 item 6)
+        "switch_port": switches.port_of(request, entry.serial), "switch_head_titles": switches.head_titles(),
+        "refresh_seconds": switches.REFRESH_SECONDS, "power_url": switches.POWER_URL, "link_url": switches.LINK_URL,
+        "switches_json_url": _url(request, "management-switches-json"),
+        "switches_url": _url(request, "management-switches"),
         "machine": entry, "host": host, "net": net, "net_error": net_error,
         "net_changed": _when(net.event.ts) if net and net.event else "",
         "net_addresses": [(a, _lifetime(a.get("valid_lifetime_s")), _lifetime(a.get("preferred_lifetime_s")))
