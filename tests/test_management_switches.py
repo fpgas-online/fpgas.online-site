@@ -66,13 +66,13 @@ def make_views():
     return [SwitchView(
         index=1, name="switch 1", model="gsm7252ps", reachable=True, error="", read_at=READ_AT, good_at=READ_AT,
         ports=[
-            PortView(port=1, label="uplink", link_up=True, speed_mbps=1000, poe_state="delivering", poe_watts=3.5,
-                     lldp_name="pi-sw1-p1", lldp_port="eth0", macs=["aa:00:00:00:00:01", "aa:00:00:00:00:02",
+            PortView(port=1, label="uplink", link_up=True, speed_mbps=1000, poe_state="delivering", poe_admin_enabled=True,
+                     poe_watts=3.5, lldp_name="pi-sw1-p1", lldp_port="eth0", macs=["aa:00:00:00:00:01", "aa:00:00:00:00:02",
                                                                     "aa:00:00:00:00:03", "aa:00:00:00:00:04"],
                      rx_bps=250_000, tx_bps=3_400_000, rx_errors=0, tx_errors=2),
-            PortView(port=2, link_up=True, speed_mbps=100, poe_state="delivering", poe_watts=1.0,
+            PortView(port=2, link_up=True, speed_mbps=100, poe_state="delivering", poe_admin_enabled=True, poe_watts=1.0,
                      lldp_name="not-a-fleet-host", lldp_port="gi1"),
-            PortView(port=3, poe_state="searching"),
+            PortView(port=3, poe_state="searching", poe_admin_enabled=True),
         ])]
 
 
@@ -719,12 +719,17 @@ def test_an_infrastructure_port_never_gets_a_button_even_if_a_machine_claims_it(
 
 
 @pytest.mark.django_db
-# a fault or a state the switch did not give is switched off too: "All access ports should *always* be switchable"
-@pytest.mark.parametrize("state, action", [("delivering", "off"), ("searching", "off"), ("disabled", "on"),
-                                           ("fault", "off"), ("other", "off"), (None, "off")])
-def test_the_button_says_what_pressing_it_does(monkeypatch, state, action):
+# The button follows the PoE ADMIN state, never the detection status (site #170, Tim 18 Oct 2026): right after an off
+# the switch still detects "searching", and right after an on it says "searching" or "disabled" while the Pi boots.
+# A port whose PoE was not read is offered off: "All access ports should *always* be switchable".
+@pytest.mark.parametrize("admin, state, action", [
+    (True, "delivering", "off"), (True, "searching", "off"), (True, "disabled", "off"), (True, "fault", "off"),
+    (True, "other", "off"), (False, "searching", "on"), (False, "disabled", "on"), (False, "delivering", "on"),
+    (None, None, "off")])
+def test_the_button_says_what_pressing_it_does(monkeypatch, admin, state, action):
     views = make_views()
     views[0].ports[0].poe_state = state
+    views[0].ports[0].poe_admin_enabled = admin
     machine("3000000000000001", "pi-sw1-p1")
     monkeypatch.setattr(page, "_reader", lambda: lambda cache: views)
     c = Client(HTTP_HOST=HOSTS[0])
