@@ -489,10 +489,12 @@ def port_role(spec, port):
     return None if port <= spec.access_ports else INFRASTRUCTURE
 
 
-# The PoE button's action by the port's state: on while it is disabled, off in every other state, a fault or a state
-# the switch did not give included (Tim, 16 Oct 2026: "All access ports should *always* be switchable": a port in a
-# fault is the one to switch off and on again).
-POWER_ACTION = {"disabled": "on"}
+# The PoE button's action by the port's PoE ADMIN state (what the switch was told, what /snmp/power writes and answers
+# with): on while PoE is switched off, off while it is switched on, whatever the detection status says (site #170, Tim,
+# 18 Oct 2026: an OFF press showed the ON look while detection still said "searching", and after an ON press the
+# button turned red while the Pi rebooted). A port whose PoE was not read is offered off (Tim, 16 Oct 2026: "All
+# access ports should *always* be switchable": a port in a fault is the one to switch off and on again).
+POWER_ACTION = {True: "off", False: "on"}
 POWER_DEFAULT = "off"
 # The power control is the power symbol on every PoE port (Tim, 16 Oct 2026, site #139: "The power button should be a
 # power button icon, not text", "Why does the PoE power button only appear on some switch ports?"): a button where a
@@ -576,7 +578,8 @@ def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netd
     # is on the port number's title for a board port; an infrastructure port's can name a private device, so it is
     # not shown; with no inventory, no label at all (fail closed)
     own = "" if spec is NO_INVENTORY or role else label(port.label, house)
-    action = POWER_ACTION.get(port.poe_state or "", POWER_DEFAULT) if can_power and has_poe else ""
+    # poe >= fpgas.online-poe #24 carries poe_admin_enabled; an older poe is an AttributeError here, never a guess
+    action = POWER_ACTION.get(port.poe_admin_enabled, POWER_DEFAULT) if can_power and has_poe else ""
     badge, badge_cls, badge_words, badge_sort = link_badge(port)
     # what a click on the badge does, on the ports the power button may switch (the access ports the PoE service's
     # /snmp/link accepts); "" where the badge is not a button
