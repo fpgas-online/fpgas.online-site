@@ -74,4 +74,5 @@ class GatewayRecord(models.Model):
 
     class Meta:
         ordering = ["at", "id"]
-        indexes = [models.Index(fields=["machine", "kind", "at"])]
+        # (switch, port, at): which device was ACKed on a port last (management.fpga.seen_ports, one device a port)
+        indexes = [models.Index(fields=["machine", "kind", "at"]), models.Index(fields=["switch", "port", "at"])]

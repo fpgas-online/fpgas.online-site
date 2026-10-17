@@ -116,7 +116,7 @@ class Line:
     memory: str  # "2 GB", ""
     memory_mb: int
     serial: str
-    port: str  # "sw1 p10": the port the gateway last leased it an address on; "" when it has no lease record
+    port: str  # "sw1 p10": the port it is on (fpga.seen_ports: one device a port); "" when it is on none
     port_title: str  # where the port comes from, and when
     sort_port: str  # switch and port as numbers, zero-padded: sw2 p4 before sw2 p33
     boot: Mark  # the boot check of the boot it is running, one character like every check (#129), words on hover
@@ -145,7 +145,8 @@ HEAD_TITLES = {
              "finished",
     "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
     "serial": "the Pi's serial number; links its own page",
-    "port": "the switch port the gateway last leased it an address on", "board": "the FPGA board's type",
+    "port": "the switch port the gateway last ACKed it an address on (one device a port: empty when another "
+            "device was ACKed there since)", "board": "the FPGA board's type",
     "id": "the id on the board's label (its DNA or USB serial); its name on hover",
     "offered": "offered to visitors: ✓ links its visitor page, ✗ says why not",
     "up": "how long the Pi has been up", "seen": "its last status beat",

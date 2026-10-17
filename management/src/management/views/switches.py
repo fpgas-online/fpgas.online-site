@@ -1,6 +1,6 @@
 """The switch port dashboard (#67, #130): every switch and every port, read side only: which hardware is on each port
-(the one machine the gateway last ACKed on it, one device a port, with the /fleet/ model, board type and State), whether the
-port's network reading is as it should be, then the switch's own reading, one value a column.
+(the one machine the gateway last ACKed on it, one device a port, with the /fleet/ model, board type and State),
+whether the port's network reading is as it should be, then the switch's own reading, one value a column.
 
 The reading is done by `snmp_switch.dashboard` (fpgas.online-poe), cached for 15 s in the site's "poe" cache, so
 the number of viewers does not change the number of reads. This module only lays the result out: the page
@@ -550,8 +550,8 @@ def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_sit
 
 def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, house=(), machines=(),
          has_poe=True, failures=(), known=(), errors_since="", errors_before=None):
-    """A port's row: the hardware the gateway last saw on it (`machines`: on_ports's one, the latest), whether its network reading is
-    as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one;
+    """A port's row: the hardware the gateway last saw on it (`machines`: on_ports's one, the latest), whether its
+    network reading is as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one;
     `errors_since`, `errors_before`: the previous reading's time and this port's error counters then), then the
     switch's reading, one value a column (#130). `has_poe`: the switch's model gives the port PoE."""
     name = port.lldp_name or ""

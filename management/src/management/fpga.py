@@ -5,7 +5,7 @@ is a remembered table of which board is on which port."""
 import re
 from dataclasses import dataclass, field
 
-from django.db.models import F
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.utils import timezone
 from fleet.models import BootEvent, GatewayRecord, Machine
 from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
@@ -454,12 +454,15 @@ def seen_ports():
     port since: a machine moved out is on no port until it is ACKed somewhere again, and a device not registered yet
     (a record with no machine) takes the port too. Newest is by (at, id), here and for every page (/fleet/, a Pi's
     page, the switch port dashboard)."""
-    acks = (GatewayRecord.objects.filter(kind="lease", switch__isnull=False, port__isnull=False,
-                                         doc__acked_at__isnull=False).exclude(doc__acked_at=None)
-            .order_by("at", "id").values_list("id", "at", "machine_id", "switch", "port"))
-    by_port, by_machine = {}, {}
-    for record, at, machine, switch, port in acks:  # oldest first: the last write wins
-        by_port[(switch, port)] = machine
-        if machine is not None:
-            by_machine[machine] = SeenPort(switch, port, at, record)
-    return {machine: seen for machine, seen in by_machine.items() if by_port[(seen.switch, seen.port)] == machine}
+    acks = GatewayRecord.objects.filter(kind="lease", switch__isnull=False, port__isnull=False,
+                                        doc__acked_at__isnull=False).exclude(doc__acked_at=None)
+    # each machine's newest ACK on a port (one row a machine, by the (machine, kind, at) index)
+    newest = Machine.objects.annotate(last=Subquery(
+        acks.filter(machine=OuterRef("pk")).order_by("-at", "-id").values("pk")[:1])).exclude(last=None) \
+        .values_list("last", flat=True)
+    # ...unless another device (registered or not) was ACKed on that port after it (the (switch, port, at) index)
+    later = acks.filter(switch=OuterRef("switch"), port=OuterRef("port")) \
+        .filter(Q(at__gt=OuterRef("at")) | Q(at=OuterRef("at"), id__gt=OuterRef("id"))) \
+        .filter(Q(machine__isnull=True) | ~Q(machine=OuterRef("machine")))
+    held = GatewayRecord.objects.filter(id__in=list(newest)).annotate(taken=Exists(later)).filter(taken=False)
+    return {r.machine_id: SeenPort(r.switch, r.port, r.at, r.id) for r in held}
