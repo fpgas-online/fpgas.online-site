@@ -913,11 +913,11 @@ def head_titles():
 
     return {
         "port": "the switch port; the switch's own label for a board port on hover (its configuration text)",
-        "model": "the Pi's model, as its label says, of each machine the gateway last leased an address on this "
-                 "port, newest first; its label on hover",
+        "model": "the Pi's model, as its label says, of the machine the gateway leased an address on this port "
+                 "most recently (one device a port); its label on hover",
         "ram": "the Pi's memory, as its label says (the Raspberry Pis page's RAM); sorts by size",
         "board": "the FPGA board's type on that machine; its variant on hover",
-        "state": "the State of each machine, as the Raspberry Pis page has it: "
+        "state": "the State of the machine, as the Raspberry Pis page has it: "
                  + ", ".join(f"{states.MARKS[c]} {w}" for c, w in states.WORDS.items()) + f". {HEAD_TITLES['state']}. "
                  f"On this page also {UNREGISTERED} {UNREGISTERED_WORDS}: a link up or PoE power drawn on a board port "
                  "where the gateway has leased no registered machine an address",
