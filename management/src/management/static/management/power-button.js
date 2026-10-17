@@ -50,6 +50,9 @@
      cache and the page refreshes every few seconds, so one comes within about 30 s). Past this the twirl stops, the
      state the switch confirmed is drawn and the page says no reading followed: never a twirl that turns for ever. */
   var SETTLE_MS = 90 * 1000;
+  /* How long a press waits for the PoE service's answer (it writes the switch and reads it back: a few seconds). Past
+     this the request is dropped and the page says so: never a twirl that turns for ever (the review of #171). */
+  var ANSWER_MS = 30 * 1000;
 
   /* `actionOf`: {state: the action a press then does}; the power button's by default.
 
@@ -281,14 +284,24 @@
       tracker.start(k, kind.stateOf[action]); redraw();
       var body = kind.body(action);
       body.switch = sw === "" ? null : Number(sw); body.port = String(port);
-      win.fetch(urls[what], {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+      var abort = win.AbortController ? new win.AbortController() : null;
+      var late = win.setTimeout(function () { if (abort) { abort.abort(); } }, ANSWER_MS);
+      win.fetch(urls[what], {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+                             signal: abort ? abort.signal : undefined})
         .then(function (r) {
           return r.json().catch(function () { return {}; }).then(function (d) {
             return readAnswer(r.status, d, r.headers.get("Retry-After"), where, what);
           });
         })
-        .catch(function (e) { return {kind: "error", text: where + ": the site did not answer (" + e + ")"}; })
+        .catch(function (e) {
+          if (abort && abort.signal.aborted) {
+            return {kind: "error", text: where + ": no answer from the site in " + ANSWER_MS / 1000 + " s; the switch may " +
+                                         "or may not have been switched, and the next reading shows the port as it is"};
+          }
+          return {kind: "error", text: where + ": the site did not answer (" + e + ")"};
+        })
         .then(function (a) {
+          win.clearTimeout(late);
           var now = Date.now();
           if (a.kind === "ok") { tracker.confirmed(k, a.state, a.seconds, now, a.after); }
           else if (a.kind === "held") { tracker.held(k, a.seconds, now); }
@@ -309,7 +322,8 @@
   }
 
   var api = {createTracker: createTracker, readAnswer: readAnswer, draw: draw, drawLink: drawLink, toast: toast,
-             attach: attach, ICON: ICON, BUSY: BUSY, LINK_ACTION_OF: LINK_ACTION_OF, SETTLE_MS: SETTLE_MS};
+             attach: attach, ICON: ICON, BUSY: BUSY, LINK_ACTION_OF: LINK_ACTION_OF, SETTLE_MS: SETTLE_MS,
+             ANSWER_MS: ANSWER_MS};
   if (typeof module !== "undefined") { module.exports = api; }
   if (typeof window !== "undefined") { window.PowerButton = api; }
 })();
