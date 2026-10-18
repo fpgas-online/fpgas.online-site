@@ -256,10 +256,12 @@
 
 {# the kernel's own log of this boot, as the gateway's netconsole receiver stored it (Tim, 18 Oct 2026: "What is the state of netconsole logs? They should be appearing on pages like https://welland.fpgas.online/fleet/00000000cc479fd1/") #}
 <h2 id="kernel-console">Kernel console</h2>
-{% if console_error %}
+{% if console_not_set_up %}
+<p>No kernel console yet: {{ console_not_set_up }}.</p>
+{% elif console_error %}
 <p class="mgmt-problem">No kernel console to show: {{ console_error }}.</p>
 {% elif console_lines %}
-<p>The kernel's log of this boot (since {{ console_since }}), sent by netconsole from {{ console.address }} and stored by the gateway: {% if console.count > console_lines|length %}the newest {{ console_lines|length }} of {{ console.count }} lines{% else %}{{ console.count }} line{{ console.count|pluralize }}{% endif %}{% if console.partial %}, and earlier lines of this boot not read (only the end of the file is){% endif %}, newest last. Times are {{ zone }}, when the gateway received each line.</p>
+<p>The kernel's log of this boot (since {{ console_since }}), sent by netconsole from {{ console.address }} and stored by the gateway: {% if console.count > console_lines|length %}the newest {{ console_lines|length }} of {{ console.count }} lines{% else %}{{ console.count }} line{{ console.count|pluralize }}{% endif %}{% if console.partial %}, and earlier lines of this boot not read (only the end of the files is){% endif %}, newest last. Times are {{ zone }}, when the gateway received each line.</p>
 <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Kernel console of this boot">
 <table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-console">
   <thead><tr><th scope="col" title="when the gateway received the line">Received</th><th scope="col" title="the kernel's text, as netconsole sent it">Line</th></tr></thead>

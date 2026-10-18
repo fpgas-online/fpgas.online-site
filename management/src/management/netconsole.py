@@ -27,6 +27,16 @@ class Unavailable(Exception):
     """This boot's lines cannot be shown; the message says why, in the page's words."""
 
 
+class NotSetUp(Unavailable):
+    """The site has no netconsole receiver (yet): a state of the site, not a fault of the Pi."""
+
+
+# A boot's start is a live beat's arrival less its whole-second uptime: up to a second late, and the beat's own
+# travel; the lines a few seconds before it are still this boot's (a Pi on the port before it was powered off at least
+# the PoE hold before this one powered on).
+SLACK = timedelta(seconds=5)
+
+
 @dataclass
 class Console:
     address: str
@@ -34,32 +44,34 @@ class Console:
     since: datetime  # the boot's start, the gateway's clock
     lines: list = field(default_factory=list)  # [(received, text)], oldest first, at most LIMIT
     count: int = 0  # this boot's lines in what was read
-    partial: bool = False  # the read began after the boot's start: older lines of this boot were not read
+    partial: bool = False  # the read stopped before the boot's start: older lines of this boot were not read
 
 
 def directory():
-    """The receiver's directory, from the setting; Unavailable when the site has none."""
+    """The receiver's directory, from the setting; NotSetUp when the site has none."""
     path = getattr(settings, "NETCONSOLE_DIR", "")
     if not path:
-        raise Unavailable("this site has no netconsole receiver configured (NETCONSOLE_DIR is not set)")
+        raise NotSetUp("the gateway's netconsole receiver is not set up on this site yet")
     return Path(path)
 
 
 def boot_start(machine):
-    """When the Pi's present boot began, by the gateway's clock: its last status's time less the uptime it reported."""
-    if not machine.last_seen or not machine.last_uptime_s:
-        raise Unavailable("the Pi has reported no uptime, so this boot's start is not known")
-    return machine.last_seen - timedelta(seconds=machine.last_uptime_s)
+    """When the Pi's present boot began, by the gateway's clock (fleet Machine.booted_at, from its live beats)."""
+    if machine.booted_at is None:
+        raise Unavailable("the Pi has sent no live status with its uptime yet, so this boot's start is not known")
+    return machine.booted_at - SLACK
 
 
 def address(machine):
-    """The IPv4 address the gateway's newest lease record of the Pi gave it."""
-    record = machine.gateway_records.filter(kind="lease").order_by("-at", "-id").first()
+    """The IPv4 address the gateway's newest IPv4 lease record of the Pi gave it (netconsole sends over IPv4: the
+    command line names 10.21.0.1)."""
+    record = machine.gateway_records.filter(kind="lease", doc__family=4).order_by("-at", "-id").first()
     if record is None:
-        raise Unavailable("the gateway has leased the Pi no address, so its netconsole sender is not known")
+        raise Unavailable("the gateway has leased the Pi no IPv4 address, so its netconsole sender is not known")
     sender = record.doc.get("address")
     if not isinstance(sender, str) or not sender:  # parse_gateway_record requires one: a record from elsewhere
-        raise Unavailable(f"the gateway's newest lease record of the Pi (at {record.at.isoformat()}) carries no address")
+        raise Unavailable(f"the gateway's newest IPv4 lease record of the Pi (at {record.at.isoformat()}) carries no "
+                          "address")
     return sender
 
 
@@ -75,13 +87,9 @@ def parse(line, path, number):
     return received, text
 
 
-def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
-    """This boot's lines of `machine` (a fleet Machine), as a Console; Unavailable says why there are none to show."""
-    where = directory()
-    since = boot_start(machine)
-    sender = address(machine)
-    path = where / f"{sender}.log"
-    console = Console(address=sender, path=str(path), since=since)
+def _tail(path, read_bytes):
+    """(the file's last lines, newest first, within read_bytes; whether the read began after the file's start), or
+    None for a file that does not exist."""
     try:
         with open(path, "rb") as f:
             size = f.seek(0, os.SEEK_END)
@@ -89,7 +97,7 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
             f.seek(start)
             data = f.read()
     except FileNotFoundError:
-        return console  # nothing received from that address yet: an empty console, said as such by the page
+        return None
     except OSError as exc:
         raise Unavailable(f"the netconsole file {path} cannot be read: {exc.strerror}") from exc
     rows = data.decode("utf-8", errors="replace").split("\n")
@@ -97,14 +105,36 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
         rows = rows[1:]  # the first is cut by the seek
     if rows and rows[-1] == "":
         rows.pop()
-    kept = []
-    for number, line in enumerate(reversed(rows), 1):
-        received, text = parse(line, path, number)
-        if received < since:
-            break
-        kept.append((received, text))
-    else:
-        console.partial = bool(start)  # every line read is of this boot, and the file holds more before them
+    return list(reversed(rows)), bool(start)
+
+
+def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
+    """This boot's lines of `machine` (a fleet Machine), as a Console; Unavailable says why there are none to show.
+    The receiver's file and, where this boot reaches back past it, the one logrotate renamed before it (<file>.1,
+    left uncompressed by delaycompress): a rotation just after a boot must not hide the boot's first lines."""
+    where = directory()
+    since = boot_start(machine)
+    sender = address(machine)
+    path = where / f"{sender}.log"
+    console = Console(address=sender, path=str(path), since=since)
+    kept, budget = [], read_bytes
+    for name in (path, path.with_name(path.name + ".1")):
+        tail = _tail(name, budget)
+        if tail is None:
+            continue
+        rows, cut = tail
+        budget -= sum(len(r.encode()) + 1 for r in rows)
+        for number, line in enumerate(rows, 1):
+            received, text = parse(line, name, number)
+            if received < since:
+                break
+            kept.append((received, text))
+        else:
+            if cut or budget <= 0:  # every line read is of this boot, and the file holds more before them
+                console.partial = True
+                break
+            continue  # this file began after the boot's start: the boot's earlier lines are in the rotated one
+        break
     kept.reverse()
     console.count = len(kept)
     console.lines = kept[-limit:]

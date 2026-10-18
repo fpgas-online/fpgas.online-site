@@ -80,6 +80,11 @@ def status(serial, payload, retained=False):
         machine.last_boot_id = payload["boot_id"]
     if "uptime_s" in payload:
         machine.last_uptime_s = payload["uptime_s"]
+        # a live beat: it left the Pi uptime_s after its boot began, and arrived just now (an uptime that is not a
+        # whole number of seconds is the broker's open LAN's: no boot start from it)
+        if not retained and _is_int(payload["uptime_s"]) and payload["uptime_s"] >= 0:
+            machine.booted_at = machine.last_seen - datetime.timedelta(seconds=payload["uptime_s"])
+            fields.append("booted_at")
     machine.save(update_fields=fields)
     return machine
 
