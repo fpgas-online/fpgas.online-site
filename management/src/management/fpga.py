@@ -8,7 +8,18 @@ from dataclasses import dataclass, field
 from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.utils import timezone
 from fleet.models import BootEvent, GatewayRecord, Machine
-from fleet.services import _BOARD_KEY, CONDITIONS, FPGA_STAGES, MAX_BOARDS, _reported_boards, checked_in, condition
+from fleet.services import (
+    _BOARD_KEY,
+    CONDITIONS,
+    FPGA_STAGES,
+    MAX_BOARDS,
+    SETUP_PORT_REASON,
+    _reported_boards,
+    checked_in,
+    condition,
+    on_setup_port,
+    setup_port_state,
+)
 from pibfpgas.pis import Pi
 from rpi_hwid import names
 from rpi_hwid.boards import identify
@@ -297,6 +308,7 @@ class Host:
     checked_in: bool = False
     pi: Pi | None = None
     registered_kinds: list = field(default_factory=list)  # the board kinds its registration names, as it named them
+    setup_port: bool = False  # registered on the setup / config port (fleet.services.on_setup_port): never offered
 
     @property
     def board_text(self):
@@ -344,6 +356,8 @@ class Host:
         """Why the machine is not offered to visitors, in the words its check gave (empty when it is offered)."""
         if self.condition == "operational":
             return ""
+        if self.setup_port:
+            return SETUP_PORT_REASON
         if not self.checked_in:
             return "it has stopped checking in"
         if self.state == "":
@@ -401,6 +415,7 @@ def hosts(now=None):
     rows = []
     for m in Machine.objects.select_related("latest_snapshot").order_by("hostname", "serial"):
         state, detail, ts = checks.get(m.serial, ("", {}, None))
+        state = setup_port_state(state, m.hostname)
         boards = report_boards(detail)
         kinds = []
         if boards:
@@ -412,7 +427,8 @@ def hosts(now=None):
         rows.append(Host(machine=m, condition=condition(state, has_checked_in, m.last_seen, now), state=state,
                          checked=ts, boards=boards, board_type=board_type, checked_in=has_checked_in,
                          registered_kinds=list(dict.fromkeys(_text(k, 40) for k in kinds if k)),
-                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None))
+                         pi=Pi.from_hostname(m.hostname.split(".")[0]) if m.hostname else None,
+                         setup_port=on_setup_port(m.hostname)))
     return sorted(rows, key=lambda r: r.place)
 
 

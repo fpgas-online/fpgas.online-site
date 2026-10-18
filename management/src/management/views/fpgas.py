@@ -456,6 +456,7 @@ def registry_json(request):
       "boards": [{"label", "type", "id" | null, "result", "tests": {name: result}}],
       "check": {"result": "pass" | "fail" | "error" | "missing" | "verifying" | "unknown" (unreadable) | ... | null,
                 "at" | null},
+      "setup_port": true | false,
       "last_seen" | null, "cameras": [as the registration lists them] | null,
       "network": null | {"state", "administrative_state", "changed", "last_ack" | null,
                          "last_ack_source": "pi" | "gateway" | null, "boot_id", "current_boot": true | false,
@@ -464,6 +465,9 @@ def registry_json(request):
                     "last_ack_source": "gateway", "boot_id": null, "current_boot": null, "error": null}
                  | {"state": null, "administrative_state": null, "changed": null, "last_ack": null,
                     "last_ack_source": null, "boot_id": null, "current_boot": null, "error": "<what is wrong>"}}]}
+
+    "setup_port" says the machine is registered on the setup / config port (fleet.services.on_setup_port): it is never
+    offered and its "check" "result" is "fail" whatever its boards' own results say.
 
     "network" is the machine's newest network-state record (management.network): the uplink's operational and
     administrative state, when the record was made, and the last DHCP ACK the Pi itself saw; null when the machine has
@@ -491,6 +495,7 @@ def registry_json(request):
             "boards": [{"label": b["label"], "type": b["title"], "id": b["id"] or None, "result": b["result"],
                         "tests": dict(b["reported_tests"])} for b in host.boards],
             "check": {"result": host.state or None, "at": host.checked.isoformat() if host.checked else None},
+            "setup_port": host.setup_port,
             "last_seen": m.last_seen.isoformat() if m.last_seen else None,
             "cameras": _cameras(m),
             "network": network.summary(networks.get(m.serial)),

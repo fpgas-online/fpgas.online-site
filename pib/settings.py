@@ -11,7 +11,10 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
 import os
+import re
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -361,6 +364,15 @@ SNMP_SWITCH_LEASE_RELEASE = False
 # <dir>/<its IPv4 address>.log, read for its own page's "Kernel console" (management.netconsole). Empty: the site
 # has no receiver, and the section says so. Set by the gateway's generated local_settings.py.
 NETCONSOLE_DIR = os.environ.get("FPGAS_NETCONSOLE_DIR", "")
+
+# The setup / config port (Tim, 18 Oct 2026; fpgas.online-infra docs/pi/setup-port.md): the port number, the same on
+# every switch, where a Pi boots with every restriction lifted. A machine registered on it is never offered and its
+# check reads failed, reason "setup port" (fleet.services.on_setup_port). Unset: the site has no setup port. Set by
+# the gateway in /etc/environment. A value that is not a port number stops the site starting.
+_setup_port = os.environ.get("FPGAS_SETUP_PORT", "")
+if _setup_port and not re.fullmatch(r"[1-9][0-9]{0,2}", _setup_port):
+    raise ImproperlyConfigured(f"FPGAS_SETUP_PORT={_setup_port!r} is not a port number")
+SETUP_PORT = int(_setup_port) if _setup_port else None
 
 try:
     from pib.local_settings import *  # noqa: E402, F403

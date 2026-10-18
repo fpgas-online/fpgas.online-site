@@ -41,7 +41,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from fleet.services import reporting_machines
+from fleet.services import SETUP_PORT_REASON, on_setup_port, reporting_machines
 from pibfpgas.pis import Pi
 
 from .models import Board
@@ -260,12 +260,25 @@ class Page:
         return self.live is not None and self.live.offered and self.live.kind == FPGA
 
     @property
+    def on_setup_port(self):
+        """Its Pi is registered on the setup / config port (fleet.services.on_setup_port): never offered, and its check
+        reads failed whatever the board's own result."""
+        return self.live is not None and on_setup_port(self.hostname)
+
+    @property
+    def check_text(self):
+        """The Boot check line of its page: the board's own result, or "failed: setup port" on the setup port."""
+        return f"failed: {SETUP_PORT_REASON}" if self.on_setup_port else self.live.result
+
+    @property
     def card_status(self):
         """For the index card of a reported board with no controls: why, in two or three words."""
         if self.live is None or self.has_commander:
             return ""
         if not self.live.current:
             return "not ready"
+        if self.on_setup_port:
+            return f"not offered: {SETUP_PORT_REASON}"
         if self.live.kind not in (FPGA, ASIC):
             return "not identified"
         return f"not offered: boot check {self.live.state or 'not run'}"
@@ -277,6 +290,8 @@ class Page:
             return ""
         if not self.live.current:
             return f"This board is not ready: {self.live.waiting}."
+        if self.on_setup_port:
+            return "This board is not offered: its Raspberry Pi is on the setup / config port."
         if self.live.kind not in (FPGA, ASIC):
             return ("The boot check on this board's Raspberry Pi found the board but could not read what it is: "
                     f"{self.live.reason}")
