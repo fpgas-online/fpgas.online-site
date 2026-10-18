@@ -1658,3 +1658,14 @@ def test_a_port_disabled_at_the_switch_offers_enable(monkeypatch):
     monkeypatch.setattr("pibfpgas.poe.board_ports", lambda request, index, ports: {1})
     p = json.loads(Client(HTTP_HOST=HOSTS[0]).get("/management/switches.json").content)["switches"][0]["ports"][0]
     assert (p["badge"], p["badge_cls"], p["link_action"]) == ("off", "mgmt-badge-off", "enable")
+
+
+@pytest.mark.django_db
+def test_a_machine_on_the_setup_port_reads_failed_reason_setup_port(reader, settings):
+    # the setup / config port (fleet.services.on_setup_port; tests/test_setup_port.py): its row says why it is not offered
+    settings.SETUP_PORT = 1
+    seat("pi-sw1-p1", "setup", lease=(1, 1))
+    ports = Client(HTTP_HOST="welland.fpgas.online").get("/management/switches.json").json()["switches"][0]["ports"]
+    (m,) = next(p for p in ports if p["port"] == 1)["machines"]
+    assert m["serial"] == "setup" and m["condition"] == "attention"
+    assert m["state_title"] == "needs attention: setup port"
