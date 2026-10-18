@@ -138,3 +138,68 @@ def test_the_tt_page_offers_no_button_that_opens_the_demo_boards_python_prompt(c
     assert "mpremote" not in html
     demos = (pathlib.Path(__file__).parent.parent / "pibfpgas/src/pibfpgas/static/demos.js").read_text()
     assert "mpremote" not in demos
+
+
+# What a board page offers follows the kind of board the Pi's check reported (issue #52).
+
+ARTY_DEMO_BUTTONS = ("blink_leds", "boot_micro_python", "boot_linux", "check_wire")
+
+
+@pytest.mark.django_db
+def test_an_arty_page_has_the_arty_demos_and_the_arty_links(c):
+    verified_pi("pi-sw2-p9", ("arty", "a7-35"))
+    html = c.get("/fpgas/pi-sw2-p9.html").content.decode()
+    for button in ARTY_DEMO_BUTTONS:
+        assert f'id="{button}"' in html
+    assert '<script src="/demos.js"></script>' in html
+    assert "boards/arty-a7.html" in html and "digilent.com/reference/programmable-logic/arty-a7" in html
+    assert "Acorn" not in html.split("<h1>Useful links</h1>")[1]
+
+
+@pytest.mark.django_db
+def test_an_acorn_page_has_no_arty_demos_and_has_the_acorn_links(c):
+    verified_pi("pi-sw2-p46", ("acorn", "cle-215+"))
+    html = c.get("/fpgas/pi-sw2-p46.html").content.decode()
+    for button in ARTY_DEMO_BUTTONS:
+        assert f'id="{button}"' not in html
+    assert "Demos:" not in html and "demos.js" not in html
+    links = html.split("<h1>Useful links</h1>")[1]
+    assert "boards/acorn/wiring.html" in links and "boards/acorn/pcie-programming.html" in links
+    assert "Arty" not in links and "arty" not in links
+
+
+@pytest.mark.django_db
+def test_the_page_follows_the_board_when_the_pi_reports_another(c):
+    """Nothing but the check's report decides the page: the same hostname with another board is another page."""
+    old = verified_pi("pi-sw2-p46", ("acorn", "cle-215+"), serial="moved")
+    Machine.objects.filter(pk=old.pk).update(last_seen=timezone.now() - datetime.timedelta(minutes=1))
+    verified_pi("pi-sw2-p46", ("arty", "a7-35"), serial="here")
+    html = c.get("/fpgas/pi-sw2-p46.html").content.decode()
+    assert 'id="blink_leds"' in html and "boards/arty-a7.html" in html and "boards/acorn/" not in html
+
+
+@pytest.mark.django_db
+def test_two_kinds_on_one_pi_show_both_kinds_links(c):
+    verified_pi("pi-sw2-p9", ("fomu", "evt"), ("arty", "a7-35"))
+    html = c.get("/fpgas/pi-sw2-p9.html").content.decode()
+    assert html.index("boards/fomu-evt.html") < html.index("boards/arty-a7.html")
+    assert 'id="blink_leds"' in html
+
+
+@pytest.mark.django_db
+def test_a_kind_this_site_has_nothing_for_gets_no_links_and_no_demos(c):
+    verified_pi("pi-sw2-p9", ("tt", "tt-fpga"))
+    html = c.get("/fpgas/pi-sw2-p9.html").content.decode()
+    assert "Useful links" not in html and "Demos:" not in html and "demos.js" not in html
+    # the controls every board has are still there
+    assert 'id="reset9"' in html and 'id="wssh_if"' in html
+
+
+def test_every_link_of_a_board_page_goes_somewhere():
+    from pibfpgas.pis import BOARD_PAGES
+    for kind, page in BOARD_PAGES.items():
+        assert page["links"], kind
+        for heading, links in page["links"]:
+            assert heading and links, kind
+            for text, url in links:
+                assert text and url.startswith("https://"), (kind, text, url)

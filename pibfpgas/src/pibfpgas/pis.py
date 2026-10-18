@@ -38,6 +38,61 @@ BOARD_TITLES = {
 }
 
 
+DOCS = "https://docs.fpgas.online/en/latest/boards"
+TEST_DESIGNS = "https://github.com/fpgas-online/fpgas.online-test-designs"
+
+# What a board page shows for each kind of board the Pi's FPGA check reported
+# (fpga-verified "board<i>"): `links` are (heading, [(text, url), ...])
+# sections of "Useful links", and `demos` says whether the page's demo
+# buttons are for that kind. The page follows the report: a kind that is not
+# here gets no links and no demo row, and nothing here says which Pi or which
+# port carries which board.
+BOARD_PAGES = {
+    "arty": {
+        "demos": True,
+        "links": (
+            ("Digilent Arty A7", (
+                ("Digilent Arty A7: the board here, its wiring and its test designs", f"{DOCS}/arty-a7.html"),
+                ("Digilent's reference for the Arty A7", "https://digilent.com/reference/programmable-logic/arty-a7/start"),
+            )),
+            ("Open source toolchains for its Artix 7 FPGA", (
+                ("F4PGA", "https://f4pga.org"),
+                ("openXC7", "https://github.com/openXC7"),
+            )),
+        ),
+    },
+    "acorn": {
+        "demos": False,
+        "links": (
+            ("SQRL Acorn and LiteFury", (
+                ("SQRL Acorn and LiteFury: the board here", f"{DOCS}/acorn/"),
+                ("Acorn wiring", f"{DOCS}/acorn/wiring.html"),
+                ("Acorn PCIe programming and multiboot", f"{DOCS}/acorn/pcie-programming.html"),
+                ("The test designs the board is checked with", TEST_DESIGNS),
+            )),
+        ),
+    },
+    "fomu": {
+        "demos": False,
+        "links": (
+            ("Fomu EVT", (
+                ("Fomu EVT: the board here", f"{DOCS}/fomu-evt.html"),
+                ("The test designs the board is checked with", TEST_DESIGNS),
+            )),
+        ),
+    },
+    "netv2": {
+        "demos": False,
+        "links": (
+            ("Kosagi NeTV2", (
+                ("Kosagi NeTV2: the board here", f"{DOCS}/netv2.html"),
+                ("The test designs the board is checked with", TEST_DESIGNS),
+            )),
+        ),
+    },
+}
+
+
 # A Tiny Tapeout board is named by what it is, which is its variant.
 TT_TITLES = {
     "tt-fpga": "TT FPGA",
@@ -131,6 +186,24 @@ class Pi:
     @property
     def boards(self):
         return ", ".join(board_title(board) for board in self.found if board["board"])
+
+    @property
+    def kinds(self):
+        """The kinds of board this Pi's FPGA check reported, each once, in
+        the check's order."""
+        return tuple(dict.fromkeys(board["board"] for board in self.found if board["board"]))
+
+    @property
+    def has_demos(self):
+        """Whether the page's demo buttons are for a board this Pi reported."""
+        return any(BOARD_PAGES.get(kind, {}).get("demos") for kind in self.kinds)
+
+    @property
+    def link_sections(self):
+        """The "Useful links" sections for the boards this Pi reported:
+        (heading, ((text, url), ...)) in the check's order. Empty when the
+        check named no board this site has links for."""
+        return tuple(section for kind in self.kinds for section in BOARD_PAGES.get(kind, {}).get("links", ()))
 
 
 def offered():
