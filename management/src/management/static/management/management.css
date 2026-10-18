@@ -363,3 +363,15 @@ td.mgmt-c-state-word span { font-weight: 700; }
 
 /* the Pi page's kernel console (round 6 item 5): the kernel's text kept as sent, wrapping on a narrow window */
 .mgmt-console-text { white-space: pre-wrap; word-break: break-word; }
+/* the console's box at most one screen high, scrolling inside it, its header kept in view (round 7, Tim, 18 Oct 2026:
+   "Make the net console maximum 1 screen height and scrolling otherwise."): one screen less the heading and its line, so
+   the heading and the whole box, its newest lines at the end, fit on the screen together; dvh where the browser has
+   it, so a phone's address bar does not push the box's end below the screen */
+.mgmt-console-box { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); overflow-y: auto; }
+.mgmt-console-box thead th { position: sticky; top: 0; z-index: 1; }
+/* separate borders, each drawn once: Chrome leaves collapsed borders in place under a sticky header, so the rows'
+   text showed through a 2 px strip above it */
+.mgmt-console-box table { border-collapse: separate; border-spacing: 0; }
+.mgmt-console-box th, .mgmt-console-box td { border-width: 0 1px 1px 0; }
+.mgmt-console-box tr > :first-child { border-left-width: 1px; }
+.mgmt-console-box thead th { border-top-width: 1px; }

@@ -11,6 +11,7 @@ status's time less the uptime it reported), from the address its newest lease ga
 Nothing here guesses: a site with no NETCONSOLE_DIR, a Pi with no lease or no uptime, a line not in the receiver's
 form, each is said in the section (the page stands), never shown as an empty console."""
 
+import gzip
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -45,6 +46,9 @@ class Console:
     lines: list = field(default_factory=list)  # [(received, text)], oldest first, at most LIMIT
     count: int = 0  # this boot's lines in what was read
     partial: bool = False  # the read stopped before the boot's start: older lines of this boot were not read
+    # with no line of this boot: when the receiver's oldest stored line arrived (any Pi's), None: it has stored none.
+    # Later than `since`: the gateway was not receiving yet when this boot began (round 7 item 2)
+    receiving_since: datetime | None = None
 
 
 def directory():
@@ -77,15 +81,39 @@ def address(machine):
 
 
 def parse(line, path, number):
-    """(received, text) of one stored line; ValueError, naming the file and line, for one not in the receiver's form."""
+    """(received, text) of one stored line; ValueError, naming the file and line (`number`: "3 from the end", "1"),
+    for one not in the receiver's form."""
     stamp, sep, text = line.partition(" ")
     try:
         received = datetime.fromisoformat(stamp)
     except ValueError:
         received = None
     if not sep or received is None or received.tzinfo is None:
-        raise ValueError(f"{path} line {number} from the end is not '<time with offset> <text>': {line[:80]!r}")
+        raise ValueError(f"{path} line {number} is not '<time with offset> <text>': {line[:80]!r}")
     return received, text
+
+
+def receiving_since(where):
+    """When the oldest line the receiver still holds in `where` arrived, from any Pi (the first line of each file,
+    rotated and compressed ones included: logrotate keeps a week, a Pi's boot is hours), or None for none at all. The
+    receiver starts a file at a sender's first datagram, so this is when the gateway began receiving, as far as the
+    site can know it from the receiver's own files (round 7 item 2, Tim, 18 Oct 2026: "Why can't I see the netconsole
+    on https://welland.fpgas.online/fleet/00000000cc479fd1/?": that Pi booted before the receiver started)."""
+    oldest = None
+    for name in sorted(where.glob("*.log*")):
+        try:
+            with (gzip.open(name, "rt", encoding="utf-8", errors="replace") if name.suffix == ".gz"
+                  else open(name, encoding="utf-8", errors="replace")) as f:
+                first = f.readline().rstrip("\n")
+        except FileNotFoundError:  # rotated away between the listing and the open
+            continue
+        except (OSError, EOFError) as exc:
+            raise Unavailable(f"the netconsole file {name} cannot be read: {exc}") from exc
+        if not first:
+            continue
+        received, _ = parse(first, name, "1")
+        oldest = received if oldest is None else min(oldest, received)
+    return oldest
 
 
 def _tail(path, read_bytes):
@@ -126,7 +154,7 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
         rows, cut = tail
         budget -= sum(len(r.encode()) + 1 for r in rows)
         for number, line in enumerate(rows, 1):
-            received, text = parse(line, name, number)
+            received, text = parse(line, name, f"{number} from the end")
             if since is not None and received < since:
                 break
             kept.append((received, text))
@@ -142,4 +170,6 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
     kept.reverse()
     console.count = len(kept)
     console.lines = kept[-limit:]
+    if not kept and since is not None:
+        console.receiving_since = receiving_since(where)
     return console

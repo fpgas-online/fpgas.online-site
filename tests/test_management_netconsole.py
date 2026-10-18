@@ -198,3 +198,74 @@ def test_older_lines_in_a_compressed_rotation_are_said(receiver):
     write(receiver, "10.21.1.2", [(m.booted_at + timedelta(seconds=1), "x")])
     (receiver / "10.21.1.2.log.2.gz").write_bytes(b"")
     assert netconsole.read(m).partial
+
+
+# Round 7 (Tim, 18 Oct 2026: "Why can't I see the netconsole on https://welland.fpgas.online/fleet/00000000cc479fd1/?"
+# -- that Pi booted before the gateway's receiver started -- and "Make the net console maximum 1 screen height and
+# scrolling otherwise. By default it should have scrolled to the newest messages.")
+
+def empty_state(html):
+    return html.split('id="kernel-console"')[1].split("<h2")[0]
+
+
+@pytest.mark.django_db
+def test_a_boot_older_than_the_receiver_is_said_with_when_it_began_receiving(receiver):
+    m = pi(uptime_s=3 * 3600)
+    began = m.booted_at + timedelta(hours=2)
+    write(receiver, "10.21.1.12", [(began, "Booting Linux on physical CPU 0x0"), (began + timedelta(seconds=1), "x")])
+    c = netconsole.read(m)
+    assert c.count == 0 and c.receiving_since == began
+    section = empty_state(page())
+    assert "No netconsole lines received this boot" in section
+    assert f'the gateway began receiving at <time datetime="{began.isoformat()}">' in section
+    assert "after this boot began, so its lines appear when the kernel next logs, and the whole log after the Pi" in section
+
+
+@pytest.mark.django_db
+def test_a_receiver_older_than_the_boot_keeps_the_plain_empty_state(receiver):
+    m = pi(uptime_s=600)
+    write(receiver, "10.21.1.12", [(m.booted_at - timedelta(hours=2), "older than this boot")])
+    assert netconsole.read(m).receiving_since == m.booted_at - timedelta(hours=2)
+    section = empty_state(page())
+    assert "No netconsole lines received this boot" in section
+    assert "began receiving" not in section and "from any Pi" not in section
+
+
+@pytest.mark.django_db
+def test_the_oldest_line_counts_rotated_and_compressed_files(receiver):
+    """logrotate renames <file> to <file>.1 and compresses older ones: the receiver began with the oldest of them."""
+    import gzip
+    m = pi(uptime_s=600)
+    write(receiver, "10.21.1.12", [(m.booted_at + timedelta(seconds=60), "after the boot")])
+    oldest = m.booted_at - timedelta(days=2)
+    with gzip.open(receiver / "10.21.1.12.log.2.gz", "wt") as f:
+        f.write(f"{oldest.isoformat()} two rotations ago\n")
+    assert netconsole.read(m).receiving_since == oldest
+    assert "began receiving" not in empty_state(page())
+
+
+@pytest.mark.django_db
+def test_a_receiver_that_stored_nothing_yet_is_said(receiver):
+    pi()
+    assert "the gateway has received no netconsole line from any Pi yet." in empty_state(page())
+
+
+@pytest.mark.django_db
+def test_a_bad_first_line_in_another_file_is_said_loud(receiver):
+    pi()
+    (receiver / "10.21.1.12.log").write_text("not a time\n")
+    section = empty_state(page())
+    assert "mgmt-problem" in section and "10.21.1.12.log line 1 is not" in section
+
+
+@pytest.mark.django_db
+def test_the_console_box_is_one_screen_high_and_opens_at_the_newest_line(receiver):
+    from pathlib import Path
+    m = pi(uptime_s=3600)
+    write(receiver, "10.21.1.2", [(m.booted_at + timedelta(seconds=n), f"line {n}") for n in range(1, 201)])
+    section = empty_state(page())
+    box = section.index('class="mgmt-scroll mgmt-console-box" id="kernel-console-lines"')
+    script = section.index('document.getElementById("kernel-console-lines"); box.scrollTop = box.scrollHeight;')
+    assert box < section.index("line 200") < script
+    css = (Path(netconsole.__file__).parent / "static/management/management.css").read_text()
+    assert ".mgmt-console-box { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); overflow-y: auto; }" in css

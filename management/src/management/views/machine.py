@@ -377,6 +377,10 @@ def _page(request, entry):
         "fleet": _url(request, "fleet-list"),
         # the kernel's own log of this boot, from the gateway's netconsole receiver (round 6 item 5)
         "console": console, "console_error": console_error, "console_not_set_up": console_not_set_up, "console_since": _when(console.since) if console and console.since else "",
+        # with no line this boot: when the gateway began receiving, said when that was after the boot began (round 7)
+        "console_receiving_since": _exact(console.receiving_since) if console and console.receiving_since else "",
+        "console_receiver_late": bool(console and console.since and console.receiving_since
+                                      and console.receiving_since > console.since),
         "console_lines": [(timezone.localtime(at).strftime("%H:%M:%S.%f")[:-3], at.isoformat(), text)
                           for at, text in console.lines] if console else [],
     })

@@ -262,7 +262,8 @@
 <p class="mgmt-problem">No kernel console to show: {{ console_error }}.</p>
 {% elif console_lines %}
 <p>{% if console.since %}The kernel's log of this boot (since {{ console_since }}){% else %}The newest kernel log lines received from this Pi's address (this boot's start is not known yet, so some may be of earlier boots, or of another Pi that was on this port){% endif %}, sent by netconsole from {{ console.address }} and stored by the gateway: {% if console.count > console_lines|length %}the newest {{ console_lines|length }} of {{ console.count }} lines{% else %}{{ console.count }} line{{ console.count|pluralize }}{% endif %}{% if console.partial %}, and earlier lines{% if console.since %} of this boot{% endif %} not read (only the end of the files is){% endif %}, newest last. Times are {{ zone }}, when the gateway received each line.</p>
-<div class="mgmt-scroll" tabindex="0" role="region" aria-label="Kernel console{% if console.since %} of this boot{% endif %}">
+{# at most one screen high, scrolling inside, opened at the newest lines (Tim, 18 Oct 2026, round 7: "Make the net console maximum 1 screen height and scrolling otherwise. By default it should have scrolled to the newest messages.") #}
+<div class="mgmt-scroll mgmt-console-box" id="kernel-console-lines" tabindex="0" role="region" aria-label="Kernel console{% if console.since %} of this boot{% endif %}">
 <table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-console">
   <thead><tr><th scope="col" title="when the gateway received the line">Received</th><th scope="col" title="the kernel's text, as netconsole sent it">Line</th></tr></thead>
   <tbody>
@@ -270,8 +271,13 @@
   {% endfor %}
   </tbody>
 </table></div>
+<script>
+/* newest last: the box opens scrolled to its end, so the newest lines are in view (the lines are not refreshed in place) */
+(function () { var box = document.getElementById("kernel-console-lines"); box.scrollTop = box.scrollHeight; })();
+</script>
 {% else %}
-<p>No netconsole lines received {% if console.since %}this boot (since {{ console_since }}){% else %}yet{% endif %} from {{ console.address }}.</p>
+{# Tim, 18 Oct 2026 (round 7): "Why can't I see the netconsole on https://welland.fpgas.online/fleet/00000000cc479fd1/?": that Pi booted before the gateway's receiver started, so the page says so #}
+<p>No netconsole lines received {% if console.since %}this boot (since {{ console_since }}){% else %}yet{% endif %} from {{ console.address }}{% if console_receiver_late %}: the gateway began receiving at {{ console_receiving_since }}, after this boot began, so its lines appear when the kernel next logs, and the whole log after the Pi's next boot{% elif console.since and not console.receiving_since %}: the gateway has received no netconsole line from any Pi yet{% endif %}.</p>
 {% endif %}
 
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
