@@ -16,6 +16,10 @@ class Machine(models.Model):
     online = models.BooleanField(default=False)
     last_boot_id = models.CharField(max_length=40, blank=True)
     last_uptime_s = models.PositiveIntegerField(default=0)
+    # when its present boot began, by the gateway's clock: a live beat's arrival less the uptime it carried
+    # (services.status); None until such a beat. Not last_seen - last_uptime_s: a will or a shutdown notice moves
+    # last_seen with no uptime, and a retained replay moves the uptime without last_seen
+    booted_at = models.DateTimeField(null=True, blank=True)
     latest_snapshot = models.ForeignKey(
         "HardwareSnapshot", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="+")

@@ -19,7 +19,7 @@ from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview, labelart
 
-from .. import check_docs, check_groups, fpga, localtime, network, states
+from .. import check_docs, check_groups, fpga, localtime, netconsole, network, states
 from . import switches
 from .fpgas import (
     CHECK_WORDS,
@@ -272,6 +272,20 @@ def _network(entry):
     return (None, str(net)) if isinstance(net, ValueError) else (net, "")
 
 
+def _console(entry):
+    """(Console | None, error, not set up) of the host's kernel console this boot, or why it cannot be shown (said in
+    the section; the page stands). `not set up`: the site has no receiver yet, a state of the site said plainly, not a
+    fault drawn as one."""
+    try:
+        return netconsole.read(entry), "", ""
+    except netconsole.NotSetUp as exc:
+        return None, "", str(exc)
+    except netconsole.Unavailable as exc:
+        return None, str(exc), ""
+    except ValueError as exc:  # a stored line not in the receiver's form: the receiver's fault, said loud
+        return None, f"the netconsole file holds a line this page cannot read: {exc}", ""
+
+
 def _lifetime(seconds):
     """A lifetime in seconds as the page says it: "forever" for null."""
     return "forever" if seconds is None else f"{seconds} s"
@@ -312,6 +326,7 @@ def _page(request, entry):
     events = (entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id
               else entry.events.order_by("-ts")[:EVENTS])
     net, net_error = _network(entry)
+    console, console_error, console_not_set_up = _console(entry)
     return render(request, "management/machine.html", {
         # its switch port's row, as the switch port dashboard draws it, with the PoE and link buttons (round 6 item 6)
         "switch_port": switches.port_of(request, entry.serial), "switch_head_titles": switches.head_titles(),
@@ -360,4 +375,8 @@ def _page(request, entry):
         "events": [_event(event) for event in events], "event_kind_titles": EVENT_KIND_TITLES,
         "zone": localtime.zone_name(),
         "fleet": _url(request, "fleet-list"),
+        # the kernel's own log of this boot, from the gateway's netconsole receiver (round 6 item 5)
+        "console": console, "console_error": console_error, "console_not_set_up": console_not_set_up, "console_since": _when(console.since) if console and console.since else "",
+        "console_lines": [(timezone.localtime(at).strftime("%H:%M:%S.%f")[:-3], at.isoformat(), text)
+                          for at, text in console.lines] if console else [],
     })

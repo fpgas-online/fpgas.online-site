@@ -357,6 +357,11 @@ GATEWAY_RECORD_DAYS = 7
 # here; the gateway's generated local_settings.py turns it on.
 SNMP_SWITCH_LEASE_RELEASE = False
 
+# The gateway's netconsole receiver's directory (fpgas.online-infra's netconsole role): each Pi's kernel log lines in
+# <dir>/<its IPv4 address>.log, read for its own page's "Kernel console" (management.netconsole). Empty: the site
+# has no receiver, and the section says so. Set by the gateway's generated local_settings.py.
+NETCONSOLE_DIR = os.environ.get("FPGAS_NETCONSOLE_DIR", "")
+
 try:
     from pib.local_settings import *  # noqa: E402, F403
 except ModuleNotFoundError as exc:  # pragma: no cover - only in dev/test without local_settings
