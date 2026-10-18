@@ -254,6 +254,26 @@
 </table></div>
 {% else %}<p>No registration.</p>{% endif %}
 
+{# the kernel's own log of this boot, as the gateway's netconsole receiver stored it (Tim, 18 Oct 2026: "What is the state of netconsole logs? They should be appearing on pages like https://welland.fpgas.online/fleet/00000000cc479fd1/") #}
+<h2 id="kernel-console">Kernel console</h2>
+{% if console_not_set_up %}
+<p>No kernel console: {{ console_not_set_up }}.</p>
+{% elif console_error %}
+<p class="mgmt-problem">No kernel console to show: {{ console_error }}.</p>
+{% elif console_lines %}
+<p>{% if console.since %}The kernel's log of this boot (since {{ console_since }}){% else %}The newest kernel log lines received from this Pi's address (this boot's start is not known yet, so some may be of earlier boots, or of another Pi that was on this port){% endif %}, sent by netconsole from {{ console.address }} and stored by the gateway: {% if console.count > console_lines|length %}the newest {{ console_lines|length }} of {{ console.count }} lines{% else %}{{ console.count }} line{{ console.count|pluralize }}{% endif %}{% if console.partial %}, and earlier lines{% if console.since %} of this boot{% endif %} not read (only the end of the files is){% endif %}, newest last. Times are {{ zone }}, when the gateway received each line.</p>
+<div class="mgmt-scroll" tabindex="0" role="region" aria-label="Kernel console{% if console.since %} of this boot{% endif %}">
+<table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-console">
+  <thead><tr><th scope="col" title="when the gateway received the line">Received</th><th scope="col" title="the kernel's text, as netconsole sent it">Line</th></tr></thead>
+  <tbody>
+  {% for shown, at, text in console_lines %}<tr><td class="mgmt-mono" data-sort="{{ at }}"><time datetime="{{ at }}">{{ shown }}</time></td><td class="mgmt-mono mgmt-console-text">{{ text }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>No netconsole lines received {% if console.since %}this boot (since {{ console_since }}){% else %}yet{% endif %} from {{ console.address }}.</p>
+{% endif %}
+
 <h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
 {% if events %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events">
