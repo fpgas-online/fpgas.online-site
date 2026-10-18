@@ -1574,7 +1574,7 @@ def test_a_memory_the_page_cannot_size_says_why_on_hover(monkeypatch):
 
     monkeypatch.setattr(fpga, "pi_fields", lambda machine: Fields())
     monkeypatch.setattr(fpga, "pi_label", lambda machine: "Pi 5 ? s")
-    host = SimpleNamespace(machine=None, boards=[], board_type="no board", condition="operational", why="")
+    host = SimpleNamespace(machine=None, boards=[], board_type="no board", condition="operational", why="", setup_port=False)
     m = page._machine(None, host, SimpleNamespace(at=timezone.now()))
     assert (m["memory"], m["memory_mb"], m["memory_title"]) == ("?", 0, "memory '?' is not a size")
 

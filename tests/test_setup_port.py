@@ -116,3 +116,67 @@ def test_with_no_setup_port_port_1_is_an_ordinary_port(site):
     verified_pi("pi-sw1-p1", ("acorn", "cle215+"), serial="one")
     assert services.offered_hosts() == {"pi-sw1-p1": "one"}
 
+
+
+@pytest.mark.django_db
+def test_the_index_newest_check_row_leaves_the_setup_port_out():
+    from management.views import index
+
+    verified_pi("pi-sw1-p2", ("acorn", "cle215+"), serial="normal")
+    verified_pi("pi-sw1-p1", ("acorn", "cle215+"), serial="setup")  # the newest by arrival
+    assert [m.serial for m, _ in index._newest_checks()] == ["normal"]
+
+
+@pytest.mark.django_db
+def test_the_device_pages_boot_history_reads_failed_for_this_boot_on_the_setup_port():
+    verified_pi("pi-sw1-p1", ("acorn", "cle215+"), serial="setup")
+    page = Client(HTTP_HOST=WELLAND).get("/fleet/setup/").content.decode()
+    history = page[page.index("<h2>Boot checks</h2>"):]
+    history = history[:history.index("</table>")]
+    row = [r for r in history.split("<tr")[1:] if "<td" in r and "mgmt-groups" not in r][0]  # newest first: this boot
+    # the Result cell of the boot it is running: ✗ failed, setup port (its board keeps its own result)
+    assert 'title="failed: setup port"' in row
+
+
+@pytest.mark.django_db
+def test_tinytapeout_says_setup_port_for_a_board_on_it():
+    serial = "a2961e5cac65b25f"
+    verified_pi("pi-sw2-p1", ("tt", "tt-fpga", {"usb_serial": serial, "chip": "fpga", "sdk": "3.1.0"}))
+    c = Client(HTTP_HOST="tinytapeout.fpgas.online")
+    assert "not offered: setup port" in c.get("/").content.decode()
+    html = c.get(f"/board/tt-{serial}/").content.decode()
+    assert "its Raspberry Pi is on the setup / config port" in html
+    assert 'id="tt-commander"' not in html and 'id="tt-upload"' not in html  # no visitor controls
+
+
+def test_registry_and_switches_json_name_the_setup_port_as_a_field():
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "management/src/management/views"
+    assert '"setup_port": host.setup_port,' in (src / "fpgas.py").read_text()
+    assert '"setup_port": host.setup_port,' in (src / "switches.py").read_text()
+
+
+@pytest.mark.django_db
+def test_registry_json_carries_setup_port():
+    verified_pi("pi-sw1-p1", ("acorn", "cle215+"), serial="setup")
+    verified_pi("pi-sw1-p2", ("acorn", "cle215+"), serial="normal")
+    rows = {m["serial"]: m for m in Client(HTTP_HOST=WELLAND).get("/fleet/registry.json").json()["machines"]}
+    assert rows["setup"]["setup_port"] is True and rows["normal"]["setup_port"] is False
+
+
+@pytest.mark.parametrize("value, ok", [("1", True), ("48", True), ("", True), ("0", False), ("01", False),
+                                       ("abc", False), (" 1", False), ("1000", False)])
+def test_a_setup_port_that_is_not_a_port_number_stops_the_site(value, ok):
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "FPGAS_SETUP_PORT": value}
+    run = subprocess.run([sys.executable, "-c", "import pib.settings as s; print(s.SETUP_PORT)"], env=env,
+                         capture_output=True, text=True)
+    if ok:
+        assert run.returncode == 0, run.stderr
+        assert run.stdout.strip() == (value or "None")
+    else:
+        assert run.returncode != 0 and "is not a port number" in run.stderr
