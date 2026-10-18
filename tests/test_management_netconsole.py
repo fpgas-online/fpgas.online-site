@@ -217,7 +217,7 @@ def test_a_boot_older_than_the_receiver_is_said_with_when_it_began_receiving(rec
     assert c.count == 0 and c.receiving_since == began
     section = empty_state(page())
     assert "No netconsole lines received this boot" in section
-    assert f'the gateway began receiving at <time datetime="{began.isoformat()}">' in section
+    assert f'the gateway holds no netconsole line from any Pi older than <time datetime="{began.isoformat()}">' in section
     assert "after this boot began, so its lines appear when the kernel next logs, and the whole log after the Pi" in section
 
 
@@ -228,7 +228,7 @@ def test_a_receiver_older_than_the_boot_keeps_the_plain_empty_state(receiver):
     assert netconsole.read(m).receiving_since == m.booted_at - timedelta(hours=2)
     section = empty_state(page())
     assert "No netconsole lines received this boot" in section
-    assert "began receiving" not in section and "from any Pi" not in section
+    assert "older than" not in section and "from any Pi" not in section
 
 
 @pytest.mark.django_db
@@ -241,7 +241,7 @@ def test_the_oldest_line_counts_rotated_and_compressed_files(receiver):
     with gzip.open(receiver / "10.21.1.12.log.2.gz", "wt") as f:
         f.write(f"{oldest.isoformat()} two rotations ago\n")
     assert netconsole.read(m).receiving_since == oldest
-    assert "began receiving" not in empty_state(page())
+    assert "older than" not in empty_state(page())
 
 
 @pytest.mark.django_db
@@ -269,3 +269,35 @@ def test_the_console_box_is_one_screen_high_and_opens_at_the_newest_line(receive
     assert box < section.index("line 200") < script
     css = (Path(netconsole.__file__).parent / "static/management/management.css").read_text()
     assert ".mgmt-console-box { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); overflow-y: auto; }" in css
+
+
+@pytest.mark.django_db
+def test_a_receiver_that_began_during_the_boot_says_the_earlier_lines_were_not_received(receiver):
+    """The review of #175: the same cause as Tim's question, one boot later: lines shown, the boot's start missing."""
+    m = pi(uptime_s=3 * 3600)
+    began = m.booted_at + timedelta(hours=2)
+    write(receiver, "10.21.1.2", [(began, "systemd[1]: a line after the receiver started")])
+    c = netconsole.read(m)
+    assert c.count == 1 and c.receiving_since == began
+    section = empty_state(page())
+    assert "systemd[1]: a line after the receiver started" in section
+    assert ("The boot's earlier lines were not received: the gateway holds no netconsole line from any Pi older "
+            f'than <time datetime="{began.isoformat()}">') in section
+
+
+@pytest.mark.django_db
+def test_lines_from_the_boots_start_carry_no_note(receiver):
+    m = pi(uptime_s=600)
+    write(receiver, "10.21.1.2", [(m.booted_at + timedelta(seconds=1), "Booting Linux on physical CPU 0x0")])
+    assert "were not received" not in empty_state(page())
+
+
+@pytest.mark.django_db
+def test_an_oldest_line_within_a_minute_of_the_boot_is_not_called_late(receiver):
+    """Another Pi's line a few seconds after this boot began, before this Pi's own first line: the receiver may have
+    been running all along with no Pi sending."""
+    m = pi(uptime_s=600)
+    write(receiver, "10.21.1.12", [(m.booted_at + timedelta(seconds=3), "another Pi")])
+    write(receiver, "10.21.1.2", [(m.booted_at + timedelta(seconds=8), "Booting Linux on physical CPU 0x0")])
+    assert not netconsole.read(m).receiver_late
+    assert "were not received" not in empty_state(page())

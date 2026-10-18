@@ -37,6 +37,12 @@ class NotSetUp(Unavailable):
 # the PoE hold before this one powered on).
 SLACK = timedelta(seconds=5)
 
+# netconsole registers within seconds of the kernel's start and sends the boot's log from its first line ("Booting
+# Linux on physical CPU 0x0"; seen on deploy 47's proof). So a receiver whose oldest stored line is more than this after
+# the boot began was not yet receiving when the boot's first lines were sent; within it, the oldest line may simply be
+# the boot's own first one.
+SENDS_WITHIN = timedelta(seconds=60)
+
 
 @dataclass
 class Console:
@@ -46,9 +52,17 @@ class Console:
     lines: list = field(default_factory=list)  # [(received, text)], oldest first, at most LIMIT
     count: int = 0  # this boot's lines in what was read
     partial: bool = False  # the read stopped before the boot's start: older lines of this boot were not read
-    # with no line of this boot: when the receiver's oldest stored line arrived (any Pi's), None: it has stored none.
-    # Later than `since`: the gateway was not receiving yet when this boot began (round 7 item 2)
+    # when the receiver's oldest stored line arrived (any Pi's; None: it holds none), read when this boot's start is
+    # known and the read reached it. Later than `since`: the gateway was not receiving yet when this boot began, so
+    # the boot's earlier lines were never received (round 7 item 2)
     receiving_since: datetime | None = None
+
+    @property
+    def receiver_late(self):
+        """The gateway was not yet receiving when this boot's first lines were sent: its oldest stored line, from any Pi,
+        arrived more than SENDS_WITHIN after the boot began."""
+        return (self.since is not None and self.receiving_since is not None
+                and self.receiving_since > self.since + SLACK + SENDS_WITHIN)
 
 
 def directory():
@@ -96,8 +110,8 @@ def parse(line, path, number):
 def receiving_since(where):
     """When the oldest line the receiver still holds in `where` arrived, from any Pi (the first line of each file,
     rotated and compressed ones included: logrotate keeps a week, a Pi's boot is hours), or None for none at all. The
-    receiver starts a file at a sender's first datagram, so this is when the gateway began receiving, as far as the
-    site can know it from the receiver's own files (round 7 item 2, Tim, 18 Oct 2026: "Why can't I see the netconsole
+    receiver starts a file at a sender's first datagram, so the gateway was receiving from then on; whether it was
+    already receiving earlier (with no Pi sending) the files cannot say, so the page states only this time (round 7 item 2, Tim, 18 Oct 2026: "Why can't I see the netconsole
     on https://welland.fpgas.online/fleet/00000000cc479fd1/?": that Pi booted before the receiver started)."""
     oldest = None
     for name in sorted(where.glob("*.log*")):
@@ -170,6 +184,6 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
     kept.reverse()
     console.count = len(kept)
     console.lines = kept[-limit:]
-    if not kept and since is not None:
+    if since is not None and not console.partial:
         console.receiving_since = receiving_since(where)
     return console

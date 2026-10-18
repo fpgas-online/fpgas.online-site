@@ -365,7 +365,8 @@ td.mgmt-c-state-word span { font-weight: 700; }
 .mgmt-console-text { white-space: pre-wrap; word-break: break-word; }
 /* the console's box at most one screen high, scrolling inside it, its header kept in view (round 7, Tim, 18 Oct 2026:
    "Make the net console maximum 1 screen height and scrolling otherwise."): one screen less the heading and its line, so
-   the heading and the whole box, its newest lines at the end, fit on the screen together; dvh where the browser has
+   on a wide screen the heading and the whole box, its newest lines at the end, fit on it together (on a phone the
+   paragraph wraps to more lines and scrolls away; the box itself is still under one screen); dvh where the browser has
    it, so a phone's address bar does not push the box's end below the screen */
 .mgmt-console-box { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); overflow-y: auto; }
 .mgmt-console-box thead th { position: sticky; top: 0; z-index: 1; }
