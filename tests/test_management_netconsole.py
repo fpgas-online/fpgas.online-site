@@ -188,7 +188,7 @@ def test_a_pi_with_no_boot_start_yet_shows_its_newest_lines_plainly(receiver):
     c = netconsole.read(m)
     assert c.since is None and [t for _, t in c.lines] == ["an earlier boot", "Kernel panic - not syncing"]
     html = page()
-    assert "this boot's start is not known yet" in html and "Kernel panic - not syncing" in html
+    assert "this boot's start is not known yet, so some may be of earlier boots, or of another Pi that was on this port" in html and "Kernel panic - not syncing" in html
     assert "mgmt-problem" not in html.split('id="kernel-console"')[1].split("<h2")[0]
 
 
