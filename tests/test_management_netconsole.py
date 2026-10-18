@@ -90,7 +90,6 @@ def test_nothing_received_this_boot_is_said(receiver):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("kw, words", [
-    ({"uptime_s": 0}, "the Pi has sent no live status with its uptime yet"),
     ({"leased": False}, "the gateway has leased the Pi no IPv4 address"),
 ])
 def test_what_keeps_the_console_from_being_shown_is_said(receiver, kw, words):
@@ -105,7 +104,7 @@ def test_a_site_with_no_receiver_says_so(settings):
     pi()
     html = page()
     # a state of the site, said plainly (welland until its receiver is deployed), not a fault box
-    assert "<p>No kernel console yet: the gateway&#x27;s netconsole receiver is not set up on this site yet.</p>" in html
+    assert "<p>No kernel console: the gateway&#x27;s netconsole receiver is not set up on this site yet.</p>" in html
     assert "NETCONSOLE_DIR" not in html
 
 
@@ -175,3 +174,27 @@ def test_a_boot_that_straddles_a_rotation_reads_the_rotated_file_too(receiver):
     # a rotation just after the boot: the current file empty of this boot's lines, the rotated one holds them
     (receiver / "10.21.1.2.log").unlink()
     assert [t for _, t in netconsole.read(m).lines][0] == "Booting Linux on physical CPU 0x0"
+
+
+@pytest.mark.django_db
+def test_a_pi_with_no_boot_start_yet_shows_its_newest_lines_plainly(receiver):
+    """The review of #174 round 2: a Pi that has not beaten since booted_at arrived (every Pi for a minute after the
+    deploy; one that dies before its first beat) is an expected state, not a fault: its newest lines, said to be
+    possibly of earlier boots."""
+    m = pi(uptime_s=0)
+    assert m.booted_at is None
+    now = timezone.now()
+    write(receiver, "10.21.1.2", [(now - timedelta(hours=1), "an earlier boot"), (now, "Kernel panic - not syncing")])
+    c = netconsole.read(m)
+    assert c.since is None and [t for _, t in c.lines] == ["an earlier boot", "Kernel panic - not syncing"]
+    html = page()
+    assert "this boot's start is not known yet" in html and "Kernel panic - not syncing" in html
+    assert "mgmt-problem" not in html.split('id="kernel-console"')[1].split("<h2")[0]
+
+
+@pytest.mark.django_db
+def test_older_lines_in_a_compressed_rotation_are_said(receiver):
+    m = pi(uptime_s=3600)
+    write(receiver, "10.21.1.2", [(m.booted_at + timedelta(seconds=1), "x")])
+    (receiver / "10.21.1.2.log.2.gz").write_bytes(b"")
+    assert netconsole.read(m).partial

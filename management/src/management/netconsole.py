@@ -41,7 +41,7 @@ SLACK = timedelta(seconds=5)
 class Console:
     address: str
     path: str
-    since: datetime  # the boot's start, the gateway's clock
+    since: datetime | None  # the boot's start, the gateway's clock; None: not known (no live beat yet)
     lines: list = field(default_factory=list)  # [(received, text)], oldest first, at most LIMIT
     count: int = 0  # this boot's lines in what was read
     partial: bool = False  # the read stopped before the boot's start: older lines of this boot were not read
@@ -56,10 +56,11 @@ def directory():
 
 
 def boot_start(machine):
-    """When the Pi's present boot began, by the gateway's clock (fleet Machine.booted_at, from its live beats)."""
-    if machine.booted_at is None:
-        raise Unavailable("the Pi has sent no live status with its uptime yet, so this boot's start is not known")
-    return machine.booted_at - SLACK
+    """When the Pi's present boot began, by the gateway's clock (fleet Machine.booted_at, from its live beats), or
+    None while no live beat has said (every Pi for a minute after this field arrived; a Pi that dies before its first
+    beat: the one whose last lines matter most, so the page shows the newest lines it has, saying they may be of
+    earlier boots)."""
+    return None if machine.booted_at is None else machine.booted_at - SLACK
 
 
 def address(machine):
@@ -126,7 +127,7 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
         budget -= sum(len(r.encode()) + 1 for r in rows)
         for number, line in enumerate(rows, 1):
             received, text = parse(line, name, number)
-            if received < since:
+            if since is not None and received < since:
                 break
             kept.append((received, text))
         else:
@@ -135,6 +136,9 @@ def read(machine, limit=LIMIT, read_bytes=READ_BYTES):
                 break
             continue  # this file began after the boot's start: the boot's earlier lines are in the rotated one
         break
+    else:
+        # both files read whole, every line of this boot: older ones may be in a compressed rotation (<file>.2.gz)
+        console.partial = path.with_name(path.name + ".2.gz").exists()
     kept.reverse()
     console.count = len(kept)
     console.lines = kept[-limit:]
