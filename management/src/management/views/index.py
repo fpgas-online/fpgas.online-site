@@ -27,7 +27,7 @@ from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from fleet.models import BootEvent
-from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, SETUP_PORT_REASON, UNKNOWN
+from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, SETUP_PORT_REASON, UNKNOWN, on_setup_port
 from fleet.timeago import ago_time, duration
 
 from .. import e2e, fpga, inventory_check, localtime, states
@@ -267,11 +267,14 @@ def _switches(request, now):
 
 def _newest_checks():
     """[(machine, event)] the newest `fpga-verified` event of each machine (by arrival, as fleet.services does), in
-    two queries however many machines there are."""
+    two queries however many machines there are. A machine on the setup / config port is left out: its own result is
+    not the site's (it reads failed, reason "setup port", in the Boards rows), and the row says whether the fleet's
+    checks are running."""
     newest = BootEvent.objects.filter(stage="fpga-verified").values("machine_id").annotate(last=Max("id")) \
         .values_list("last", flat=True)
     return [(event.machine, event) for event in
-            BootEvent.objects.filter(id__in=list(newest)).select_related("machine").order_by("id")]
+            BootEvent.objects.filter(id__in=list(newest)).select_related("machine").order_by("id")
+            if not on_setup_port(event.machine.hostname)]
 
 
 def _result(event):

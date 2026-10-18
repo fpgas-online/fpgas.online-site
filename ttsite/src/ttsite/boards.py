@@ -41,7 +41,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from fleet.services import reporting_machines
+from fleet.services import SETUP_PORT_REASON, on_setup_port, reporting_machines
 from pibfpgas.pis import Pi
 
 from .models import Board
@@ -266,6 +266,8 @@ class Page:
             return ""
         if not self.live.current:
             return "not ready"
+        if on_setup_port(self.hostname):
+            return f"not offered: {SETUP_PORT_REASON}"
         if self.live.kind not in (FPGA, ASIC):
             return "not identified"
         return f"not offered: boot check {self.live.state or 'not run'}"
@@ -277,6 +279,8 @@ class Page:
             return ""
         if not self.live.current:
             return f"This board is not ready: {self.live.waiting}."
+        if on_setup_port(self.hostname):
+            return "This board is not offered: its Raspberry Pi is on the setup / config port."
         if self.live.kind not in (FPGA, ASIC):
             return ("The boot check on this board's Raspberry Pi found the board but could not read what it is: "
                     f"{self.live.reason}")

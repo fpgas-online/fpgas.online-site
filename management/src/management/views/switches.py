@@ -241,6 +241,7 @@ def _machine(request, host, observed):
         memory_mb, memory_title = 0, str(exc)
     return {
         "serial": fields.serial,
+        "setup_port": host.setup_port,  # never offered; its state_title says "setup port" (fleet.services.on_setup_port)
         "url": _fleet_url(request, fields.serial),
         "label": fpga.pi_label(host.machine),
         # the model in the /fleet/ short form; a host with no label says what keeps it from one (fail loud)

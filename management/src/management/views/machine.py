@@ -14,7 +14,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.utils.html import format_html
 from fleet.models import BootEvent, Machine
-from fleet.services import FPGA_STAGES
+from fleet.services import FPGA_STAGES, SETUP_PORT_REASON, SETUP_PORT_STATE, on_setup_port
 from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview, labelart
@@ -230,6 +230,10 @@ def _history(machine):
         else:
             mark = _result_mark(str(detail.get("result", "")))
             boards = [(b["title"], _result_mark(b["result"], b["reason"])) for b in reports]
+        # the boot it is running, on the setup / config port: failed, as the page's head says (fleet.services
+        # setup_port_state); its name says where it is now, so an earlier boot elsewhere keeps its own result
+        if event.boot_id == machine.last_boot_id and on_setup_port(machine.hostname):
+            mark = _result_mark(SETUP_PORT_STATE, SETUP_PORT_REASON)
         rows[event.boot_id] = Check(event.boot_id, event.boot_id == machine.last_boot_id, _when(event.ts), event.id,
                                     mark, boards, reports, event.stage == "fpga-verifying")
     checks = list(rows.values())[:HISTORY]
