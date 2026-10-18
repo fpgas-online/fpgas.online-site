@@ -131,7 +131,7 @@ def test_the_index_newest_check_row_leaves_the_setup_port_out():
 def test_the_device_pages_boot_history_reads_failed_for_this_boot_on_the_setup_port():
     verified_pi("pi-sw1-p1", ("acorn", "cle215+"), serial="setup")
     page = Client(HTTP_HOST=WELLAND).get("/fleet/setup/").content.decode()
-    history = page[page.index("<h2>Boot checks</h2>"):]
+    history = page[page.index('<h3 id="boot-checks">Boot checks</h3>'):]
     history = history[:history.index("</table>")]
     row = [r for r in history.split("<tr")[1:] if "<td" in r and "mgmt-groups" not in r][0]  # newest first: this boot
     # the Result cell of the boot it is running: ✗ failed, setup port (its board keeps its own result)

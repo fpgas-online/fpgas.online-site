@@ -58,7 +58,7 @@ def test_the_page_names_the_host_by_its_label_and_says_how_it_is():
     # registered one on hover, the boot check as one character
     assert 'title="the gateway leased it an address on this port at ' in html and ">sw2 p46</td>" in html
     assert 'title="registered as Raspberry Pi 5 Model B Rev 1.0">Pi 5</td>' in html
-    assert re.search(r'Boot check<a class="mgmt-doc"[^>]*>\?</a></th><td title="passed, [^"]*"><span class="mgmt-test-pass">✓</span>', html)
+    assert re.search(r'Boot check</a><a class="mgmt-doc"[^>]*>\?</a></th><td title="passed, [^"]*"><span class="mgmt-test-pass">✓</span>', html)
     # under Raspberry Pis in the one navigation (#131); the page's heading names the host by its label
     assert '<a href="/fleet/" aria-current="page">Raspberry Pis</a>' in html and "Pi 5 4 GB 285df3f84af242d0" in html
 
@@ -70,7 +70,7 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
               "board0_tests": "pin-id=pass ddr=fail sdk=pass", "board1": "fomu evt pass", "board1_tests": "uart=pass"}
     m = pi("pi-sw1-p17", detail, serial="00000000cc479fd1")
     html = page(m.serial)
-    boards = html.split("<h2 id=\"boards\">Boards</h2>", 1)[1].split("</table>", 1)[0]
+    boards = html.split('<h3 id="boards">Boards</h3>', 1)[1].split("</table>", 1)[0]
     # a row a board: its type, the id on its label (its name on hover), its result and a mark per check, grouped as on
     # /fleet/ (#132: "suffers from many of the issues I told you about on other pages")
     assert '<td class="mgmt-c-id" data-label="ID" title="acorn-holly 0x00200c8664b04854">0x00200c8664b04854</td>' in boards
@@ -93,7 +93,7 @@ def test_every_board_the_check_found_is_shown_with_its_tests_and_docs_label_or_n
     assert re.search(r'title="uart not applicable to Acorn: [^"]+"><span class="mgmt-test-none"><a href="https://docs'
                      r'\.fpgas\.online/en/latest/verify/checks\.html#uart">–</a></span>', boards)
     assert f'<a href="{docs}fomu-evt/">board</a>' in boards
-    assert "mgmt-fit" in html.split('<h2 id="boards">', 1)[1].split("<table", 2)[1][:80]  # as wide as its values
+    assert "mgmt-fit" in html.split('<h3 id="boards">', 1)[1].split("<table", 2)[1][:80]  # as wide as its values
 
 
 @pytest.mark.django_db
@@ -106,7 +106,7 @@ def test_the_check_is_shown_with_its_history_across_boots():
     BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=timezone.now(),
                              detail=REAL["pi-sw2-p33"])
     html = page(m.serial)
-    history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    history = html.split('<h3 id="boot-checks">Boot checks</h3>', 1)[1].split("</table>", 1)[0]
     rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history.split("<tbody>", 1)[1], re.S)
     # a row a boot (the review of 15 Oct: a "running" row and a result row of one boot were two), its result a mark
     assert len(rows) == 2
@@ -126,7 +126,7 @@ def test_a_boot_with_a_running_check_and_its_report_is_one_row():
     BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verifying", ts=timezone.now(), detail={})
     BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verified", ts=timezone.now(), detail=REAL["pi-sw2-p33"])
     BootEvent.objects.create(machine=m, boot_id="b2", stage="fpga-verifying", ts=timezone.now(), detail={})
-    history = page(m.serial).split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    history = page(m.serial).split('<h3 id="boot-checks">Boot checks</h3>', 1)[1].split("</table>", 1)[0]
     rows = re.findall(r"<tr[^>]*>\s*<td[^>]*>.*?</tr>", history.split("<tbody>", 1)[1], re.S)
     assert len(rows) == 2  # b2 running, b1 its report
     # a running boot's test cells say it is running, never a stale result
@@ -137,7 +137,7 @@ def test_a_boot_with_a_running_check_and_its_report_is_one_row():
 @pytest.mark.django_db
 def test_each_field_the_labels_still_need_says_who_sends_it():
     def labels(serial):
-        return page(serial).split("<h2>Labels</h2>", 1)[1].split("<h2>", 1)[0]
+        return page(serial).split('<h2 id="labels">Labels</h2>', 1)[1].split("<h2", 1)[0]
 
     # no registration: rpi-hwid needs its model first, which the registration sends
     bare = pi("pi-sw2-p47", REAL["pi-sw2-p47"], serial="10000000eeee0047")
@@ -172,7 +172,7 @@ def test_a_time_from_the_future_is_said_in_its_cell_and_the_page_stands():
     m = pi("pi-sw2-p4", REAL["pi-sw2-p46"])
     BootEvent.objects.filter(machine=m).update(ts=timezone.now() + datetime.timedelta(hours=3))
     html = page(m.serial)
-    assert "future" in html.split("<h2>Boot checks</h2>", 1)[1]
+    assert "future" in html.split('<h3 id="boot-checks">Boot checks</h3>', 1)[1]
 
 
 @pytest.mark.django_db
@@ -196,7 +196,7 @@ def test_a_check_report_with_no_result_says_so_and_every_table_sorts():
     m = pi("pi-sw2-p21", REAL["pi-sw2-p46"])
     BootEvent.objects.create(machine=m, boot_id="b0", stage="fpga-verified", ts=timezone.now(), detail={"x": 1})
     html = page(m.serial)
-    history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    history = html.split('<h3 id="boot-checks">Boot checks</h3>', 1)[1].split("</table>", 1)[0]
     assert 'title="sent no result"><span class="mgmt-test-fail">✗' in history and "unknown" not in history
     assert html.count("mgmt-sortable") == 4 and "management/table.js" in html  # boards, history, labels, events
 
@@ -226,7 +226,7 @@ def test_a_host_whose_check_finds_no_board_has_the_same_verdict_in_its_history_a
 
     m = _orange_pi("pi-sw2-p18", "02c000810b122044", {"result": "missing"})
     html = page(m.serial)
-    history = html.split("<h2>Boot checks</h2>", 1)[1].split("</table>", 1)[0]
+    history = html.split('<h3 id="boot-checks">Boot checks</h3>', 1)[1].split("</table>", 1)[0]
     assert 'title="found no board"><span class="mgmt-test-fail">✗' in history
     assert "mgmt-test-pass" not in history
     assert "needs attention: no board found" in html and "not offered: boot check found no board" in html
@@ -235,7 +235,7 @@ def test_a_host_whose_check_finds_no_board_has_the_same_verdict_in_its_history_a
 @pytest.mark.django_db
 def test_what_keeps_rpi_hwid_from_a_label_is_the_event_it_lacks_with_the_sentence_on_hover():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
-    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
+    labels = page(m.serial).split('<h2 id="labels">Labels</h2>', 1)[1].split("</table>", 1)[0]
     assert ('<td title="no usable pi-identified event from this Pi"><code>pi-identified</code></td>' in labels)
     assert ">no usable pi-identified event from this Pi<" not in labels  # never as a cell's text
 
@@ -247,7 +247,7 @@ def test_a_failed_pi_read_is_its_event_in_the_cell_and_its_whole_reason_on_hover
     why = "rpi-hwid label-input --pi-only: " + "x" * 300 + ": the cause at the end"
     BootEvent.objects.create(machine=m, boot_id="b1", stage="pi-identified", ts=timezone.now(),
                              detail={"schema": "pi-identity/1", "reader_error": why})
-    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("</table>", 1)[0]
+    labels = page(m.serial).split('<h2 id="labels">Labels</h2>', 1)[1].split("</table>", 1)[0]
     row = re.search(r'<td title="(pi-identified \d+ at [^"]*)"><code>pi-identified</code></td>', labels)
     assert row and row[1].endswith("could not read its facts: &#x27;" + why + "&#x27;")
     # never as a cell's text: every cell of every row, its visible text (the screen-reader span aside), is a value
@@ -261,7 +261,7 @@ def test_the_new_fpgas_verify_report_reads_the_same_on_the_pis_own_page():
     from tests.test_management_fpgas import NEW_VERIFY_TT_FPGA
 
     m = pi("pi-sw2-p34", NEW_VERIFY_TT_FPGA, serial="1000000085948b10")
-    boards = page(m.serial).split('<h2 id="boards">Boards</h2>', 1)[1].split("</table>", 1)[0]
+    boards = page(m.serial).split('<h3 id="boards">Boards</h3>', 1)[1].split("</table>", 1)[0]
     assert re.search(r'data-label="spram" data-sort="1" title="spram did not run: no boot-check test yet: '
                      r'fpgas.online-test-designs #343"><span class="mgmt-test-notrun">', boards)
     # the Pi's own page has a column per check its boards' types get: none for jtag on a TT FPGA
@@ -290,7 +290,7 @@ def test_a_label_rpi_hwid_can_make_is_on_the_page_as_an_image_linking_its_pdf(mo
     label is made from what it sent; its Pi's label still needs fields, said in the table below it."""
     m = _with_label_input(monkeypatch, "label-input-acorn-linden.json")
     html = page(m.serial)
-    labels = html.split("<h2>Labels</h2>", 1)[1].split("<h2>", 1)[0]
+    labels = html.split('<h2 id="labels">Labels</h2>', 1)[1].split("<h2", 1)[0]
     ident = "id=pi-sw2-p41%2Facorn%2Facorn-linden+0x0044a48664b0485c"
     assert (f'<figure><a href="/fleet/{m.serial}/label.pdf?{ident}"><img src="/fleet/{m.serial}/label.png?{ident}" '
             'width="240" height="144" alt="the label acorn-linden 0x0044a48664b0485c"></a>'
@@ -318,7 +318,7 @@ def test_a_host_none_of_whose_labels_can_be_made_shows_no_image_and_every_gap(mo
     """The Arty on 0000000080863963: its board label needs the flash facts its check does not read, the Pi label its
     header (fpgas.online-test-designs#76): no image, a row for each field."""
     m = _with_label_input(monkeypatch, "label-input-arty-no-flash.json")
-    labels = page(m.serial).split("<h2>Labels</h2>", 1)[1].split("<h2>", 1)[0]
+    labels = page(m.serial).split('<h2 id="labels">Labels</h2>', 1)[1].split("<h2", 1)[0]
     assert "<img" not in labels
     for field in ("header", "flash_jedec", "flash_uid_state"):
         assert f"<code>{field}</code>" in labels
@@ -373,7 +373,7 @@ def test_each_event_has_its_kind_by_colour_and_name_and_a_tests_result_is_a_mark
                           ("fpga-test-finished", {"board": "acorn", "test": "jtag", "result": "pass"}),
                           ("something-new", {})):
         BootEvent.objects.create(machine=m, boot_id=m.last_boot_id, stage=stage, ts=timezone.now(), detail=detail)
-    events = page(m.serial).split("<h2>Events", 1)[1].split("</table>", 1)[0]
+    events = page(m.serial).split('<h2 id="events">Events', 1)[1].split("</table>", 1)[0]
     for kind, stage in (("network", "network-online"), ("service", "ssh-up"), ("identify", "fpga-board-identified"),
                         ("test", "fpga-test-finished"), ("other", "something-new")):
         assert re.search(rf'<tr class="mgmt-ev-{kind}"><td>[^<]*</td><td title="[^"]+"><span class="mgmt-ev">{kind}'
@@ -394,7 +394,51 @@ def test_the_labels_sit_beside_the_top_level_summary():
     html = page(m.serial)
     top = re.search(r'<div class="mgmt-side mgmt-top">\s*<section>\s*(?:\{#.*?#\}\s*)?'
                     r'<table class="mgmt-table mgmt-facts mgmt-fit">.*?</table>\s*</section>\s*'
-                    r'<section class="mgmt-label-box">\s*<h2>Labels</h2>(.*?)</section>\s*</div>', html, re.S)
+                    r'<section class="mgmt-label-box">\s*<h2 id="labels">Labels</h2>(.*?)</section>\s*</div>', html, re.S)
     assert top, "the summary and the labels are not one row at the top"
-    assert html.index("<h2>Labels</h2>") < html.index('<h2 id="boards">Boards</h2>')
-    assert html.count("<h2>Labels</h2>") == 1
+    assert html.index('<h2 id="labels">Labels</h2>') < html.index('<h3 id="boards">Boards</h3>')
+    assert html.count('<h2 id="labels">Labels</h2>') == 1
+
+
+# --- the layout (Tim, 18 Oct 2026, round 8, coord-88) -------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_every_item_of_the_top_box_links_a_section_of_the_page():
+    # "The top items in the first box should link to the more detailed item headers below."
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    html = page(m.serial)
+    top = html.split('<table class="mgmt-table mgmt-facts mgmt-fit">', 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r'<tr><th scope="row"[^>]*>(.*?)</th>', top)
+    assert len(rows) == 14
+    ids = set(re.findall(r'<h[23] id="([^"]+)"', html))
+    for row in rows:
+        link = re.match(r'<a class="mgmt-goto" href="#([^"]+)">([^<]+)</a>', row)
+        assert link, f"an item that links no section: {row}"
+        assert link[1] in ids, f"{link[2]} links #{link[1]}, which no header on the page has"
+        # the link lands below the box, on a header the page shows after it
+        assert html.index(f'id="{link[1]}"') > html.index("</table>", html.index('<table class="mgmt-table mgmt-facts'))
+
+
+@pytest.mark.django_db
+def test_the_sections_are_in_tims_order():
+    # the switch port under Network; Boards and Boot checks in one section, side by side; the kernel console last
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    html = page(m.serial)
+    heads = re.findall(r'<(h[23])(?: id="([^"]*)")?[^>]*>([^<]+)', html.split("<h1>", 1)[1])
+    order = [(level, text.strip()) for level, _, text in heads]
+    # this Pi sent no network-state record, so Network holds only its switch port (the record's four tables follow
+    # the switch port when there is one: tests/test_management_network.py)
+    assert order == [
+        ("h2", "Labels"),
+        ("h2", "Boards and boot checks"), ("h3", "Boards"), ("h3", "Boot checks"),
+        ("h2", "Network"), ("h3", "Switch port"),
+        ("h2", "Registrations"), ("h2", "Events of this boot"), ("h2", "Kernel console"),
+    ], order
+    together = html.split('<h2 id="boards-and-checks">', 1)[1].split("<h2", 1)[0]
+    side = re.fullmatch(r'Boards and boot checks</h2>\s*(?:\{#.*?#\}\s*)?<div class="mgmt-side">\s*<section>\s*<h3 id="boards">'
+                        r'.*</section>\s*<section>\s*<h3 id="boot-checks">.*</section>\s*</div>\s*', together, re.S)
+    assert side, together[:400]
+    # nothing of the page after the kernel console section but the page's own footer
+    after = html.split('<h2 id="kernel-console">', 1)[1]
+    assert "<h2" not in after and "<table class=\"mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events\"" not in after

@@ -131,7 +131,7 @@ def test_the_fleet_pages_show_the_check(c):
     # a host's own page: the condition badge, and the check of this boot as a word (#93)
     aaa = c.get("/fleet/aaa/").content.decode()
     assert re.search(r'<span class="mgmt-state-unknown">⟳</span> checking</td>', aaa)
-    assert re.search(r'Boot check<a class="mgmt-doc"[^>]*>\?</a></th><td title="running[^"]*"><span class="mgmt-test-running">⟳</span>', aaa)  # #132
+    assert re.search(r'Boot check</a><a class="mgmt-doc"[^>]*>\?</a></th><td title="running[^"]*"><span class="mgmt-test-running">⟳</span>', aaa)  # #132
     assert "not started" in c.get("/fleet/ccc/").content.decode()
 
 
