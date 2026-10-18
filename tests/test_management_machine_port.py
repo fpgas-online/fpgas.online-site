@@ -26,7 +26,7 @@ def test_the_pi_page_has_its_ports_row_exactly_as_the_dashboard_draws_it():
     seat("pi-sw1-p1", SERIAL, lease=(1, 1), lease_ago=5)
     dashboard = Client(HTTP_HOST=HOSTS[0]).get("/management/switches/").content.decode()
     html = pi_page()
-    assert '<h2 id="switch-port">Switch port</h2>' in html
+    assert '<h3 id="switch-port">Switch port</h3>' in html
     # the same cells, word for word: badges, PoE state, the power button, In / Out / Err
     assert row_of(html, 1) == row_of(dashboard, 1)
     row = row_of(html, 1)

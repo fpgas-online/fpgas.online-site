@@ -141,7 +141,7 @@ def test_with_no_record_of_the_current_boot_the_last_to_arrive_of_any_boot_is_sa
     net_event(m, doc(operational_state="carrier"), minutes=1, boot_id="old2")
     net = registry()[m.serial]["network"]
     assert (net["state"], net["boot_id"], net["current_boot"]) == ("carrier", "old2", False)
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "<code>old2</code> (an earlier boot" in section
 
 
@@ -313,7 +313,7 @@ def test_a_pi_supplied_value_in_an_error_is_cut_short():
 def test_the_page_says_when_the_host_has_sent_no_record():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     html = page(m.serial)
-    assert "<h2>Network</h2>" in html and "<p>This host has sent no network-state record.</p>" in html
+    assert '<h2 id="network">Network</h2>' in html and "<p>This host has sent no network-state record.</p>" in html
 
 
 @pytest.mark.django_db
@@ -322,7 +322,7 @@ def test_the_page_shows_the_newest_record_in_its_tables():
     net_event(m, doc(interface="old0", operational_state="carrier"), minutes=-30)
     net_event(m, doc())
     html = page(m.serial)
-    section = html.split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = html.split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "<td>routable / configured</td>" in section and "old0" not in section
     assert "<td>eth0</td>" in section and "<code>d8:3a:dd:00:00:01</code>" in section
     assert f'<time datetime="{NOW.isoformat()}"' in section
@@ -343,7 +343,7 @@ def test_a_record_with_no_lease_and_no_routes_says_so_with_dashes():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     lease = dict.fromkeys(network.LEASE_KEYS)
     net_event(m, doc(lease=lease, addresses=[], default_routes=[], operational_state="no-carrier"))
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "The record lists no address." in section and "The record lists no default route." in section
     assert '<th scope="row">Address</th><td>–</td>' in section and '<th scope="row">Expires</th><td>–</td>' in section
 
@@ -358,7 +358,7 @@ def test_values_the_pi_sent_are_escaped():
                      default_routes=[{"family": 4, "gateway": evil, "metric": 0, "protocol": evil}],
                      lease=dict(doc()["lease"], address=evil, server=evil)))
     html = page(m.serial)
-    section = html.split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = html.split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "<script>" not in section and section.count("&lt;script&gt;alert(1)&lt;/script&gt;") == 8
 
 
@@ -368,7 +368,7 @@ def test_a_malformed_record_is_said_in_the_section_and_the_page_stands():
     net_event(m, {"operational_state": "<b>"})
     html = page(m.serial)
     assert "The newest network-state record cannot be shown: network-state event" in html
-    assert "<h2 id=\"boards\">Boards</h2>" in html
+    assert '<h3 id="boards">Boards</h3>' in html
 
 
 @pytest.mark.django_db
@@ -376,7 +376,7 @@ def test_the_four_network_tables_are_blocks_of_one_side_by_side_row():
     # Tim, 16 Oct 2026: "the network sections should sit next to each other if there is space" (#155)
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     row = re.search(r'<div class="mgmt-side">(.*)</div>', section, re.S)
     assert row
     blocks = re.findall(r"<section>\s*<h3>([^<]+)</h3>", row[1])
@@ -388,7 +388,7 @@ def test_the_four_network_tables_are_blocks_of_one_side_by_side_row():
 def test_the_events_table_lists_the_records_of_this_boot():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
-    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    events = page(m.serial).split('<h2 id="events">Events of this boot</h2>', 1)[1]
     # the detail is collapsed (#132: no page of JSON to read), the whole of it inside, laid out as a registration's
     # document is (#154: indented, keys sorted, highlighted, in the same <pre>)
     row = re.search(r'<tr class="mgmt-ev-network"><td>[^<]*</td><td title="[^"]*"><span class="mgmt-ev">network</span>'
@@ -403,7 +403,7 @@ def test_the_events_table_lists_the_records_of_this_boot():
 def test_an_event_detail_is_laid_out_as_a_registration_document_is():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     event = net_event(m, doc())
-    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    events = page(m.serial).split('<h2 id="events">Events of this boot</h2>', 1)[1]
     ev = re.search(r'<td><details><summary>JSON</summary><pre class="mgmt-json">(.*?)</pre></details></td></tr>',
                    events, re.S)
     # exactly what a registration's document gets (jsonview.render): indented, keys sorted, highlighted
@@ -416,7 +416,7 @@ def test_an_event_detail_from_the_open_broker_is_escaped_in_the_events_table():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up", ts=NOW,
                              detail={"<img src=x onerror=alert(1)>": "</pre><script>alert(1)</script>"})
-    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    events = page(m.serial).split('<h2 id="events">Events of this boot</h2>', 1)[1]
     assert "<script>" not in events and "<img src=x" not in events and "</pre><script>" not in events
     assert "&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in events
 
@@ -425,7 +425,7 @@ def test_an_event_detail_from_the_open_broker_is_escaped_in_the_events_table():
 def test_an_event_with_no_detail_shows_a_dash():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     BootEvent.objects.create(machine=m, boot_id="b1", stage="network-state", detail={}, ts=NOW)
-    events = page(m.serial).split("<h2>Events of this boot</h2>", 1)[1]
+    events = page(m.serial).split('<h2 id="events">Events of this boot</h2>', 1)[1]
     row = re.search(r'<tr class="mgmt-ev-network">(.*?)</tr>', events, re.S)
     assert row and row[1].endswith("<td>–</td>") and "<details>" not in row[1]
 
@@ -469,7 +469,7 @@ def test_the_host_page_reads_its_record_in_a_constant_number_of_queries():
 def test_a_value_in_the_error_message_is_escaped_on_the_page():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc(operational_state="<script>alert(1)</script>"))
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "<script>" not in section and "&lt;script&gt;alert(1)&lt;/script&gt;" in section
 
 
@@ -522,7 +522,7 @@ def test_nulls_are_dashes_on_the_page():
     net_event(m, doc(
         addresses=[dict(doc()["addresses"][0], scope=None, valid_lifetime_s=None, preferred_lifetime_s=None)],
         default_routes=[dict(doc()["default_routes"][0], gateway=None)]))
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "None" not in section
     assert "<td>IPv4</td><td>–</td><td>1024</td><td>dhcp</td>" in section
     assert "<code>10.21.2.43/16</code></td><td>–</td><td>forever</td><td>forever</td>" in section
@@ -578,7 +578,7 @@ def test_a_machine_known_only_from_the_gateway_has_the_one_shape_with_null_field
         "state": None, "administrative_state": None, "changed": None,
         "last_ack": iso(NOW - datetime.timedelta(minutes=2)), "last_ack_source": "gateway", "boot_id": None,
         "current_boot": None, "error": None}
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "This host has sent no network-state record." in section and "2 min ago" in section
 
 
@@ -633,10 +633,10 @@ def test_a_malformed_gateway_ack_is_that_machines_error(bad):
 def test_the_page_shows_the_source_next_to_the_last_ack():
     m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
     net_event(m, doc())
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "5 min ago</time> (seen by the pi)" in section
     gateway_ack(m, NOW - datetime.timedelta(minutes=1))
-    section = page(m.serial).split("<h2>Network</h2>", 1)[1].split(">Registrations</h2>", 1)[0]
+    section = page(m.serial).split('<h2 id="network">Network</h2>', 1)[1].split(">Registrations</h2>", 1)[0]
     assert "1 min ago</time> (seen by the gateway)" in section
 
 
@@ -687,3 +687,14 @@ def test_equal_instants_in_different_offsets_are_a_tie_and_the_pi_wins():
     gateway_ack(m, instant.astimezone(datetime.timezone(datetime.timedelta(hours=-5))).isoformat())
     assert ack_of(m) == (iso(instant), "pi")
     assert network.of(m).last_ack_source == "pi"
+
+
+@pytest.mark.django_db
+def test_the_switch_port_comes_first_under_network_then_the_records_tables():
+    # Tim, 18 Oct 2026, round 8: "The switch port section should be under the network header."
+    m = pi("pi-sw2-p46", REAL["pi-sw2-p46"])
+    net_event(m, doc(), minutes=1, boot_id=m.last_boot_id)
+    html = page(m.serial)
+    section = html.split('<h2 id="network">Network</h2>', 1)[1].split("<h2", 1)[0]
+    heads = re.findall(r"<h3[^>]*>([^<]+)</h3>", section)
+    assert heads == ["Switch port", "Interface and record", "Addresses", "Default routes", "DHCP lease"]

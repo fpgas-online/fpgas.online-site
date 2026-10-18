@@ -57,28 +57,29 @@
 <div class="mgmt-side mgmt-top">
 <section>
 {# the same names, order and marks as the Pi's row on /fleet/ (site #132) #}
+{# each item links its section below (Tim, 18 Oct 2026, round 8) #}
 <table class="mgmt-table mgmt-facts mgmt-fit">
   <tbody>
-    <tr><th scope="row" title="{{ head_titles.state }}">State</th><td class="mgmt-c-state-word" title="{{ host.condition_title }}{% if host.why %}: {{ host.why }}{% endif %}"><span class="mgmt-state-{{ host.condition }}">{{ state_mark }}</span> {{ host.condition_title }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.model }}">Model</th><td{% if model_title %} title="{{ model_title }}"{% endif %}>{{ model|default:"–" }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.ram }}">RAM</th><td>{{ memory|default:"–" }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.serial }}">Serial</th><td class="mgmt-mono">{{ machine.serial }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.port }}">Port</th><td{% if port_title %} title="{{ port_title }}"{% elif port_note %} title="{{ port_note }}"{% endif %}>{{ port|default:"–" }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.offered }}">Offered</th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
-    <tr><th scope="row" title="{{ head_titles.up }}">Up</th><td>{{ host.uptime|default:"–" }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.seen }}">Seen</th><td>{{ seen }}</td></tr>
-    <tr><th scope="row" title="{{ head_titles.boot_check }}">Boot check<a class="mgmt-doc" href="{{ boot_check_docs }}" title="Boot check: what it checks, in the docs" aria-label="Boot check in the docs">?</a></th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
-    <tr><th scope="row" title="{{ head_titles.check_ran }}">Check ran<a class="mgmt-doc" href="{{ check_ran_docs }}" title="Check ran: what it checks, in the docs" aria-label="Check ran in the docs">?</a></th><td>{{ checked|default:"–" }}</td></tr>
-    <tr><th scope="row" title="the host name it booted with">Host name</th><td>{{ machine.hostname|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.state }}"><a class="mgmt-goto" href="#boards-and-checks">State</a></th><td class="mgmt-c-state-word" title="{{ host.condition_title }}{% if host.why %}: {{ host.why }}{% endif %}"><span class="mgmt-state-{{ host.condition }}">{{ state_mark }}</span> {{ host.condition_title }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.model }}"><a class="mgmt-goto" href="#registrations">Model</a></th><td{% if model_title %} title="{{ model_title }}"{% endif %}>{{ model|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.ram }}"><a class="mgmt-goto" href="#registrations">RAM</a></th><td>{{ memory|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.serial }}"><a class="mgmt-goto" href="#registrations">Serial</a></th><td class="mgmt-mono">{{ machine.serial }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.port }}"><a class="mgmt-goto" href="#switch-port">Port</a></th><td{% if port_title %} title="{{ port_title }}"{% elif port_note %} title="{{ port_note }}"{% endif %}>{{ port|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.offered }}"><a class="mgmt-goto" href="#boards-and-checks">Offered</a></th><td title="{{ offered_title }}">{% if offered %}<a class="mgmt-test-pass" href="{{ page }}">✓</a>{% else %}<span class="mgmt-test-fail">✗</span>{% endif %}<span class="mgmt-sr"> {{ offered_title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.up }}"><a class="mgmt-goto" href="#events">Up</a></th><td>{{ host.uptime|default:"–" }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.seen }}"><a class="mgmt-goto" href="#events">Seen</a></th><td>{{ seen }}</td></tr>
+    <tr><th scope="row" title="{{ head_titles.boot_check }}"><a class="mgmt-goto" href="#boot-checks">Boot check</a><a class="mgmt-doc" href="{{ boot_check_docs }}" title="Boot check: what it checks, in the docs" aria-label="Boot check in the docs">?</a></th><td title="{{ boot.title }}"><span class="{{ boot.cls }}">{{ boot.mark }}</span><span class="mgmt-sr"> {{ boot.title }}</span></td></tr>
+    <tr><th scope="row" title="{{ head_titles.check_ran }}"><a class="mgmt-goto" href="#boot-checks">Check ran</a><a class="mgmt-doc" href="{{ check_ran_docs }}" title="Check ran: what it checks, in the docs" aria-label="Check ran in the docs">?</a></th><td>{{ checked|default:"–" }}</td></tr>
+    <tr><th scope="row" title="the host name it booted with"><a class="mgmt-goto" href="#network">Host name</a></th><td>{{ machine.hostname|default:"–" }}</td></tr>
     {# "badge online" and the boot id below are read by fpgas.online-infra ansible/verify-pi.yml (this boot registered); its form changes with fpgas.online-infra#297 #}
-    <tr><th scope="row" title="whether its last status said it is online">Online</th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
-    <tr><th scope="row" title="{{ registration_title }}">First registered</th><td>{{ first_seen }}</td></tr>
-    <tr><th scope="row" title="{{ boot_title }}">Boot</th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
+    <tr><th scope="row" title="whether its last status said it is online"><a class="mgmt-goto" href="#events">Online</a></th><td><span class="badge {% if machine.online %}online{% else %}offline{% endif %}">{% if machine.online %}online{% else %}offline{% endif %}</span></td></tr>
+    <tr><th scope="row" title="{{ registration_title }}"><a class="mgmt-goto" href="#registrations">First registered</a></th><td>{{ first_seen }}</td></tr>
+    <tr><th scope="row" title="{{ boot_title }}"><a class="mgmt-goto" href="#events">Boot</a></th><td><code>{{ machine.last_boot_id|default:"–" }}</code></td></tr>
   </tbody>
 </table>
 </section>
 <section class="mgmt-label-box">
-<h2>Labels</h2>
+<h2 id="labels">Labels</h2>
 {# the labels rpi-hwid makes from what the Pi sent, as it prints them; each links its PDF (#141) #}
 {% if label_images %}<div class="mgmt-labels">{% for title, png, pdf in label_images %}<figure><a href="{{ pdf }}"><img src="{{ png }}" width="240" height="144" alt="the label {{ title }}"></a><figcaption>{{ title }}</figcaption></figure>{% endfor %}</div>{% endif %}
 {% if labels or notes or label_refusals %}
@@ -103,29 +104,11 @@
 </section>
 </div>
 
-{# its switch port as the switch port dashboard shows it: the same row, badges, counters and buttons (Tim, 18 Oct 2026: "You should be able to power cycle the PoE power from this page.") #}
-<h2 id="switch-port">Switch port</h2>
-{% if switch_port.row %}
-{% with s=switch_port.switch p=switch_port.row %}
-<div class="mgmt-toasts" id="mgmt-toasts"></div>
-<p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
-<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ switch_port.anchor }}" data-read-from="{{ s.read_from_ms }}">
-  <p class="mgmt-readline"><a href="{{ switches_url }}#switch-{{ switch_port.anchor }}-port-{{ p.port }}">{{ s.title }}, port {{ p.port }}</a> &middot; <span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span></p>
-  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Port {{ p.port }} of {{ s.title }}">
-  <table class="mgmt-table mgmt-ports mgmt-fit mgmt-striped">
-    {% include "management/port_head.html" with head_titles=switch_head_titles %}
-    <tbody>
-      {% include "management/port_row.html" with sw=s.index anchor=switch_port.anchor %}
-    </tbody>
-  </table>
-  </div>
-</section>
-{% endwith %}
-{% else %}
-<p>No switch port to show: {{ switch_port.problem }}.</p>
-{% endif %}
-
-<h2 id="boards">Boards</h2>
+<h2 id="boards-and-checks">Boards and boot checks</h2>
+{# side by side while the window has room, one under the other when not (Tim, 18 Oct 2026, round 8: "Put Boot Checks and Boards under the same section and allow them to be next to each other if there is space.") #}
+<div class="mgmt-side">
+<section>
+<h3 id="boards">Boards</h3>
 {% if boards %}
 {# a row a board, a column per check its types get, grouped and marked as on /fleet/; a mark links the check's docs page #}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-boards">
@@ -148,8 +131,9 @@
 {% else %}
 <p>No board named by the check of this boot{% if host.board_type != "no board" %}; its registration names {{ host.board_text }}{% endif %}.</p>
 {% endif %}
-
-<h2>Boot checks</h2>
+</section>
+<section>
+<h3 id="boot-checks">Boot checks</h3>
 {# one row a boot (a power-on), a column per check as on /fleet/: the marks of that boot's tests, a mark per board in the Boards cell's order (#141) #}
 {% if history %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-hosts mgmt-history">
@@ -173,8 +157,32 @@
 {% else %}
 <p>No boot check has reported.</p>
 {% endif %}
+</section>
+</div>
 
-<h2>Network</h2>
+<h2 id="network">Network</h2>
+{# its switch port as the switch port dashboard shows it: the same row, badges, counters and buttons (Tim, 18 Oct 2026: "You should be able to power cycle the PoE power from this page.") #}
+<h3 id="switch-port">Switch port</h3>
+{% if switch_port.row %}
+{% with s=switch_port.switch p=switch_port.row %}
+<div class="mgmt-toasts" id="mgmt-toasts"></div>
+<p class="mgmt-problem" id="mgmt-live" role="status" hidden></p>
+<section class="mgmt-switch{% if not s.reachable %} mgmt-dead{% endif %}" id="switch-{{ switch_port.anchor }}" data-read-from="{{ s.read_from_ms }}">
+  <p class="mgmt-readline"><a href="{{ switches_url }}#switch-{{ switch_port.anchor }}-port-{{ p.port }}">{{ s.title }}, port {{ p.port }}</a> &middot; <span class="mgmt-status">{{ s.status }}</span> &middot; read <span class="mgmt-readat" title="{{ s.read_at }}">{{ s.read_ago }}</span></p>
+  <div class="mgmt-scroll" tabindex="0" role="region" aria-label="Port {{ p.port }} of {{ s.title }}">
+  <table class="mgmt-table mgmt-ports mgmt-fit mgmt-striped">
+    {% include "management/port_head.html" with head_titles=switch_head_titles %}
+    <tbody>
+      {% include "management/port_row.html" with sw=s.index anchor=switch_port.anchor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endwith %}
+{% else %}
+<p>No switch port to show: {{ switch_port.problem }}.</p>
+{% endif %}
+
 {% if net_error %}
 <p class="mgmt-reason">The newest network-state record cannot be shown: {{ net_error }}</p>
 {% elif net and net.event %}
@@ -241,7 +249,7 @@
 {% endif %}
 
 
-<h2 title="{{ registration_title }}">Registrations</h2>
+<h2 id="registrations" title="{{ registration_title }}">Registrations</h2>
 {# a registration is what the Pi says it is; a boot is one power-on: not the same thing (Tim, 16 Oct 2026: "Are registrations on the device page the same as the boot checks Boot value?", #141) #}
 {% if registrations %}
 <div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-registrations">
@@ -254,6 +262,22 @@
 </table></div>
 {% else %}<p>No registration.</p>{% endif %}
 
+<h2 id="events">Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
+{% if events %}
+<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events">
+  <thead><tr><th scope="col" title="when the Pi sent it">Time</th><th scope="col" title="the kind of event, by colour and by name: network, service, identify, check, test, other">Kind</th><th scope="col" title="the stage of the boot it reports, as sent">Stage</th><th scope="col" title="the test it is about">Test</th><th scope="col" class="mgmt-checkhead" title="✓ passed, ✗ did not pass (why on hover); – the event has no result">Result</th><th scope="col" title="what it said, collapsed">Detail</th></tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr class="mgmt-ev-{{ e.kind }}"><td>{{ e.ts|date:"H:i:s" }}</td><td title="{% for k, t in event_kind_titles.items %}{% if k == e.kind %}{{ t }}{% endif %}{% endfor %}"><span class="mgmt-ev">{{ e.kind }}</span></td><td>{{ e.stage }}</td><td>{{ e.test|default:"–" }}</td><td class="mgmt-mark"{% if e.result %} title="{{ e.result.title }}"{% endif %}>{% if e.result %}<span class="{{ e.result.cls }}">{{ e.result.mark }}</span><span class="mgmt-sr"> {{ e.result.title }}</span>{% else %}<span class="mgmt-test-none">–</span>{% endif %}</td><td>{% if e.detail %}<details><summary>JSON</summary><pre class="mgmt-json">{{ e.detail }}</pre></details>{% else %}–{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>No events recorded for this boot.</p>
+{% endif %}
+<p class="mgmt-key">Times are {{ zone }}.</p>
+
+{# last on the page (Tim, 18 Oct 2026, round 8: "Make the kernel log output the last thing in the page.") #}
 {# the kernel's own log of this boot, as the gateway's netconsole receiver stored it (Tim, 18 Oct 2026: "What is the state of netconsole logs? They should be appearing on pages like https://welland.fpgas.online/fleet/00000000cc479fd1/") #}
 <h2 id="kernel-console">Kernel console</h2>
 {% if console_not_set_up %}
@@ -280,18 +304,4 @@
 <p>No netconsole lines received {% if console.since %}this boot (since {{ console_since }}){% else %}yet{% endif %} from {{ console.address }}{% if console_receiver_late %}: the gateway holds no netconsole line from any Pi older than {{ console_receiving_since }}, after this boot began, so its lines appear when the kernel next logs, and the whole log after the Pi's next boot{% elif console.since and not console.receiving_since %}: the gateway has received no netconsole line from any Pi yet{% endif %}.</p>
 {% endif %}
 
-<h2>Events{% if machine.last_boot_id %} of this boot{% endif %}</h2>
-{% if events %}
-<div class="mgmt-scroll"><table class="mgmt-table mgmt-fit mgmt-striped mgmt-sortable mgmt-events">
-  <thead><tr><th scope="col" title="when the Pi sent it">Time</th><th scope="col" title="the kind of event, by colour and by name: network, service, identify, check, test, other">Kind</th><th scope="col" title="the stage of the boot it reports, as sent">Stage</th><th scope="col" title="the test it is about">Test</th><th scope="col" class="mgmt-checkhead" title="✓ passed, ✗ did not pass (why on hover); – the event has no result">Result</th><th scope="col" title="what it said, collapsed">Detail</th></tr></thead>
-  <tbody>
-  {% for e in events %}
-    <tr class="mgmt-ev-{{ e.kind }}"><td>{{ e.ts|date:"H:i:s" }}</td><td title="{% for k, t in event_kind_titles.items %}{% if k == e.kind %}{{ t }}{% endif %}{% endfor %}"><span class="mgmt-ev">{{ e.kind }}</span></td><td>{{ e.stage }}</td><td>{{ e.test|default:"–" }}</td><td class="mgmt-mark"{% if e.result %} title="{{ e.result.title }}"{% endif %}>{% if e.result %}<span class="{{ e.result.cls }}">{{ e.result.mark }}</span><span class="mgmt-sr"> {{ e.result.title }}</span>{% else %}<span class="mgmt-test-none">–</span>{% endif %}</td><td>{% if e.detail %}<details><summary>JSON</summary><pre class="mgmt-json">{{ e.detail }}</pre></details>{% else %}–{% endif %}</td></tr>
-  {% endfor %}
-  </tbody>
-</table></div>
-{% else %}
-<p>No events recorded for this boot.</p>
-{% endif %}
-<p class="mgmt-key">Times are {{ zone }}.</p>
 {% endblock %}

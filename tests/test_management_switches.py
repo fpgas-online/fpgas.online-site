@@ -1285,9 +1285,9 @@ def test_every_page_agrees_on_the_port_of_a_pi_moved_out(reader):
     fleet = c.get("/fleet/").content.decode()
     assert fleet.count(">sw1 p2<") == 1
     page_old = c.get("/fleet/10000000aaaa0071/").content.decode()
-    assert re.search(r'>Port</th><td[^>]*>–</td>', page_old)
+    assert re.search(r'>Port</a></th><td[^>]*>–</td>', page_old)
     page_new = c.get("/fleet/10000000aaaa0072/").content.decode()
-    assert re.search(r'>Port</th><td[^>]*>sw1 p2', page_new)
+    assert re.search(r'>Port</a></th><td[^>]*>sw1 p2', page_new)
 
 
 @pytest.mark.django_db
