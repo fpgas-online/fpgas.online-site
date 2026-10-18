@@ -27,7 +27,7 @@ from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from fleet.models import BootEvent
-from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, UNKNOWN
+from fleet.services import ATTENTION, CONDITIONS, MISSING, OPERATIONAL, SETUP_PORT_REASON, UNKNOWN
 from fleet.timeago import ago_time, duration
 
 from .. import e2e, fpga, inventory_check, localtime, states
@@ -135,6 +135,8 @@ def _board_reason(host, now):
         raise ValueError(f"waiting with boot check result {host.state!r}")
     if host.condition != ATTENTION:
         raise ValueError(f"condition {host.condition!r} is not a reason")
+    if host.setup_port:
+        return SETUP_PORT_REASON
     if not host.checked_in:
         return "stopped checking in"
     names = list(dict.fromkeys(name for board in host.boards for name in board["failing"]))
