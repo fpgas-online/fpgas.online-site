@@ -111,7 +111,7 @@ def test_the_widest_switch_fits_about_1300_px_and_a_phone_gets_six_columns():
     fits a 390 px phone (16 px gutters) at full size, so its 11 px text stays 11 px."""
     wide = panel._place(range(1, 53), 52, 48)
     narrow = panel._place(range(1, 53), 52, 48, band=panel.NARROW_COLUMNS)
-    ports = [panel.Port(n, *wide[n], *narrow[n], "empty", "", True, False, "", "", [], "", "") for n in wide]
+    ports = [panel.Port(n, *wide[n], *narrow[n], "empty", "", True, False, "", [], "", "") for n in wide]
     width, height = panel.size(ports)
     assert 1250 <= width <= 1370 and height == panel.ROW + panel.HEIGHT + 2
     assert panel.size(ports, narrow=True)[0] <= 390 - 2 * 16
@@ -153,26 +153,19 @@ def machine(model="Pi 5", board="Acorn", condition="operational", mark="●", la
             "state_title": "operational", "lease_at": "2026-10-15 09:12:00"}
 
 
-def test_a_box_shows_the_newest_machine_its_board_and_its_state():
-    assert panel.box(row(machines=[machine()])) == ("operational", "●", "", ["Pi 5", "Acorn", ""])
+def test_a_box_shows_the_ports_machine_its_board_and_its_state():
+    assert panel.box(row(machines=[machine()])) == ("operational", "●", ["Pi 5", "Acorn", ""])
     assert panel.box(row(machines=[machine("Pi 4B", "TT chip", "missing", "○")])) == (
-        "missing", "○", "", ["Pi 4B", "TT chip", ""])
-    assert panel.box(row(machines=[machine("Pi 5", "PCIe card")]))[3] == ["Pi 5", "PCIe", "card"]
-
-
-def test_several_machines_on_one_port_show_the_newest_and_how_many_more():
-    many = [machine("Pi 4B", "Arty A7", "attention", "!")] + [machine("Pi 4B", "TT chip", "missing", "○")] * 4
-    assert panel.box(row(machines=many)) == ("attention", "!", "+4", ["Pi 4B", "Arty A7", ""])
-    words = panel.title(row(machines=many))
-    assert words.count("leased an address here") == 5  # every machine in the title, with its time
+        "missing", "○", ["Pi 4B", "TT chip", ""])
+    assert panel.box(row(machines=[machine("Pi 5", "PCIe card")]))[2] == ["Pi 5", "PCIe", "card"]
 
 
 def test_an_infrastructure_port_shows_its_role_as_one_word_and_an_empty_one_nothing():
-    assert panel.box(row(role="gateway trunk")) == ("infrastructure", "", "", ["gateway", "", ""])
-    assert panel.box(row(role="house uplink"))[3][0] == "uplink"
-    assert panel.box(row(role="infrastructure"))[3][0] == "infra"
-    assert panel.box(row()) == ("empty", "", "", ["", "", ""])
-    assert panel.box(row(unregistered="?")) == ("unregistered", "?", "", ["", "", ""])
+    assert panel.box(row(role="gateway trunk")) == ("infrastructure", "", ["gateway", "", ""])
+    assert panel.box(row(role="house uplink"))[2][0] == "uplink"
+    assert panel.box(row(role="infrastructure"))[2][0] == "infra"
+    assert panel.box(row()) == ("empty", "", ["", "", ""])
+    assert panel.box(row(unregistered="?")) == ("unregistered", "?", ["", "", ""])
 
 
 def test_the_state_mark_is_always_the_machines_own_and_net_is_a_mark_of_its_own():
@@ -269,7 +262,7 @@ def test_the_refresh_script_keeps_the_panel_with_the_table(one_switch):
     assert '"mgmt-port mgmt-box-" + p.kind + " mgmt-link-" + (p.link_up ? "up" : "down")' in script
     assert 'querySelector(".mgmt-bolt").textContent = p.bolt' in script
     assert 'querySelector(".mgmt-net").textContent = p.net' in script
-    assert 'querySelector(".mgmt-more").textContent = p.more' in script
+    assert "mgmt-more" not in script  # one machine a port: no "+N more" (Tim, 18 Oct 2026)
     assert 'pm.textContent = p.mark' in script and 'querySelectorAll(".mgmt-hw")' in script
     assert 'g.parentNode.setAttribute("aria-label", p.title)' in script
     assert 'drawing.setAttribute("aria-label", s.panel_label' in script
@@ -324,7 +317,7 @@ def test_the_legacy_switch_links_to_rows_by_its_place_on_the_page(one_switch):
 def test_an_unregistered_ports_box_names_what_it_announces_over_lldp():
     """#148: the device a reader wants named is the unregistered one: its box carries its LLDP name, wrapped."""
     assert panel.box(row(unregistered="?", lldp_name="rpi5-new-13f59c")) == (
-        "unregistered", "?", "", ["rpi5-", "new-", "13f59c"])
+        "unregistered", "?", ["rpi5-", "new-", "13f59c"])
     assert panel.wrap_name("a-very-long-name-indeed-yes", 3)[-1].endswith("…")
-    assert panel.box(row(unregistered="?", lldp_name="x")) == ("unregistered", "?", "", ["x", "", ""])
-    assert panel.box(row(unregistered="?")) == ("unregistered", "?", "", ["", "", ""])
+    assert panel.box(row(unregistered="?", lldp_name="x")) == ("unregistered", "?", ["x", "", ""])
+    assert panel.box(row(unregistered="?")) == ("unregistered", "?", ["", "", ""])

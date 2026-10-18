@@ -5,14 +5,13 @@ Every mark on a port means what the same mark means in the port table under the 
 port shows the hardware on it, so the drawing reads like a labelled photo of the switch:
 
 * top left, the port's number; top right, the State column's mark in its colour: the /fleet/ State of the newest
-  machine the gateway saw on the port (● operational, ! needs attention, ○ missing, ⟳ checking), or "?" for a device
+  machine the gateway saw on the port, the one machine a port shows (● operational, ! needs attention, ○ missing, ⟳ checking), or "?" for a device
   with a link or drawing power on a board port where no registered machine was seen; the box is filled in that
   State's colour, an empty port faint;
 * in the middle, the hardware the gateway last saw on it, in the /fleet/ short forms: the Pi's model ("Pi 5", "OPi
   PC") and its FPGA board's type ("Acorn"; "TT" over "FPGA" where it is too long for one line); an infrastructure
   port's role as one short word ("gateway", "trunk", "uplink", "infra"); nothing on an empty port;
-* at the bottom: ⚡ while PoE is delivering power; "+3" where three more machines were last seen on the port; and the
-  Net column's ✗, in red, where the port's network reading is not as it should be (the review of #137: the State
+* at the bottom: ⚡ while PoE is delivering power; and the Net column's ✗, in red, where the port's network reading is not as it should be (the review of #137: the State
   mark is always the machine's own, and the Net verdict is its own mark, as the table's two columns are);
 * its link light, a small rectangle at the top as on the switch's own face: lit green while the link is up, dark
   while it is down (Tim, 16 Oct 2026, site #139: "Why are you using the switch border style to indicate if a switch
@@ -74,7 +73,6 @@ class Port:
     net_ok: bool  # False: the Net column's ✗ in the box's corner
     link_up: bool  # the link light lit green; dark when down
     bolt: str  # BOLT while PoE delivers, else ""
-    more: str  # "+3" where three more machines were last seen on the port, else ""
     lines: list  # the hardware (or role) on the box's three lines: the model, then the board's type over two
     title: str  # everything about the port, in words
     href: str
@@ -150,20 +148,19 @@ def _place(ports, port_count, poe_port_count, band=None):
 
 
 def box(row):
-    """(kind, mark, more, lines) of a port from its table row (views.switches._row): the newest machine the gateway saw
-    on it, else its role, else whether something is there unregistered. The mark is the table's State mark, always;
+    """(kind, mark, lines) of a port from its table row (views.switches._row): the machine the gateway saw on it most
+    recently (the one a row has: views.switches.on_ports), else its role, else whether something is there unregistered. The mark is the table's State mark, always;
     the Net verdict is a mark of its own (Port.net)."""
     machines = row["machines"]
     if machines:
         newest = machines[0]
-        more = f"+{len(machines) - 1}" if len(machines) > 1 else ""
-        return newest["condition"], newest["mark"], more, wrap(newest["model"], 1) + wrap(newest["board"])
+        return newest["condition"], newest["mark"], wrap(newest["model"], 1) + wrap(newest["board"])
     if row["role"]:
         word = ROLE_WORDS.get(row["role"], row["role"])
-        return "infrastructure", "", "", wrap(word, 1) + [""] * LINES
+        return "infrastructure", "", wrap(word, 1) + [""] * LINES
     if row["unregistered"]:  # what it announces over LLDP, where it does: the device a reader wants named (#148)
-        return "unregistered", row["unregistered"], "", wrap_name(row["lldp_name"] or "", 1 + LINES)
-    return "empty", "", "", [""] * (1 + LINES)
+        return "unregistered", row["unregistered"], wrap_name(row["lldp_name"] or "", 1 + LINES)
+    return "empty", "", [""] * (1 + LINES)
 
 
 def title(row):
@@ -193,10 +190,10 @@ def panel(rows, anchor, port_count, poe_port_count):
     narrow = _place(numbers, port_count, poe_port_count, NARROW_COLUMNS)
     out = []
     for row in sorted(rows, key=lambda r: r["port"]):
-        kind, mark, more, lines = box(row)
+        kind, mark, lines = box(row)
         (x, y), (nx, ny) = wide[row["port"]], narrow[row["port"]]
         out.append(Port(row["port"], x, y, nx, ny, kind, mark, row["net_ok"], row["link_up"],
-                        BOLT if row["poe_state"] == "delivering" else "", more, lines, title(row),
+                        BOLT if row["poe_state"] == "delivering" else "", lines, title(row),
                         f"#{anchor}-port-{row['port']}"))
     return out
 
