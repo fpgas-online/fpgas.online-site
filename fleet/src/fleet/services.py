@@ -93,14 +93,36 @@ def status(serial, payload, retained=False):
 # FPGA boot check starts and `fpga-verified` when it is done.
 FPGA_STAGES = ("fpga-verifying", "fpga-verified")
 
+# A per-port machine's registered short name, pi-sw<switch>-p<port>: the name the gateway's DHCP gave it on the port
+# it booted on.
+_PORT_HOSTNAME = re.compile(r"pi-sw[1-9][0-9]*-p([1-9][0-9]*)")
+# What a machine on the setup port is marked, whatever its own check reported, and why.
+SETUP_PORT_STATE, SETUP_PORT_REASON = "fail", "setup port"
+
+
+def on_setup_port(hostname):
+    """Whether a machine registered as `hostname` booted on the site's setup / config port (settings.SETUP_PORT, the
+    same port number on every switch): its name pi-sw<s>-p<p> names that port. The gateway served that boot every
+    restriction lifted (fpgas.online-infra docs/pi/setup-port.md), so it is never offered: Tim, 18 Oct 2026, "The
+    device should never be shown on the front page of fpgas.online (It should always be marked as failed)."
+    """
+    m = _PORT_HOSTNAME.fullmatch((hostname or "").split(".")[0])
+    return settings.SETUP_PORT is not None and m is not None and int(m[1]) == settings.SETUP_PORT
+
+
+def setup_port_state(state, hostname):
+    """The check state a page uses for a machine: SETUP_PORT_STATE on the setup port, whatever the Pi reported (its
+    check running, not started, or passed), else `state`."""
+    return SETUP_PORT_STATE if on_setup_port(hostname) else state
+
 
 def fpga_states():
     """{serial: state} of each machine's FPGA boot check in the boot it is
     running now: "verifying" from `fpga-verifying` until an `fpga-verified`
     follows, then that event's detail["result"] ("pass", "fail",
-    "missing", ...). A machine whose check has not started this boot (or
-    that has none) is absent: an earlier boot's result says nothing about the
-    board now.
+    "missing", ...); on the setup port, SETUP_PORT_STATE (setup_port_state).
+    A machine whose check has not started this boot (or that has none) is
+    absent: an earlier boot's result says nothing about the board now.
 
     The newest event wins, newest by arrival (id), not by the Pi's
     timestamp: `fpga-verifying` goes out early in the boot, often before the
@@ -110,15 +132,16 @@ def fpga_states():
     states = {}
     events = BootEvent.objects.filter(
         stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
-        .exclude(boot_id="").values_list("machine__serial", "stage", "detail") \
+        .exclude(boot_id="").values_list("machine__serial", "machine__hostname", "stage", "detail") \
         .order_by("id")
-    for serial, stage, detail in events:
+    for serial, hostname, stage, detail in events:
         if stage == "fpga-verifying":
-            states[serial] = "verifying"
+            state = "verifying"
         elif isinstance(detail, dict) and detail.get("result"):
-            states[serial] = str(detail["result"])
+            state = str(detail["result"])
         else:
-            states[serial] = "unknown"
+            state = "unknown"
+        states[serial] = setup_port_state(state, hostname)
     return states
 
 
@@ -276,14 +299,15 @@ def fpga_reports():
     reports = {}
     events = BootEvent.objects.filter(
         stage__in=FPGA_STAGES, boot_id=F("machine__last_boot_id")) \
-        .exclude(boot_id="").values_list("machine__serial", "stage", "detail").order_by("id")
-    for serial, stage, detail in events:
+        .exclude(boot_id="").values_list("machine__serial", "machine__hostname", "stage", "detail").order_by("id")
+    for serial, hostname, stage, detail in events:
         if stage == "fpga-verifying":
-            reports[serial] = ("verifying", [])
+            state, boards = "verifying", []
         elif isinstance(detail, dict) and detail.get("result"):
-            reports[serial] = (str(detail["result"]), _reported_boards(detail))
+            state, boards = str(detail["result"]), _reported_boards(detail)
         else:
-            reports[serial] = ("unknown", [])
+            state, boards = "unknown", []
+        reports[serial] = (setup_port_state(state, hostname), boards)
     return reports
 
 
@@ -355,6 +379,7 @@ def reporting_machines():
     rows = Machine.objects.filter(serial__in=newest).values_list("serial", "hostname", "last_seen")
     for serial, hostname, last_seen in rows:
         state, boards = reports.get(serial, ("", []))
+        state = setup_port_state(state, hostname)
         last_report, last_boards = last.get(serial, (0, []))
         machines.append({"serial": serial, "hostname": hostname.split(".")[0], "checked_in": serial in live,
                          "last_seen": last_seen, "state": state, "offered": is_offered(state, serial in live),
