@@ -116,7 +116,7 @@ class Line:
     memory: str  # "2 GB", ""
     memory_mb: int
     serial: str
-    port: str  # "sw1 p10": the port the gateway last leased it an address on; "" when it has no lease record
+    port: str  # "sw1 p10": the port it is on (fpga.seen_ports: one device a port); "" when it is on none
     port_title: str  # where the port comes from, and when
     sort_port: str  # switch and port as numbers, zero-padded: sw2 p4 before sw2 p33
     boot: Mark  # the boot check of the boot it is running, one character like every check (#129), words on hover
@@ -145,7 +145,8 @@ HEAD_TITLES = {
              "finished",
     "model": "the Pi's model, as its label says", "ram": "the Pi's memory",
     "serial": "the Pi's serial number; links its own page",
-    "port": "the switch port the gateway last leased it an address on", "board": "the FPGA board's type",
+    "port": "the switch port the gateway last ACKed it an address on (one device a port: empty when another "
+            "device was ACKed there since)", "board": "the FPGA board's type",
     "id": "the id on the board's label (its DNA or USB serial); its name on hover",
     "offered": "offered to visitors: ✓ links its visitor page, ✗ says why not",
     "up": "how long the Pi has been up", "seen": "its last status beat",
@@ -320,12 +321,13 @@ def check_cell(host, name, link, planned=None):
 def _port(host, observed):
     """(port, its title, its sort key, a note or ""): the port the gateway last leased the Pi an address on, with the
     time, an observation (the dashboard spec: "switch port (observed, with its time, never a remembered table)").
-    A Pi the gateway has no lease record of (records are kept for days) has no port: the cell is empty and Notes
-    says so with the port its host name names, which is the Pi's word, not an observation (the review of #122). A
+    A Pi on no port (fpga.seen_ports: no DHCPACK on a port in the records, which are kept for days, or another device
+    ACKed on its port since: one device a port) has no port: the cell is empty and Notes says so with the port its
+    host name names, which is the Pi's word, not an observation (the review of #122). A
     host name naming another port than the gateway saw is a note too."""
     named = fpga.port_text(host.machine)
     if observed is None:
-        return "", "", "999999", f"no lease seen; named {named}" if host.pi else "no lease seen"
+        return "", "", "999999", f"on no port; named {named}" if host.pi else "on no port"
     when = timezone.localtime(observed.at).strftime("%-d %b %H:%M")
     note = f"named {named}" if host.pi and named != observed.text else ""
     return (observed.text, f"the gateway leased it an address on this port at {when}",

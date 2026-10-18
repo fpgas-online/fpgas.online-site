@@ -20,6 +20,10 @@ DOC_LINK = r'<a class="mgmt-doc"[^>]*>\?</a>'  # a header's docs link (#140)
 # passed, and a TT FPGA demo board that failed its pin-id and spiflash tests.
 REAL = json.loads((pathlib.Path(__file__).parent / "data" / "fpga-verified-welland-2026-10-04.json").read_text())
 
+# a lease record that is a DHCPACK (doc["acked_at"] set), as fpgas-lease-event writes it for a new lease or a renewal:
+# only an ACK puts a machine on a port (fpga.seen_ports)
+ACK = {"event": "add", "acked_at": "2026-10-18T09:00:00+10:30", "address": "10.21.1.2"}
+
 
 def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None, lease=True):
     """A registered Pi, seen `seen_ago` minutes ago, with an fpga-verified event of `detail` in its boot; with
@@ -34,7 +38,7 @@ def pi(hostname, detail=None, seen_ago=0, verifying=False, serial=None, lease=Tr
     place = Pi.from_hostname(hostname)
     if lease and place is not None and place.switch:
         GatewayRecord.objects.create(site="welland", kind="lease", switch=place.switch, port=place.port,
-                                     hostname=hostname, at=seen, doc={}, machine=m)
+                                     hostname=hostname, at=seen, doc=ACK, machine=m)
     if verifying:
         BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-verifying", ts=timezone.now(), detail={})
     if detail is not None:
@@ -252,7 +256,7 @@ def test_a_pi_with_no_report_this_boot_is_typed_by_its_registration():
     assert row.boards == [] and row.board_type == f"{fpga.SNAPSHOT_TT} + {fpga.OTHER}"
     assert row.registered is not None
     html = Client(HTTP_HOST="welland.fpgas.online").get("/management/fpgas/", follow=True).content.decode()
-    assert "no lease seen; named sw2 p" in html and "<b>" not in html
+    assert "on no port; named sw2 p" in html and "<b>" not in html
     # its board as the registration names it, escaped and cut
     assert "<div>tt-demo-board</div><div>&lt;b&gt;zzz" in html
 
@@ -834,10 +838,11 @@ def test_the_port_is_where_the_gateway_last_leased_the_pi_an_address_with_the_ti
 
     settings.MANAGEMENT_TIME_ZONE = "Australia/Adelaide"
     m = Machine.objects.get(hostname="pi-sw2-p46")
+    m.gateway_records.all().delete()  # the gateway's records of it are these two (newest by time, not by arrival)
     at = datetime.datetime(2026, 10, 15, 5, 18, 22, tzinfo=datetime.timezone.utc)
     for port, when in ((40, at - datetime.timedelta(hours=1)), (41, at)):  # the newest record is the observation
         GatewayRecord.objects.create(site="welland", kind="lease", switch=2, port=port, mac="98:fe:54:13:e0:75",
-                                     at=when, doc={}, machine=m)
+                                     at=when, doc=ACK, machine=m)
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     row = _by_serial(html)["pi-sw2-p46"]
     assert row["Port"] == "sw2 p41"
@@ -849,7 +854,7 @@ def test_the_port_is_where_the_gateway_last_leased_the_pi_an_address_with_the_ti
     pi("pi-sw2-p50", lease=False)
     html = Client(HTTP_HOST="welland.fpgas.online").get("/fleet/").content.decode()
     row = _by_serial(html)["pi-sw2-p50"]
-    assert (row["Port"], row["Notes"]) == ("", "no model registered\nno lease seen; named sw2 p50")
+    assert (row["Port"], row["Notes"]) == ("", "no model registered\non no port; named sw2 p50")
 
 
 @pytest.mark.django_db

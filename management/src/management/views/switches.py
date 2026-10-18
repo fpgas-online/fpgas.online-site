@@ -1,6 +1,6 @@
 """The switch port dashboard (#67, #130): every switch and every port, read side only: which hardware is on each port
-(the machines the gateway last leased an address to on it, with the /fleet/ model, board type and State), whether the
-port's network reading is as it should be, then the switch's own reading, one value a column.
+(the one machine the gateway last ACKed on it, one device a port, with the /fleet/ model, board type and State),
+whether the port's network reading is as it should be, then the switch's own reading, one value a column.
 
 The reading is done by `snmp_switch.dashboard` (fpgas.online-poe), cached for 15 s in the site's "poe" cache, so
 the number of viewers does not change the number of reads. This module only lays the result out: the page
@@ -216,7 +216,7 @@ def _fleet_url(request, serial):
         return ""
 
 
-# --- the hardware on each port (#130): the machines the gateway last leased an address to on it ---
+# --- the hardware on each port (#130): the one machine the gateway last ACKed on it (fpga.seen_ports) ---
 
 # the speed a model's Ethernet links at (the Pi 3B+'s gigabit port sits behind USB 2, but links at 1G); a model not
 # here is not compared (its Net title says so)
@@ -270,18 +270,14 @@ def _ago_moment(moment):
 
 
 def on_ports(request):
-    """{(switch, port): [machine]} of every machine the gateway has leased an address to on a port (fpga.seen_ports:
-    its newest lease record that names a port), newest lease first. An observation with its time, never a remembered
-    table: a machine moved to another port is shown there once the gateway leases it an address there."""
+    """{(switch, port): [machine]} of the machine on each port (fpga.seen_ports, which keeps one device a port: the
+    one the gateway ACKed there last, as /fleet/ and a Pi's page have it). An observation with its time, never a
+    remembered table."""
     seen = fpga.seen_ports()
     if not seen:
         return {}
-    out = {}
-    for host in fpga.hosts():
-        observed = seen.get(host.machine.pk)
-        if observed is not None:
-            out.setdefault((observed.switch, observed.port), []).append((observed.at, _machine(request, host, observed)))
-    return {key: [m for _, m in sorted(found, key=lambda f: f[0], reverse=True)] for key, found in out.items()}
+    return {(observed.switch, observed.port): [_machine(request, host, observed)]
+            for host in fpga.hosts() if (observed := seen.get(host.machine.pk)) is not None}
 
 
 def net_check(port, has_poe, role, machines, failures, known, vlans_checked, errors=None):
@@ -554,8 +550,8 @@ def power_cell(has_poe, can_power, action, role, no_inventory, poe_title, tt_sit
 
 def _row(request, port, hosts, spec=None, can_power=False, vlan_names=None, netdevs=None, house=(), machines=(),
          has_poe=True, failures=(), known=(), errors_since="", errors_before=None):
-    """A port's row: the hardware the gateway last saw on it (`machines`, newest first), whether its network reading is
-    as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one;
+    """A port's row: the hardware the gateway last saw on it (`machines`: on_ports's one, the latest), whether its
+    network reading is as it should be (`failures`: the inventory check's for this port with no known cause; `known`: those with one;
     `errors_since`, `errors_before`: the previous reading's time and this port's error counters then), then the
     switch's reading, one value a column (#130). `has_poe`: the switch's model gives the port PoE."""
     name = port.lldp_name or ""
@@ -929,11 +925,11 @@ def head_titles():
 
     return {
         "port": "the switch port; the switch's own label for a board port on hover (its configuration text)",
-        "model": "the Pi's model, as its label says, of each machine the gateway last leased an address on this "
-                 "port, newest first; its label on hover",
+        "model": "the Pi's model, as its label says, of the machine the gateway leased an address on this port "
+                 "most recently (one device a port); its label on hover",
         "ram": "the Pi's memory, as its label says (the Raspberry Pis page's RAM); sorts by size",
         "board": "the FPGA board's type on that machine; its variant on hover",
-        "state": "the State of each machine, as the Raspberry Pis page has it: "
+        "state": "the State of the machine, as the Raspberry Pis page has it: "
                  + ", ".join(f"{states.MARKS[c]} {w}" for c, w in states.WORDS.items()) + f". {HEAD_TITLES['state']}. "
                  f"On this page also {UNREGISTERED} {UNREGISTERED_WORDS}: a link up or PoE power drawn on a board port "
                  "where the gateway has leased no registered machine an address",

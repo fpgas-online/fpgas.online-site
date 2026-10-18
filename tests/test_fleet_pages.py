@@ -27,9 +27,9 @@ def test_the_fleet_front_page_is_the_pi_dashboard(c):
     # no revision code, so rpi-hwid cannot make its label: the serial stands, and Notes says why
     assert f'<a href="/fleet/{m.serial}/">abc123</a>' in html
     # no lease record of it at the gateway: no port observed; Notes names the port its host name names
-    assert 'data-label="Port" data-sort="999999" title=""></td>' in html and "no lease seen; named sw2 p47" in html
+    assert 'data-label="Port" data-sort="999999" title=""></td>' in html and "on no port; named sw2 p47" in html
     assert ('<td class="mgmt-c-notes mgmt-note" data-label="Notes"><div>no revision code</div>'
-            '<div>no lease seen; named sw2 p47</div></td>') in html
+            '<div>on no port; named sw2 p47</div></td>') in html
     # registered, no status beat yet: not offered; its board as the registration names it
     assert "<div>acorn-cle-215+</div>" in html and "needs attention" in html
 

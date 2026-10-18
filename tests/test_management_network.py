@@ -11,10 +11,17 @@ from fleet.models import BootEvent, GatewayRecord, Machine
 
 from fleet import jsonview
 from management import network
-from tests.test_management_fpgas import REAL, pi
+from tests.test_management_fpgas import REAL
+from tests.test_management_fpgas import pi as _pi
 
 WELLAND = "welland.fpgas.online"
 NOW = None  # set per test by the now fixture
+
+
+def pi(*args, lease=False, **kw):
+    """test_management_fpgas.pi with no gateway lease record by default: these tests make the gateway's records
+    themselves (its record is a DHCPACK, which a gateway ACK here would be)."""
+    return _pi(*args, lease=lease, **kw)
 
 
 @pytest.fixture(autouse=True)
