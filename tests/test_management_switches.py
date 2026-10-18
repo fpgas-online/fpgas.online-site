@@ -1667,5 +1667,5 @@ def test_a_machine_on_the_setup_port_reads_failed_reason_setup_port(reader, sett
     seat("pi-sw1-p1", "setup", lease=(1, 1))
     ports = Client(HTTP_HOST="welland.fpgas.online").get("/management/switches.json").json()["switches"][0]["ports"]
     (m,) = next(p for p in ports if p["port"] == 1)["machines"]
-    assert m["serial"] == "setup" and m["condition"] == "attention"
+    assert m["serial"] == "setup" and m["condition"] == "attention" and m["setup_port"] is True
     assert m["state_title"] == "needs attention: setup port"

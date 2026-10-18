@@ -147,14 +147,7 @@ def test_tinytapeout_says_setup_port_for_a_board_on_it():
     html = c.get(f"/board/tt-{serial}/").content.decode()
     assert "its Raspberry Pi is on the setup / config port" in html
     assert 'id="tt-commander"' not in html and 'id="tt-upload"' not in html  # no visitor controls
-
-
-def test_registry_and_switches_json_name_the_setup_port_as_a_field():
-    from pathlib import Path
-
-    src = Path(__file__).resolve().parent.parent / "management/src/management/views"
-    assert '"setup_port": host.setup_port,' in (src / "fpgas.py").read_text()
-    assert '"setup_port": host.setup_port,' in (src / "switches.py").read_text()
+    assert "<dt>Boot check</dt><dd>failed: setup port</dd>" in html and "until its Raspberry Pi's boot check" not in html
 
 
 @pytest.mark.django_db
