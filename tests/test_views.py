@@ -312,7 +312,7 @@ def test_api_enable_invalidates_designs_cache(c, boards, monkeypatch):
     monkeypatch.setattr(daemon, "designs", fake_designs)
     monkeypatch.setattr(daemon, "enable", lambda b, name, body: (200, {"ok": True}))
     c.get("/api/board/fpga-1/designs")
-    c.post("/api/board/fpga-1/designs/tt_um_a/enable")
+    assert c.post("/api/board/fpga-1/designs/tt_um_a/enable", data="{}", content_type="application/json").status_code == 200
     c.get("/api/board/fpga-1/designs")
     assert len(calls) == 2
 
@@ -985,3 +985,83 @@ def test_upload_check_fetches_a_cold_index(c, boards, settings, monkeypatch, lib
     r = c.post("/api/board/fpga-1/bitstream", {"name": ROW0["id"], "file": upload_file()})
     assert r.status_code == 409 and uploads == []
     assert asked == [(LIB_BASE + "fpga-library.json", (library.CONNECT_TIMEOUT, 5.0))]
+
+
+# --- api_enable forwards only clock_hz: ui_in and ui_in_mask come only from a VGA library load (review I1)
+
+
+@pytest.fixture
+def forwarded(monkeypatch):
+    seen = []
+
+    def fake_enable(b, name, body, **kw):
+        seen.append(body)
+        return 200, {"enabled": name}
+
+    monkeypatch.setattr(daemon, "enable", fake_enable)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "sent,expected",
+    [
+        (b"", b"{}"),
+        (b"{}", b"{}"),
+        (b'{"clock_hz": 25175000}', b'{"clock_hz": 25175000}'),
+        (b'{"clock_hz": null}', b'{"clock_hz": null}'),
+        (b'{"clock_hz": 5, "other": 1}', b'{"clock_hz": 5}'),  # nothing else is passed on
+    ],
+)
+def test_api_enable_forwards_only_clock_hz(c, boards, forwarded, sent, expected):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 200 and forwarded == [expected]
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [b'{"ui_in": 1}', b'{"ui_in_mask": 0}', b'{"clock_hz": 5, "ui_in": null, "ui_in_mask": 255}', b'{"ui_in": 1, "ui_in_mask": 1}'],
+)
+def test_api_enable_refuses_ui_in(c, boards, forwarded, sent):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 400
+    assert r.json() == {"error": "ui_in and ui_in_mask are set only by a VGA library load", "detail": ""}
+    assert forwarded == []
+
+
+@pytest.mark.parametrize("sent", [b"not json", b"[1]", b'"x"', b"\xff", b"NaN"])
+def test_api_enable_refuses_a_body_that_is_not_a_json_object(c, boards, forwarded, sent):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 400 and r.json() == {"error": "body must be a JSON object", "detail": ""}
+    assert forwarded == []
+
+
+# --- Ruling BB: the library is off by default (no test below touches TTSITE_LIBRARY_BASE_URL)
+
+
+@pytest.fixture
+def index_calls(monkeypatch):
+    calls = []
+
+    def recording_index(deadline):  # pragma: no cover - must never run while the library is off
+        calls.append(deadline)
+        return LIB_BODY, LIB_ETAG, None
+
+    monkeypatch.setattr(library, "index", recording_index)
+    return calls
+
+
+def test_library_routes_are_off_by_default(c, boards, settings, index_calls, lib_daemon, lib_bins):
+    assert settings.TTSITE_LIBRARY_BASE_URL == ""
+    fake = lib_daemon()
+    r = c.get("/api/board/fpga-1/library")
+    assert r.status_code == 404 and r.json() == {"error": "VGA library not enabled", "detail": ""}
+    r = post_load(c, ROW0["id"])
+    assert r.status_code == 404 and r.json() == {"error": "VGA library not enabled", "detail": ""}
+    assert index_calls == [] and fake.calls == [] and lib_bins["calls"] == []
+
+
+def test_upload_check_does_nothing_by_default(c, boards, settings, index_calls, uploads):
+    assert settings.TTSITE_LIBRARY_BASE_URL == ""
+    r = c.post("/api/board/fpga-1/bitstream", {"name": ROW1["id"], "file": upload_file()})
+    assert r.status_code == 201 and uploads == [ROW1["id"]]
+    assert index_calls == []

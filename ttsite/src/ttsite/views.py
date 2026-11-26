@@ -172,12 +172,39 @@ def api_designs(request, slug):
     return JsonResponse(body, status=status)
 
 
+ENABLE_FORWARDED_KEYS = ("clock_hz",)
+LIBRARY_ONLY_KEYS = ("ui_in", "ui_in_mask")
+
+
+def _refuse_constant(name):
+    raise ValueError(f"{name} is not JSON")
+
+
+def _enable_body(raw: bytes):
+    """The body api_enable sends to the daemon: only `clock_hz`. ui_in and ui_in_mask are set only by a VGA library
+    load, from the index (review I1): (bytes, None), or (None, the refusal)."""
+    try:
+        sent = json.loads(raw.decode("utf-8"), parse_constant=_refuse_constant) if raw.strip() else {}
+    except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
+        sent = None
+    if not isinstance(sent, dict):
+        return None, JsonResponse({"error": "body must be a JSON object", "detail": ""}, status=400)
+    if any(key in sent for key in LIBRARY_ONLY_KEYS):
+        return None, JsonResponse(
+            {"error": "ui_in and ui_in_mask are set only by a VGA library load", "detail": ""}, status=400
+        )
+    return json.dumps({k: sent[k] for k in ENABLE_FORWARDED_KEYS if k in sent}).encode(), None
+
+
 @require_POST
 def api_enable(request, slug, name):
     b, err = _fpga_board_or_error(slug)
     if err:
         return err
-    status, body = daemon.enable(b, name, request.body)
+    body, refusal = _enable_body(request.body)
+    if refusal:
+        return refusal
+    status, body = daemon.enable(b, name, body)
     if status < 400:
         cache.delete(_designs_cache_key(slug))
     return JsonResponse(body, status=status)
