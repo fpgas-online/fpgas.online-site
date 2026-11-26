@@ -9,13 +9,18 @@ import requests
 
 DAEMON_PORT = 8765
 
+# Every daemon call goes through this session: no .netrc and no proxy environment, so a proxy set for the gateway's
+# outbound traffic never carries a call to a Pi.
+SESSION = requests.Session()
+SESSION.trust_env = False
+
 
 def health(board, timeout=3.0):
     if board.ip is None:
         return {"reachable": False, "error": "no Pi reports this board"}
     url = f"http://{board.ip}:{DAEMON_PORT}/health"
     try:
-        resp = requests.get(url, timeout=timeout)
+        resp = SESSION.get(url, timeout=timeout)
     except requests.RequestException as exc:
         return {"reachable": False, "error": str(exc)}
     if resp.status_code != 200:
@@ -57,7 +62,7 @@ def _pass_through(call):
 
 def designs(board):
     return _pass_through(
-        lambda: requests.get(f"{_base(board)}/designs", timeout=(DAEMON_CONNECT_TIMEOUT, DAEMON_API_TIMEOUT))
+        lambda: SESSION.get(f"{_base(board)}/designs", timeout=(DAEMON_CONNECT_TIMEOUT, DAEMON_API_TIMEOUT))
     )
 
 
@@ -69,9 +74,9 @@ def enable(board, name, body: bytes, *, deadline: float | None = None):
     """
     timeout = _timeout(DAEMON_API_TIMEOUT, deadline)
     if timeout is None:
-        return _OUT_OF_TIME
+        return _out_of_time()
     return _pass_through(
-        lambda: requests.post(
+        lambda: SESSION.post(
             f"{_base(board)}/designs/{quote(name, safe='')}/enable",
             data=body or b"{}",
             headers={"Content-Type": "application/json"},
@@ -82,7 +87,7 @@ def enable(board, name, body: bytes, *, deadline: float | None = None):
 
 def upload(board, name, fileobj, filename):
     return _pass_through(
-        lambda: requests.post(
+        lambda: SESSION.post(
             f"{_base(board)}/bitstream",
             data={"name": name},
             files={"file": (filename, fileobj, "application/octet-stream")},
@@ -100,7 +105,9 @@ class Unsupported(Exception):
     """The daemon has no VGA library routes: its aiohttp answers GET /library with a plain-text 404."""
 
 
-_OUT_OF_TIME = (504, {"error": "the load ran out of time; try again", "detail": ""})
+def _out_of_time():
+    """A fresh answer each time: a caller may add keys to the body."""
+    return 504, {"error": "the load ran out of time; try again", "detail": ""}
 
 
 def _timeout(own: float, deadline: float | None):
@@ -117,9 +124,9 @@ def library_state(board, *, deadline: float):
     """GET /library: (status, body). Raises Unsupported when the daemon is too old to have the route."""
     timeout = _timeout(DAEMON_API_TIMEOUT, deadline)
     if timeout is None:
-        return _OUT_OF_TIME
+        return _out_of_time()
     try:
-        resp = requests.get(f"{_base(board)}/library", timeout=timeout)
+        resp = SESSION.get(f"{_base(board)}/library", timeout=timeout)
     except requests.RequestException as exc:
         return 502, {"error": "Pi unreachable", "detail": str(exc)}
     if resp.status_code == 404:
@@ -134,10 +141,10 @@ def library_push(board, name, data: bytes, sha256: str, *, deadline: float):
     """POST /library/<name>: multipart `meta` ({"id", "bin_sha256", "bin_bytes"}) and `file` (the bytes)."""
     timeout = _timeout(DAEMON_UPLOAD_TIMEOUT, deadline)
     if timeout is None:
-        return _OUT_OF_TIME
+        return _out_of_time()
     meta = json.dumps({"id": name, "bin_sha256": sha256, "bin_bytes": len(data)}, allow_nan=False)
     return _pass_through(
-        lambda: requests.post(
+        lambda: SESSION.post(
             f"{_base(board)}/library/{quote(name, safe='')}",
             files={
                 "meta": (None, meta.encode(), "application/json"),
