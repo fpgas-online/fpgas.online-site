@@ -4,6 +4,9 @@ import copy
 import hashlib
 import json
 import logging
+import socket
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -417,6 +420,16 @@ def test_fetch_bin_refuses_redirect(archive, clock):
         "tt05/tt_um_flappy_vga_cutout1/../../../x.bin",
         "tt05/tt_um_flappy_vga_cutout1/x@evil.example",
         "tt05/tt_um_flappy_vga_cutout1/x.bin?u=https://evil.example",
+        "tt05/tt_um_flappy_vga_cutout1/%2e%2e/%2e%2e/x.bin",
+        "tt05/tt_um_flappy_vga_cutout1/%2e%2e%2fx.bin",
+        "tt05/tt_um_flappy_vga_cutout1/..%5cx.bin",
+        "tt05\\tt_um_flappy_vga_cutout1\\x.bin",
+        "tt05/tt_um_flappy_vga_cutout1/..\\..\\x.bin",
+        "tt05/tt_um_flappy_vga_cutout1/x\\@evil.example",
+        "tt05/tt_um_flappy_vga_cutout1/\u0078.bin\u2025",
+        "tt05/tt_um_flappy_vga_cutout1/ｘ.bin",
+        "tt05/tt_um_flappy_vga_cutout1/x\u2215..\u2215x.bin",
+        "ttö5/tt_um_flappy_vga_cutout1/x.bin",
     ],
 )
 def test_fetch_bin_never_leaves_base_host(archive, clock, path):
@@ -437,3 +450,106 @@ def test_base_url_must_be_https_and_end_in_slash(settings, clock):
         settings.TTSITE_LIBRARY_BASE_URL = bad
         with pytest.raises(library.ArchiveError):
             library.index(clock() + 50)
+
+
+def test_index_refuses_declared_oversize_before_reading(archive, clock):
+    resp = FakeResp(200, b"{}", {"ETag": '"big"', "Content-Length": str(library.INDEX_MAX_BYTES + 1)})
+    resp.iter_content = lambda chunk_size=1: pytest.fail("the body was read")
+    archive(resp)
+    with pytest.raises(library.ArchiveError):
+        library.index(clock() + 50)
+    assert resp.closed
+
+
+def test_fetch_bin_refuses_declared_oversize_before_reading(archive, clock):
+    resp = FakeResp(200, fixture_bin(0), {"Content-Length": str(library.BIN_MAX_BYTES + 1)})
+    resp.iter_content = lambda chunk_size=1: pytest.fail("the body was read")
+    archive(resp)
+    with pytest.raises(library.ArchiveError) as exc:
+        library.fetch_bin(entry_row(0), clock() + 50)
+    assert exc.value.message == "archive file does not match the index" and resp.closed
+
+
+def test_normalise_contiguity_counts_dropped_entries():
+    """As the reference checker: ttsky25b, a bad ttsky25a, ttsky25b again drops the second ttsky25b run."""
+    doc = copy.deepcopy(FIXTURE)
+    late = copy.deepcopy(FIXTURE["designs"][1])
+    late.update(id="ttsky25b_vga_example", shuttle="ttsky25b",
+                bin=f"ttsky25b/tt_um_vga_example/ttsky25b_vga_example-{late['bin_sha256'][:12]}.bin",
+                poster=None, preview_gif=None, video_10s_webm=None)  # fmt: skip
+    doc["designs"][1]["title"] = ""  # the ttsky25a entry is bad, so it is dropped
+    doc["designs"].insert(2, late)
+    index, dropped = library.normalise(doc, BASE)
+    assert "ttsky25b_vga_example" not in [e["id"] for e in index["designs"]]
+    assert [d.split(" ")[0] for d in dropped] == ["designs[1]", "designs[2]"] and "unbroken run" in dropped[1]
+
+
+def test_empty_base_url_is_library_disabled(settings, archive, clock):
+    settings.TTSITE_LIBRARY_BASE_URL = ""
+    a = archive(ok())
+    assert not issubclass(library.LibraryDisabled, library.ArchiveError)
+    with pytest.raises(library.LibraryDisabled):
+        library.base_url()
+    with pytest.raises(library.LibraryDisabled):
+        library.index(clock() + 50)
+    with pytest.raises(library.LibraryDisabled):
+        library.fetch_bin(entry_row(0), clock() + 50)
+    assert a.calls == []
+
+
+# --- a real local socket: the deadline must stop a read that is blocked inside one iter_content chunk
+
+
+@pytest.fixture
+def trickler(monkeypatch):
+    """A local HTTP server that sends `head` then `tail` one byte every 50 ms, for up to 4 s."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    stop = threading.Event()
+    monkeypatch.setattr(library, "base_url", lambda: f"http://127.0.0.1:{srv.getsockname()[1]}/")
+
+    def start(head, tail):
+        def serve():
+            conn, _ = srv.accept()
+            try:
+                conn.recv(65536)
+                conn.sendall(head)
+                end = time.monotonic() + 4.0
+                for byte in tail:
+                    if stop.is_set() or time.monotonic() > end:
+                        break
+                    conn.sendall(bytes([byte]))
+                    time.sleep(0.05)
+            except OSError:
+                pass  # the client shut the connection
+            finally:
+                conn.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        return thread
+
+    yield start
+    stop.set()
+    srv.close()
+
+
+@pytest.mark.parametrize(
+    "head,tail",
+    [
+        (b"HTTP/1.1 200 OK\r\nContent-Length: 200000\r\n\r\n", b"x" * 200),  # the body trickles
+        (b"HTTP/1.1 200 OK\r\n\r\n", b"x" * 200),  # no Content-Length, so a shut socket looks like an end
+        (b"", b"HTTP/1.1 200 OK\r\nX-Slow: " + b"y" * 200),  # the headers trickle
+    ],
+    ids=["body", "body-no-length", "headers"],
+)
+def test_real_trickling_archive_stops_at_deadline(trickler, head, tail):
+    thread = trickler(head, tail)
+    start = time.monotonic()
+    with pytest.raises(library.ArchiveError) as exc:
+        library.index(start + 1.0)
+    took = time.monotonic() - start
+    assert exc.value.message == "archive unreachable"
+    assert 0.9 <= took < 1.5, f"the load took {took:.2f} s for a 1 s deadline"
+    thread.join(2)

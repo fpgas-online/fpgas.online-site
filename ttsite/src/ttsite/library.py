@@ -3,8 +3,9 @@
 The archive is one fixed base URL (settings.TTSITE_LIBRARY_BASE_URL). Every request goes through `SESSION`
 (no .netrc, no proxy environment), refuses redirects, is streamed, is bounded in bytes and in time, and has its
 response closed in `finally`. Every call takes `deadline`, a `now()` value: each read timeout is the time left
-(at least 0.5 s), and the body loops check the clock after every chunk, so a trickling archive runs into the
-deadline instead of holding the request open.
+(at least 0.5 s), and a watchdog armed at the deadline shuts down the request's socket, so an archive that
+trickles bytes (one read can wait for a whole 64 KiB chunk) runs into the deadline instead of holding the request
+open.
 
 The schema 1 rules are duplicated here from the spec (tinytapeout-vga-videos `ttvga/fpgalibrary.py` is the
 reference checker); nothing is imported from that repository.
@@ -17,11 +18,14 @@ import json
 import logging
 import math
 import re
+import socket
+import threading
 import time
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
+import urllib3
 from django.conf import settings
 from django.core.cache import cache
 
@@ -47,8 +51,108 @@ MSG_REDIRECT = "archive redirected; refusing"
 MSG_BIN_MISSING = "archive file missing: the archive is still syncing; try again in a few minutes"
 MSG_BIN_MISMATCH = "archive file does not match the index"
 
+
+# --- the deadline watchdog
+#
+# A blocking read cannot see the clock: iter_content(65536) waits for the whole chunk, and each socket read may take
+# up to the read timeout. So every request in `_get` arms a timer at the deadline, before SESSION.get. The session's
+# connection pools hand each connection they give out to the request's watchdog; when the timer fires it shuts the
+# connection's socket down, which wakes the blocked read. A connection still connecting is shut as soon as its
+# connect returns (the connect itself is bounded by its 3.05 s timeout).
+
+_current = threading.local()  # .watchdog: the _Watchdog of the request running on this thread
+
+
+def _shut(sock) -> None:
+    try:
+        socket.socket.shutdown(sock, socket.SHUT_RDWR)  # the plain socket's, also under TLS: wakes the reader
+    except OSError:
+        pass  # already closed
+
+
+class _Watchdog:
+    """Shuts down every socket handed to it once `seconds` have passed.
+
+    It keeps the sockets, not only the connections: http.client drops `conn.sock` when a response will close the
+    connection (no Content-Length), and the response goes on reading from that socket."""
+
+    def __init__(self, seconds: float):
+        self.fired = False
+        self._socks: list = []
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(seconds, self._fire)
+        self._timer.daemon = True
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+    def attach(self, conn) -> None:
+        sock = getattr(conn, "sock", None)
+        if sock is None:
+            return  # not connected yet: connect() attaches it again
+        with self._lock:
+            self._socks.append(sock)
+            fired = self.fired
+        if fired:
+            _shut(sock)
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            socks = list(self._socks)
+        for sock in socks:
+            _shut(sock)
+
+
+def _attach(conn) -> None:
+    watchdog = getattr(_current, "watchdog", None)
+    if watchdog is not None:
+        watchdog.attach(conn)
+
+
+class _HTTPConnection(urllib3.connection.HTTPConnection):
+    def connect(self):
+        super().connect()
+        _attach(self)  # shut at once if the deadline passed while connecting
+
+
+class _HTTPSConnection(urllib3.connection.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        _attach(self)
+
+
+class _HTTPPool(urllib3.HTTPConnectionPool):
+    ConnectionCls = _HTTPConnection
+
+    def _get_conn(self, timeout=None):
+        conn = super()._get_conn(timeout)
+        _attach(conn)
+        return conn
+
+
+class _HTTPSPool(urllib3.HTTPSConnectionPool):
+    ConnectionCls = _HTTPSConnection
+
+    def _get_conn(self, timeout=None):
+        conn = super()._get_conn(timeout)
+        _attach(conn)
+        return conn
+
+
+class _WatchedAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = {"http": _HTTPPool, "https": _HTTPSPool}
+
+
 SESSION = requests.Session()
 SESSION.trust_env = False
+SESSION.mount("https://", _WatchedAdapter())
+SESSION.mount("http://", _WatchedAdapter())  # the base is always https; http only serves the local socket tests
 
 
 class ArchiveError(Exception):
@@ -59,6 +163,14 @@ class ArchiveError(Exception):
 
 class NotPublished(ArchiveError):
     """The archive has no fpga-library.json (404)."""
+
+
+class LibraryDisabled(Exception):
+    """TTSITE_LIBRARY_BASE_URL is empty: the library is switched off (the routes answer 404, no panel)."""
+
+
+class _TooLarge(ArchiveError):
+    """The archive's answer is over the byte cap."""
 
 
 # --- schema 1 (spec section 1)
@@ -229,14 +341,25 @@ def normalise(doc: object, base_url: str) -> tuple[dict, list[str]]:
     """Apply schema 1 to `doc`: the site's wire format and the dropped entries' reasons.
 
     A wrong top level raises ArchiveError. A bad entry is dropped and logged; every entry that shares an id is
-    dropped; a shuttle that comes back after another one's entries loses its later entries. The order is kept.
+    dropped; a shuttle that comes back after another one's entries loses its later entries (judged over every
+    entry with a string shuttle, valid or not, as the reference checker does). The order is kept.
     """
     if (why := _top_level_violation(doc)) is not None:
         raise ArchiveError(f"archive index is not schema 1: {why}")
     dropped: list[tuple[int, str]] = []
     valid: list[tuple[int, dict]] = []
+    # contiguity is judged over every entry with a string shuttle, as the reference checker does
+    seen_shuttles: set[str] = set()
+    previous: object = None
     for i, e in enumerate(doc["designs"]):
-        if (bad := _entry_violation(e)) is not None:
+        bad = _entry_violation(e)
+        shuttle = e.get("shuttle") if isinstance(e, dict) else None
+        if bad is None and shuttle != previous and shuttle in seen_shuttles:
+            bad = ("shuttle", f"{shuttle!r} entries must form one unbroken run")
+        if isinstance(shuttle, str):
+            seen_shuttles.add(shuttle)
+            previous = shuttle
+        if bad is not None:
             dropped.append((i, f"{bad[0]}: {bad[1]}"))
         else:
             valid.append((i, e))
@@ -244,15 +367,10 @@ def normalise(doc: object, base_url: str) -> tuple[dict, list[str]]:
     for _, e in valid:
         counts[e["id"]] = counts.get(e["id"], 0) + 1
     kept: list[dict] = []
-    seen_shuttles: set[str] = set()
     for i, e in valid:
         if counts[e["id"]] > 1:
             dropped.append((i, f"id: duplicate id {e['id']!r}"))
             continue
-        if e["shuttle"] in seen_shuttles and kept[-1]["shuttle"] != e["shuttle"]:
-            dropped.append((i, f"shuttle: {e['shuttle']!r} entries must form one unbroken run"))
-            continue
-        seen_shuttles.add(e["shuttle"])
         kept.append({key: e[key] for key in ENTRY_KEYS})
     reasons = [f"designs[{i}] {why}" for i, why in sorted(dropped)]
     for reason in reasons:
@@ -282,8 +400,11 @@ def _parse(body: bytes) -> object:
 
 
 def base_url() -> str:
-    """The archive base; ArchiveError unless it is https:// and ends in "/"."""
+    """The archive base. LibraryDisabled when the setting is empty; ArchiveError unless it is https:// and ends
+    in "/"."""
     base = settings.TTSITE_LIBRARY_BASE_URL
+    if not base:
+        raise LibraryDisabled("TTSITE_LIBRARY_BASE_URL is empty")
     if not (isinstance(base, str) and base.startswith("https://") and base.endswith("/")):
         raise ArchiveError("TTSITE_LIBRARY_BASE_URL must be https:// and end in /")
     return base
@@ -306,20 +427,31 @@ def _same_origin(url: str, base: str) -> bool:
 
 
 def _get(url: str, deadline: float, max_bytes: int, headers: dict | None = None) -> tuple[int, dict, bytes]:
-    """(status, headers, body) of a GET. The body is read only for a 200, and at most `max_bytes` + 1 of it."""
+    """(status, headers, body) of a GET. The body is read only for a 200, and at most `max_bytes` + 1 of it.
+
+    Raises ArchiveError("archive unreachable") on a transport error or when the deadline passes, and _TooLarge
+    when the answer is over `max_bytes`."""
     left = deadline - now()
     if left <= 0:
         raise ArchiveError(MSG_UNREACHABLE)
     resp = None
+    watchdog = _Watchdog(left)
+    _current.watchdog = watchdog
+    watchdog.start()  # before SESSION.get: it covers the connect and the headers too
     try:
         resp = SESSION.get(url, headers=headers or {}, stream=True, allow_redirects=False,
                            timeout=(CONNECT_TIMEOUT, max(MIN_READ_TIMEOUT, left)))  # fmt: skip
+        if watchdog.fired:
+            raise ArchiveError(MSG_UNREACHABLE)
         if 300 <= resp.status_code < 400 and resp.status_code != 304:
             raise ArchiveError(MSG_REDIRECT)
         if not _same_origin(getattr(resp, "url", None) or url, base_url()):
             raise ArchiveError(MSG_REDIRECT)
         if resp.status_code != 200:
             return resp.status_code, dict(resp.headers), b""
+        declared = resp.headers.get("Content-Length")
+        if declared is not None and declared.strip().isdigit() and int(declared) > max_bytes:
+            raise _TooLarge(f"archive answer is {int(declared)} bytes, over {max_bytes}")
         body = bytearray()
         for chunk in resp.iter_content(CHUNK):
             body.extend(chunk)
@@ -327,10 +459,16 @@ def _get(url: str, deadline: float, max_bytes: int, headers: dict | None = None)
                 break
             if now() >= deadline:
                 raise ArchiveError(MSG_UNREACHABLE)
-        return 200, dict(resp.headers), bytes(body[: max_bytes + 1])
-    except requests.RequestException:
+        if watchdog.fired:  # a shut socket can end a body with no Content-Length early, without an error
+            raise ArchiveError(MSG_UNREACHABLE)
+        if len(body) > max_bytes:
+            raise _TooLarge(f"archive answer is over {max_bytes} bytes")
+        return 200, dict(resp.headers), bytes(body)
+    except (requests.RequestException, urllib3.exceptions.HTTPError, OSError):
         raise ArchiveError(MSG_UNREACHABLE) from None
     finally:
+        watchdog.cancel()
+        _current.watchdog = None
         if resp is not None:
             resp.close()
 
@@ -355,8 +493,6 @@ def _fetch_index(deadline: float, copy: tuple | None) -> tuple:
         raise NotPublished("VGA library not published")
     if status != 200:
         raise ArchiveError(f"archive answered {status}")
-    if len(body) > INDEX_MAX_BYTES:
-        raise ArchiveError(f"archive index is over {INDEX_MAX_BYTES} bytes")
     index, _dropped = normalise(_parse(body), base_url())
     out = json.dumps(index, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     return (resp_headers.get("ETag") or resp_headers.get("etag") or "", out, _site_etag(out), t)
@@ -419,7 +555,10 @@ def cached_ids() -> set[str] | None:
 
 def fetch_bin(entry: dict, deadline: float) -> bytes:
     """The bytes of a normalised entry's bitstream, checked for size, hash and preamble."""
-    status, _headers, data = _get(_url_for(entry["bin"]), deadline, BIN_MAX_BYTES)
+    try:
+        status, _headers, data = _get(_url_for(entry["bin"]), deadline, BIN_MAX_BYTES)
+    except _TooLarge:
+        raise ArchiveError(MSG_BIN_MISMATCH) from None
     if status == 404:
         raise ArchiveError(MSG_BIN_MISSING)
     if status != 200:
