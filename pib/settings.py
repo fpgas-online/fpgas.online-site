@@ -189,16 +189,28 @@ SNMP_SWITCH_OFF_AFTER_ON = 60
 # the power cycle is refused (503), not allowed.
 SNMP_SWITCH_RATE_LIMIT_CACHE = "poe"
 
+# Three stores, one redis:
+#   db 0  the channel layer (CHANNEL_LAYERS above)
+#   db 1  "poe": the PoE rate limit
+#   db 2  "ttsite": the VGA library load lock, shared by all gunicorn workers
+# Each redis alias has a database of its own because Django's
+# RedisCache.clear() is a FLUSHDB: two aliases sharing a database would let
+# clearing either drop the other's keys (a held load lock included), and
+# neither may ever flush the channel layer. "default" stays locmem, per worker.
 CACHES = {
     # per-process, as before this setting was written out: short-lived page
-    # data only (ttsite's board status and design lists)
+    # data only (ttsite's board status and design lists, the library index)
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
-    # database 1 of the redis the channel layer uses (it is in database 0),
-    # so clearing this cache can never flush the channel layer
     "poe": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": "redis://127.0.0.1:6379/1",
         "KEY_PREFIX": "fpgas-site",
+    },
+    # If redis does not answer, the library load is refused (503), as for "poe".
+    "ttsite": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/2",
+        "KEY_PREFIX": "ttsite",
     },
 }
 
@@ -218,6 +230,15 @@ TTSITE_COMMANDER_VERSION = ""  # e.g. "0.2.0"; empty => bundle not deployed
 # Legacy Commander (SDK-agnostic, for pre-2.x-firmware boards like tt03p5);
 # served from static tt-commander/legacy-<version>/. Empty => not deployed.
 TTSITE_COMMANDER_LEGACY_VERSION = ""
+# The VGA library archive: fpga-library.json and the bins it names, read by
+# ttsite.library. Fixed; no request can change it. Must be https:// and end in
+# "/". Empty => the library is off: the panel is not rendered, its routes answer
+# 404 "VGA library not enabled", and uploads are not checked against it.
+# Off by default (Ruling BB): the infra play installs main's tip, so a default
+# that is on would switch the library on for the live site at the next play.
+# Infra turns it on in local_settings.py, with the archive's base:
+#   TTSITE_LIBRARY_BASE_URL = "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
+TTSITE_LIBRARY_BASE_URL = ""
 
 # The management index (management/e2e.py) reads the newest browser test of THIS site by the site name the e2e
 # workflow uses ("welland", "ps1"). Empty => the first label of DOMAIN_NAME (welland.fpgas.online => "welland").
