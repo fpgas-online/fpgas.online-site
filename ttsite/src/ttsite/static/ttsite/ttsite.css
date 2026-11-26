@@ -191,10 +191,39 @@ a { color: var(--tt-primary); }
 .tt-design h4 { margin: 0 0 0.3rem; font-size: 1rem; }
 .tt-badge { font-size: 0.7rem; margin-left: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 3px; background: #eee; }
 .tt-badge--demo { background: var(--tt-secondary); }
+.tt-badge--library { background: #e4e1f7; }
+.tt-badge--warn { background: #fbe3b8; color: #6b4300; }
+.tt-badge--info { background: #eef; color: #333; }
+.tt-badge--running { background: var(--tt-primary); color: var(--tt-paper); }
 .tt-design-link { margin-left: 0.6rem; font-size: 0.85rem; }
 .tt-msg { padding: 0.5rem 0.8rem; border-radius: 6px; background: #eef; }
 .tt-msg--error { background: #fde8e8; }
 #tt-upload label { display: block; margin: 0.4rem 0; }
+
+/* the VGA library panel (library.js): controls, one page of cards, the pager */
+.tt-library { margin: 1.5rem 0; }
+.tt-library-state { color: #555; }
+.tt-library-controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 0.6rem 0; }
+.tt-library-search { flex: 1 1 16rem; min-width: 0; padding: 0.3rem 0.5rem; }
+.tt-library-count { font-size: 0.85rem; color: #555; }
+.tt-library-grid {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.8rem;
+}
+.tt-library-card { border: 1px solid #e3e3ea; border-radius: 6px; padding: 0.6rem; }
+.tt-library-card--enabled { border-color: var(--tt-primary); box-shadow: 0 0 0 2px var(--tt-secondary); }
+.tt-library-card h3 { margin: 0.4rem 0 0.2rem; font-size: 1rem; }
+.tt-library-card p { margin: 0.2rem 0; }
+.tt-library-poster { display: block; width: 160px; max-width: 100%; height: 120px; object-fit: contain; background: #111; }
+.tt-library-noposter { background: #f2f2f2; }
+.tt-library-author { font-size: 0.85rem; }
+.tt-library-meta { font-size: 0.75rem; color: #666; font-family: monospace; overflow-wrap: anywhere; }
+.tt-library-badges .tt-badge { display: inline-block; margin: 0.1rem 0.3rem 0.1rem 0; }
+.tt-library-pager { display: flex; gap: 0.6rem; align-items: center; justify-content: center; margin: 0.8rem 0; }
+.tt-library-pager .tt-btn:disabled { opacity: 0.5; }
 .tt-help { font-size: 0.85rem; color: #666; }
 
 .tt-footer {

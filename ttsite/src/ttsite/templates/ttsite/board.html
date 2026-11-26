@@ -38,6 +38,12 @@
     <h2>Designs on this board</h2>
     <p id="tt-gallery-msg" class="tt-msg" hidden></p>
     <ul id="tt-gallery-list" class="tt-design-list"><li class="tt-design tt-design--loading">Loading designs from the Pi&hellip;</li></ul>
+    {% if library_enabled %}<section class="tt-library" id="tt-library">
+      <h3>VGA library</h3>
+      <p class="tt-help">Prebuilt FPGA bitstreams of Tiny Tapeout VGA designs from the <a href="{{ library_base_url }}" target="_blank" rel="noopener">VGA archive</a>. Load one to run it on this board.</p>
+      <p id="tt-library-msg" class="tt-msg" hidden></p>
+      <div id="tt-library-body"><p class="tt-library-state">Loading the VGA library...</p></div>
+    </section>{% endif %}
     <h3>Upload your own bitstream</h3>
     <form id="tt-upload" enctype="multipart/form-data" method="post" action="{{ board.api_base }}/bitstream">
       {% csrf_token %}
@@ -73,6 +79,7 @@
     <textarea id="tt-log" rows="6" readonly></textarea></section>{% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>
+{% block scripts %}{% if live and board.has_gallery and library_enabled %}<script src="{% static 'ttsite/library.js' %}"></script>
+{% endif %}<script type="module" src="{% static 'ttsite/board.js' %}"></script>
 {% if live %}<script src="{% static 'js/mediamtx-reader.js' %}"></script>
 <script src="{% static 'js/whep-live.js' %}"></script>{% endif %}{% endblock %}
