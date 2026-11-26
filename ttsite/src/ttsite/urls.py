@@ -13,6 +13,8 @@ urlpatterns = [
     path("api/board/<slug:slug>/designs", views.api_designs, name="ttsite-api-designs"),
     path("api/board/<slug:slug>/designs/<str:name>/enable", views.api_enable, name="ttsite-api-enable"),
     path("api/board/<slug:slug>/bitstream", views.api_bitstream, name="ttsite-api-bitstream"),
+    path("api/board/<slug:slug>/library", views.api_library, name="ttsite-api-library"),
+    path("api/board/<slug:slug>/library/<str:name>/load", views.api_library_load, name="ttsite-api-library-load"),
     # existing apps keep working on this host
     path("admin/", admin.site.urls),
     path("snmp/", include("snmp_switch.urls")),

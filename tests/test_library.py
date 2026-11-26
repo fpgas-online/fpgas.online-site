@@ -267,7 +267,7 @@ def test_index_404_is_not_published_and_cached_60s(archive, clock):
     with pytest.raises(library.NotPublished):
         library.index(clock() + 50)
     assert len(a.calls) == 2 and all(r.closed for r in a.given)
-    assert library.cached_ids() is None
+    assert cache.get(library.INDEX_KEY) is None
 
 
 def test_index_refuses_redirect(archive, clock):
@@ -350,14 +350,12 @@ def test_session_ignores_env_and_closes_responses(archive, clock):
     assert len(a.given) == 2 and all(r.closed for r in a.given)
 
 
-def test_entry_and_cached_ids(archive, clock):
-    assert library.cached_ids() is None
-    archive(ok())
+def test_entry_and_ids(archive, clock):
+    a = archive(ok())
     assert library.entry("ttsky25a_vga_example", clock() + 50)["bin_bytes"] == 4096
     assert library.entry("no_such_design", clock() + 50) is None
-    assert library.cached_ids() == {e["id"] for e in FIXTURE["designs"]}
-    clock.t += library.STALE_SECONDS + 1
-    assert library.cached_ids() is None
+    assert library.ids(clock() + 5) == {e["id"] for e in FIXTURE["designs"]}
+    assert len(a.calls) == 1  # one fetch; the rest is the fresh copy
 
 
 # --- fetch_bin
@@ -553,3 +551,125 @@ def test_real_trickling_archive_stops_at_deadline(trickler, head, tail):
     assert exc.value.message == "archive unreachable"
     assert 0.9 <= took < 1.5, f"the load took {took:.2f} s for a 1 s deadline"
     thread.join(2)
+
+
+# --- hardening from the Task 6 re-review (N1-N3)
+
+
+@pytest.fixture
+def recorder(monkeypatch):
+    """A local HTTP server that answers one request with the fixture index and keeps the request's bytes."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr(library, "base_url", lambda: f"http://127.0.0.1:{srv.getsockname()[1]}/")
+    seen = []
+
+    def serve():
+        conn, _ = srv.accept()
+        try:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(65536)
+            seen.append(request)
+            body = body_of(FIXTURE)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
+        finally:
+            conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield seen
+    thread.join(2)
+    srv.close()
+
+
+def test_archive_requests_send_connection_close(recorder):
+    """N1: no archive connection goes back to the pool, so a late watchdog never shuts a pooled socket."""
+    library.index(time.monotonic() + 5)
+    head = recorder[0].decode("latin-1").lower().split("\r\n")
+    assert "connection: close" in head
+
+
+def test_archive_session_mounts_the_watched_https_pool():
+    """N2: the watchdog's hook relies on urllib3 2.x pool internals."""
+    pool = library.SESSION.get_adapter(BASE).poolmanager.connection_from_url(BASE)
+    assert type(pool) is library._HTTPSPool
+    assert pool.ConnectionCls is library._HTTPSConnection
+
+
+def test_urllib3_is_pinned_to_major_2():
+    import tomllib
+
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert "urllib3>=2,<3" in pyproject["project"]["dependencies"]
+
+
+@pytest.fixture
+def stalled_tls(monkeypatch):
+    """A local server that accepts the TCP connection and never answers the TLS ClientHello."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr(library, "base_url", lambda: f"https://127.0.0.1:{srv.getsockname()[1]}/")
+    stop = threading.Event()
+    held = []
+
+    def serve():
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        held.append(conn)
+        stop.wait(5)
+        conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield
+    stop.set()
+    thread.join(2)
+    srv.close()
+
+
+def test_real_stalled_tls_handshake_stops_at_deadline(stalled_tls):
+    """N3: the raw socket is handed to the watchdog right after the TCP connect, so the handshake is covered (it
+    runs under the 3.05 s connect timeout, not the deadline)."""
+    start = time.monotonic()
+    with pytest.raises(library.ArchiveError) as exc:
+        library.index(start + 1.0)
+    took = time.monotonic() - start
+    assert exc.value.message == "archive unreachable"
+    assert 0.9 <= took < 1.5, f"the handshake took {took:.2f} s for a 1 s deadline"
+
+
+def test_watchdog_attaches_a_tls_socket_without_leaking():
+    """An SSLSocket refuses socket.socket.dup (TypeError, after the descriptor is already dup'd); the watchdog must
+    keep a plain duplicate, shut the connection through it, and close it again."""
+    import os
+    import ssl
+
+    def fds():
+        return len(os.listdir("/proc/self/fd"))
+
+    a, b = socket.socketpair()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    tls = ctx.wrap_socket(a, do_handshake_on_connect=False)
+    try:
+        assert isinstance(tls, ssl.SSLSocket)
+        before = fds()
+        watchdog = library._Watchdog(60)
+        watchdog.attach(tls)
+        assert fds() == before + 1  # the duplicate it keeps
+        watchdog._fire()  # the timer, without the wait
+        b.settimeout(2)
+        assert b.recv(1) == b""  # the connection was shut: the peer reads the end
+        watchdog.close()
+        assert fds() == before
+        watchdog.attach(tls)  # after close() nothing more is kept
+        assert fds() == before
+    finally:
+        tls.close()
+        b.close()

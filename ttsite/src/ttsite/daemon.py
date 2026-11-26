@@ -10,9 +10,11 @@ import requests
 DAEMON_PORT = 8765
 
 # Every daemon call goes through this session: no .netrc and no proxy environment, so a proxy set for the gateway's
-# outbound traffic never carries a call to a Pi.
+# outbound traffic never carries a call to a Pi. `Connection: close` on every call: no connection is kept for reuse,
+# so a call never meets a socket the Pi dropped (a reboot, a daemon restart) while it sat in the pool.
 SESSION = requests.Session()
 SESSION.trust_env = False
+SESSION.headers["Connection"] = "close"
 
 
 def health(board, timeout=3.0):
