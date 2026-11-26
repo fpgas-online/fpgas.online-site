@@ -111,7 +111,18 @@ def test_normalise_fixture_keeps_all_in_order_and_adds_base_url():
     assert index["schema"] == 1 and index["generated"] == FIXTURE["generated"] and index["base_url"] == BASE
     assert set(index) == {"schema", "generated", "base_url", "designs"}
     assert [e["id"] for e in index["designs"]] == [e["id"] for e in FIXTURE["designs"]]
-    assert index["designs"][0] == FIXTURE["designs"][0]
+    # Ruling BJ: the fixture has no pdk_latches; a missing one is kept as false
+    assert index["designs"][0] == {**FIXTURE["designs"][0], "pdk_latches": False}
+    assert all(e["pdk_latches"] is False for e in index["designs"])
+
+
+def test_normalise_keeps_pdk_latches():
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["pdk_latches"] = True
+    doc["designs"][1]["pdk_latches"] = False
+    index, dropped = library.normalise(doc, BASE)
+    assert dropped == []
+    assert [e["pdk_latches"] for e in index["designs"]] == [True, False, False, False, False]
 
 
 def test_normalise_ignores_unknown_entry_keys():
@@ -138,6 +149,9 @@ def test_normalise_ignores_unknown_entry_keys():
         ("bin_bytes", 262145),
         ("pinout", {"ui_in": [""] * 7, "uo_out": [""] * 8, "uio": [""] * 8}),
         ("build_status", "maybe"),
+        ("pdk_latches", 1),
+        ("pdk_latches", "true"),
+        ("pdk_latches", None),
     ],
 )
 def test_normalise_drops_bad_entry_and_logs(key, value, caplog):
