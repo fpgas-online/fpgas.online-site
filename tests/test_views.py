@@ -985,3 +985,28 @@ def test_upload_check_fetches_a_cold_index(c, boards, settings, monkeypatch, lib
     r = c.post("/api/board/fpga-1/bitstream", {"name": ROW0["id"], "file": upload_file()})
     assert r.status_code == 409 and uploads == []
     assert asked == [(LIB_BASE + "fpga-library.json", (library.CONNECT_TIMEOUT, 5.0))]
+
+
+def test_board_html_has_library_section_when_enabled(c, boards, settings):
+    settings.TTSITE_LIBRARY_BASE_URL = "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
+    html = c.get("/board/fpga-1/").content.decode()
+    assert 'id="tt-library"' in html
+    assert 'id="tt-library-body"' in html
+    assert "ttsite/library.js" in html
+    assert 'href="https://data.wafer.space/big-storage/tinytapeout-vga-videos/"' in html
+    # between the gallery's list and the upload form
+    assert html.index('id="tt-gallery-list"') < html.index('id="tt-library"') < html.index('id="tt-upload"')
+
+
+def test_board_html_has_no_library_section_when_setting_empty(c, boards, settings):
+    settings.TTSITE_LIBRARY_BASE_URL = ""
+    html = c.get("/board/fpga-1/").content.decode()
+    assert 'id="tt-library"' not in html
+    assert "ttsite/library.js" not in html
+    assert 'id="tt-gallery"' in html
+
+
+def test_board_html_has_no_library_section_without_gallery(c, boards, settings):
+    settings.TTSITE_LIBRARY_BASE_URL = "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
+    html = c.get("/board/tt06/").content.decode()
+    assert 'id="tt-library"' not in html

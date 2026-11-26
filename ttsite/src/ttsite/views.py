@@ -93,6 +93,9 @@ def board(request, slug):
         # (/pistat/stat/%l/) and the fleet bridge both send there
         pistat_groups=[b.hostname] if b.live else [],
         can_power_cycle=b.can_power_cycle,
+        # the VGA library panel: off while the setting is empty (the routes answer 404 then too)
+        library_enabled=bool(settings.TTSITE_LIBRARY_BASE_URL),
+        library_base_url=settings.TTSITE_LIBRARY_BASE_URL,
     )
     return render(request, "ttsite/board.html", ctx)
 

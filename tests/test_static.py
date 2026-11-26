@@ -48,3 +48,32 @@ def test_board_js_has_gallery_and_upload_behaviour():
 def test_ttsite_css_styles_the_gallery():
     css = (STATIC / "ttsite.css").read_text()
     assert ".tt-gallery" in css
+
+
+def test_board_js_wires_library_and_csrf():
+    """The VGA library panel's fetches live in library.js's controller, wired up by board.js; the Commander gets the
+    page's CSRF reader (Commander PR #12)."""
+    board = (STATIC / "board.js").read_text()
+    lib = (STATIC / "library.js").read_text()
+    assert "/library/" in lib and "/load" in lib
+    assert "'/library'" in lib
+    assert "X-CSRFToken" in lib
+    assert "loading = 'lazy'" in lib
+    assert "innerHTML" not in lib
+    assert "csrfToken: csrf" in board
+    assert "ttsiteLibrary" in board and "createPanel" in board
+    # the cookie reader is defined before the Commander is mounted, so mountCommander can be handed it
+    assert board.index("const csrf = ") < board.index("mountCommander(")
+    assert "'library'" in board  # the gallery's badge rule knows the library source
+
+
+def test_library_js_is_commonjs_and_a_browser_global():
+    lib = (STATIC / "library.js").read_text()
+    assert "module.exports" in lib
+    assert "window.ttsiteLibrary" in lib
+
+
+def test_ttsite_css_styles_the_library():
+    css = (STATIC / "ttsite.css").read_text()
+    for cls in (".tt-library", ".tt-library-grid", ".tt-badge--library", ".tt-badge--warn", ".tt-badge--info"):
+        assert cls in css, cls

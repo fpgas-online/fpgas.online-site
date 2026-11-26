@@ -2,7 +2,8 @@
 // board page glue: mount Commander, status pill, pistat log, power-cycle.
 // reads #ttsite-board's dataset: data-slug data-kind data-shuttle data-ws-path
 // data-api-base data-status-url data-pistat-groups data-commander-js, and data-port data-switch: the switch
-// port the board's Pi is registered on now (for Reset), looked up by the server at each page load
+// port the board's Pi is registered on now (for Reset), looked up by the server at each page load.
+// The VGA library panel's rules and drawing are library.js (window.ttsiteLibrary), loaded before this module.
 function mount() {
   const root = document.getElementById('ttsite-board');
   if (!root) return;
@@ -13,6 +14,8 @@ function mount() {
     log.value += new Date().toLocaleTimeString() + ': ' + t + '\n';
     log.scrollTop = log.scrollHeight;
   };
+  // Django's CSRF cookie: every POST from this page (the gallery, the upload, the library, the Commander) sends it
+  const csrf = () => (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
 
   // status pill from /board/<slug>/status.json (5 s server cache; poll every 10 s)
   const pill = document.getElementById('tt-status');
@@ -112,6 +115,7 @@ function mount() {
           },
           board: { slug: d.slug, kind: d.kind, shuttle: d.shuttle || undefined },
           apiBase: d.apiBase,
+          csrfToken: csrf,
         });
         appendLog('Commander mounted');
       })
@@ -127,7 +131,6 @@ function mount() {
     const api = gallery.dataset.apiBase;
     const list = document.getElementById('tt-gallery-list');
     const msg = document.getElementById('tt-gallery-msg');
-    const csrf = () => (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
     const showMsg = (text, isError) => { msg.hidden = !text; msg.textContent = text || ''; msg.className = 'tt-msg' + (isError ? ' tt-msg--error' : ''); };
     const fmtErr = (b) => (b && b.error ? b.error + (b.detail ? ' — ' + b.detail : '') : 'unexpected error');
     // nginx/Django error pages (413, 502, 504, 403, 405, ...) aren't JSON: fall back to the status line
@@ -135,6 +138,40 @@ function mount() {
     const errMsg = (b, r) => (b ? fmtErr(b) : 'HTTP ' + r.status + ' ' + r.statusText);
     // only render Docs/Source links whose URL we trust enough to point a click at
     const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null);
+    // the VGA library panel, when the page has one (TTSITE_LIBRARY_BASE_URL set) and library.js loaded
+    const librarySection = document.getElementById('tt-library');
+    const libraryBody = document.getElementById('tt-library-body');
+    const libraryMsg = document.getElementById('tt-library-msg');
+    let lastDesigns = null;
+    let panel = null;
+    if (librarySection && libraryBody && window.ttsiteLibrary) {
+      let held = [];
+      panel = window.ttsiteLibrary.createPanel({
+        container: libraryBody,
+        doc: document,
+        fetch: (url, init) => fetch(url, init),
+        apiBase: api,
+        csrf,
+        showMsg: (text, isError) => {
+          libraryMsg.hidden = !text; libraryMsg.textContent = text || '';
+          libraryMsg.className = 'tt-msg' + (isError ? ' tt-msg--error' : '');
+        },
+        setHidden: (hidden) => { librarySection.hidden = hidden; },
+        // a library load disables every Run button too; as in enable(), a re-rendered gallery has fresh buttons
+        setBusy: (on) => {
+          if (on) { held = Array.from(document.querySelectorAll('#tt-gallery-list button, #tt-upload button')); held.forEach((btn) => { btn.disabled = true; }); }
+          else { held.forEach((btn) => { btn.disabled = false; }); held = []; }
+        },
+        // the gallery titles an enabled library entry from the index
+        onIndex: () => { if (lastDesigns) render(lastDesigns); },
+        onLoaded: async (result, title) => {
+          appendLog('VGA library design ' + title + ' loaded' + (result.pushed ? ' (fetched from the archive)' : ''));
+          await loadDesigns();
+          await (window.ttCommander && window.ttCommander.refreshDesigns ? window.ttCommander.refreshDesigns() : Promise.resolve());
+        },
+      });
+      panel.loadIndex();
+    }
     async function loadDesigns() {
       try {
         const r = await fetch(api + '/designs', { cache: 'no-store' });
@@ -144,15 +181,20 @@ function mount() {
       } catch (e) { list.innerHTML = ''; showMsg('Could not reach the Pi: ' + e, true); }
     }
     function render(b) {
+      lastDesigns = b;
+      if (panel) panel.setDesigns(b);
       list.innerHTML = '';
-      const items = b.designs || [];
+      // a library entry cached on the Pi shows here only while it is enabled; the panel lists the rest
+      const items = (b.designs || []).filter((design) => design.source !== 'library' || b.enabled === design.name);
       if (!items.length) { list.innerHTML = '<li class="tt-design">No designs on this board yet.</li>'; return; }
       items.forEach((design) => {
         const li = document.createElement('li');
         const isRunning = b.enabled === design.name;
         li.className = 'tt-design' + (isRunning ? ' tt-design--enabled' : '');
-        const h = document.createElement('h4'); h.textContent = design.title || design.name;
-        const source = design.source === 'demo' || design.source === 'upload' ? design.source : 'other';
+        // /designs carries no metadata for a library entry: its title comes from the site's index
+        const title = design.source === 'library' && panel ? panel.title(design.name) : null;
+        const h = document.createElement('h4'); h.textContent = title || design.title || design.name;
+        const source = ['demo', 'upload', 'library'].includes(design.source) ? design.source : 'other';
         const badge = document.createElement('span'); badge.className = 'tt-badge tt-badge--' + source; badge.textContent = design.source;
         h.appendChild(badge);
         const p = document.createElement('p'); p.textContent = (design.author ? 'by ' + design.author + ' — ' : '') + (design.description || '');
@@ -174,6 +216,7 @@ function mount() {
       showMsg('Loading ' + name + '…', false);
       const buttons = Array.from(list.querySelectorAll('button'));
       buttons.forEach((btn) => { btn.disabled = true; });
+      if (panel) panel.busy(true);
       try {
         const r = await fetch(api + '/designs/' + encodeURIComponent(name) + '/enable', {
           method: 'POST',
@@ -192,6 +235,7 @@ function mount() {
         // if loadDesigns() re-rendered, these are stale/detached nodes and this is a no-op;
         // the fresh render already disabled the (new) currently-running design's button
         buttons.forEach((btn) => { btn.disabled = false; });
+        if (panel) panel.busy(false);
       }
     }
     const form = document.getElementById('tt-upload');
@@ -210,6 +254,7 @@ function mount() {
       // re-enabling them is a no-op, so the fresh 'Running' button stays disabled
       const uploadButtons = Array.from(list.querySelectorAll('button'));
       uploadButtons.forEach((btn) => { btn.disabled = true; });
+      if (panel) panel.busy(true);
       try {
         const r = await fetch(api + '/bitstream', { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
         const b = await readJson(r);
@@ -223,6 +268,7 @@ function mount() {
         showMsg('Upload failed: ' + e, true);
       } finally {
         uploadButtons.forEach((btn) => { btn.disabled = false; });
+        if (panel) panel.busy(false);
       }
     };
     loadDesigns();
