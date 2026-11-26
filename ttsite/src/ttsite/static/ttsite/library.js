@@ -82,8 +82,19 @@
     return base + path;
   }
 
-  // only Docs/Source links whose URL we trust enough to point a click at (board.js's safeUrl)
-  const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null);
+  // only Docs/Source links whose URL we trust enough to point a click at: https:// only (board.js's safeUrl)
+  const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//i.test(u.trim()) ? u.trim() : null);
+
+  /**
+   * Disable the buttons that are enabled now and return a function that re-enables exactly those. A button that was
+   * already disabled (the gallery's "Running") stays disabled when a failed load or enable lets go. After a
+   * re-render the held nodes are detached, and re-enabling them is a no-op.
+   */
+  function holdButtons(nodes) {
+    const held = Array.from(nodes).filter((btn) => !btn.disabled);
+    held.forEach((btn) => { btn.disabled = true; });
+    return () => held.forEach((btn) => { btn.disabled = false; });
+  }
 
   const STATE_TEXT = {
     'too-old': "This board's software is too old for the VGA library.",
@@ -298,6 +309,11 @@
         const byId = {};
         b.designs.forEach((e) => { byId[e.id] = e; });
         st.index = { designs: b.designs, baseUrl: b.base_url, byId };
+        // a republished index may have dropped the shuttle the visitor filtered on
+        if (st.shuttle && !shuttles(b.designs).includes(st.shuttle)) {
+          st.shuttle = '';
+          st.pageNo = 1;
+        }
         st.indexKind = 'ready';
         draw();
         if (opts.onIndex) opts.onIndex();
@@ -389,7 +405,9 @@
     };
   }
 
-  const api = { PER_PAGE, matches, shuttles, filter, page, badges, assetUrl, renderPage, createPanel, loadNotice };
+  const api = {
+    PER_PAGE, matches, shuttles, filter, page, badges, assetUrl, safeUrl, holdButtons, renderPage, createPanel, loadNotice,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.ttsiteLibrary = api;
 })();

@@ -481,3 +481,59 @@ test("setBusy from the gallery disables the panel's Load buttons", async () => {
   h.panel.busy(false);
   assert.ok(buttons(h.box, "Load").every((b) => !b.disabled));
 });
+
+test("holdButtons re-enables only the buttons it disabled, so a Running button stays disabled", () => {
+  const run = { disabled: false }, running = { disabled: true }, upload = { disabled: false };
+  const release = L.holdButtons([run, running, upload]);
+  assert.deepEqual([run.disabled, running.disabled, upload.disabled], [true, true, true]);
+  release(); // a failed load or enable: nothing re-rendered the gallery
+  assert.deepEqual([run.disabled, running.disabled, upload.disabled], [false, true, false]);
+});
+
+test("a failed library load leaves the gallery's Running button disabled", async () => {
+  const doc = fakeDoc();
+  const box = doc.createElement("div");
+  const gallery = [{ disabled: false }, { disabled: true }]; // Run, Running
+  let release = null;
+  const answers = [resp(200, WIRE), resp(504, { error: "the load ran out of time; try again", detail: "" })];
+  const panel = L.createPanel({
+    container: box, doc, fetch: async () => answers.shift(), apiBase: "/api/board/fpga-1", csrf: () => "tok",
+    showMsg() {}, setHidden() {},
+    setBusy: (on) => { if (on) release = L.holdButtons(gallery); else { release(); release = null; } },
+  });
+  await panel.loadIndex();
+  await panel.load("ttsky25a_vga_example");
+  assert.deepEqual(gallery.map((b) => b.disabled), [false, true]);
+});
+
+test("a reloaded index without the selected shuttle resets the filter and the page", async () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ ...ROWS[i % 5], id: "d" + i, title: "Design " + i }));
+  const noTt05 = { ...WIRE, designs: many.filter((e) => e.shuttle !== "tt05") };
+  const h = harness([resp(200, { ...WIRE, designs: many }), resp(200, noTt05)]);
+  await h.panel.loadIndex();
+  const select = h.box.find((n) => n.tagName === "SELECT")[0];
+  select.value = "tt05"; select.onchange();
+  assert.match(h.box.textContent, /12 of 60 designs/);
+  await h.panel.loadIndex(true);
+  const sel = h.box.find((n) => n.tagName === "SELECT")[0];
+  assert.equal(sel.value, "");
+  assert.match(h.box.textContent, /48 of 48 designs/);
+  assert.match(h.box.textContent, /page 1 of 2/);
+  // a shuttle still in the index is kept
+  const h2 = harness([resp(200, WIRE), resp(200, WIRE)]);
+  await h2.panel.loadIndex();
+  const s2 = h2.box.find((n) => n.tagName === "SELECT")[0];
+  s2.value = "tt05"; s2.onchange();
+  await h2.panel.loadIndex(true);
+  assert.equal(h2.box.find((n) => n.tagName === "SELECT")[0].value, "tt05");
+  assert.match(h2.box.textContent, /1 of 5 designs/);
+});
+
+test("safeUrl takes https:// links only", () => {
+  assert.equal(L.safeUrl(" https://github.com/x "), "https://github.com/x");
+  assert.equal(L.safeUrl("HTTPS://example.invalid/"), "HTTPS://example.invalid/");
+  assert.equal(L.safeUrl("http://example.invalid/"), null);
+  assert.equal(L.safeUrl("javascript:alert(1)"), null);
+  assert.equal(L.safeUrl(""), null);
+  assert.equal(L.safeUrl(null), null);
+});

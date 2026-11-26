@@ -77,3 +77,16 @@ def test_ttsite_css_styles_the_library():
     css = (STATIC / "ttsite.css").read_text()
     for cls in (".tt-library", ".tt-library-grid", ".tt-badge--library", ".tt-badge--warn", ".tt-badge--info"):
         assert cls in css, cls
+
+
+def test_board_js_releases_only_the_buttons_it_disabled_and_links_https_only():
+    """A failed enable, upload or library load must not re-enable the gallery's disabled "Running" button: every
+    snapshot takes only the buttons enabled at that moment (library.js's holdButtons is tested in node)."""
+    js = (STATIC / "board.js").read_text()
+    assert ".filter((btn) => !btn.disabled)" in js
+    assert "const holdButtons = (nodes)" in js
+    assert js.count("holdButtons(") == 3  # the library's setBusy, enable() and the upload
+    assert "btn.disabled = false; });\n" not in js.replace("return () => held.forEach((btn) => { btn.disabled = false; });", "")
+    assert "/^https:\\/\\//i" in js
+    assert "https?:" not in js
+    assert "https?:" not in (STATIC / "library.js").read_text()

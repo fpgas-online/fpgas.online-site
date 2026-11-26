@@ -137,7 +137,13 @@ function mount() {
     const readJson = async (r) => { try { return await r.json(); } catch { return null; } };
     const errMsg = (b, r) => (b ? fmtErr(b) : 'HTTP ' + r.status + ' ' + r.statusText);
     // only render Docs/Source links whose URL we trust enough to point a click at
-    const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null);
+    const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//i.test(u.trim()) ? u.trim() : null);
+    // disable the buttons enabled now; the returned function re-enables only those, so "Running" stays disabled
+    const holdButtons = (nodes) => {
+      const held = Array.from(nodes).filter((btn) => !btn.disabled);
+      held.forEach((btn) => { btn.disabled = true; });
+      return () => held.forEach((btn) => { btn.disabled = false; });
+    };
     // the VGA library panel, when the page has one (TTSITE_LIBRARY_BASE_URL set) and library.js loaded
     const librarySection = document.getElementById('tt-library');
     const libraryBody = document.getElementById('tt-library-body');
@@ -145,7 +151,7 @@ function mount() {
     let lastDesigns = null;
     let panel = null;
     if (librarySection && libraryBody && window.ttsiteLibrary) {
-      let held = [];
+      let release = null;
       panel = window.ttsiteLibrary.createPanel({
         container: libraryBody,
         doc: document,
@@ -159,8 +165,8 @@ function mount() {
         setHidden: (hidden) => { librarySection.hidden = hidden; },
         // a library load disables every Run button too; as in enable(), a re-rendered gallery has fresh buttons
         setBusy: (on) => {
-          if (on) { held = Array.from(document.querySelectorAll('#tt-gallery-list button, #tt-upload button')); held.forEach((btn) => { btn.disabled = true; }); }
-          else { held.forEach((btn) => { btn.disabled = false; }); held = []; }
+          if (on) { release = holdButtons(document.querySelectorAll('#tt-gallery-list button, #tt-upload button')); }
+          else if (release) { release(); release = null; }
         },
         // the gallery titles an enabled library entry from the index
         onIndex: () => { if (lastDesigns) render(lastDesigns); },
@@ -214,8 +220,7 @@ function mount() {
     }
     async function enable(name, clockHz) {
       showMsg('Loading ' + name + '…', false);
-      const buttons = Array.from(list.querySelectorAll('button'));
-      buttons.forEach((btn) => { btn.disabled = true; });
+      const releaseButtons = holdButtons(list.querySelectorAll('button'));
       if (panel) panel.busy(true);
       try {
         const r = await fetch(api + '/designs/' + encodeURIComponent(name) + '/enable', {
@@ -234,7 +239,7 @@ function mount() {
       } finally {
         // if loadDesigns() re-rendered, these are stale/detached nodes and this is a no-op;
         // the fresh render already disabled the (new) currently-running design's button
-        buttons.forEach((btn) => { btn.disabled = false; });
+        releaseButtons();
         if (panel) panel.busy(false);
       }
     }
@@ -252,8 +257,7 @@ function mount() {
       showMsg('Uploading…', false);
       // snapshot the buttons: after enable() re-renders, these are detached nodes and
       // re-enabling them is a no-op, so the fresh 'Running' button stays disabled
-      const uploadButtons = Array.from(list.querySelectorAll('button'));
-      uploadButtons.forEach((btn) => { btn.disabled = true; });
+      const releaseUpload = holdButtons(list.querySelectorAll('button'));
       if (panel) panel.busy(true);
       try {
         const r = await fetch(api + '/bitstream', { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd });
@@ -267,7 +271,7 @@ function mount() {
       } catch (e) {
         showMsg('Upload failed: ' + e, true);
       } finally {
-        uploadButtons.forEach((btn) => { btn.disabled = false; });
+        releaseUpload();
         if (panel) panel.busy(false);
       }
     };
