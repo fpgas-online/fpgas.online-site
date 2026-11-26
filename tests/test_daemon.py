@@ -1,3 +1,4 @@
+import json
 import types
 
 import pytest
@@ -152,3 +153,108 @@ def test_enable_sends_empty_body_as_json_object(monkeypatch):
     assert calls["data"] == b"{}"
     daemon.enable(b, "tt_um_x", b'{"clock_hz": 10}')
     assert calls["data"] == b'{"clock_hz": 10}'
+
+
+# --- the VGA library calls (deadline-bound)
+
+
+class Clock:
+    def __init__(self, t=500.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    c = Clock()
+    monkeypatch.setattr(daemon, "now", c)
+    return c
+
+
+def test_library_state_passes_through(monkeypatch, clock):
+    b = at("10.21.2.33")
+    calls = {}
+    state = {"max_bytes": 16777216, "used_bytes": 0, "entries": []}
+
+    def fake_get(url, timeout=None, **kw):
+        calls.update(url=url, timeout=timeout)
+        return FakeResp(200, state)
+
+    monkeypatch.setattr(daemon.requests, "get", fake_get)
+    assert daemon.library_state(b, deadline=clock() + 50) == (200, state)
+    assert calls == {"url": "http://10.21.2.33:8765/library", "timeout": (3.05, 30.0)}
+
+
+def test_library_state_old_daemon_is_unsupported(monkeypatch, clock):
+    b = at("10.21.2.33")
+    monkeypatch.setattr(daemon.requests, "get", lambda *a, **k: FakeResp(404, bad_json=True))
+    with pytest.raises(daemon.Unsupported):
+        daemon.library_state(b, deadline=clock() + 50)
+    # a new daemon on a board that is not an FPGA answers a JSON 404: passed through, not "too old"
+    body = {"error": "not an FPGA board", "detail": ""}
+    monkeypatch.setattr(daemon.requests, "get", lambda *a, **k: FakeResp(404, body))
+    assert daemon.library_state(b, deadline=clock() + 50) == (404, body)
+
+
+def test_library_state_unreachable_is_502(monkeypatch, clock):
+    def boom(*a, **k):
+        raise requests.ConnectionError("no route")
+
+    monkeypatch.setattr(daemon.requests, "get", boom)
+    assert daemon.library_state(at("10.21.2.33"), deadline=clock() + 50) == (
+        502, {"error": "Pi unreachable", "detail": "no route"})  # fmt: skip
+
+
+def test_library_push_sends_meta_and_file_parts(monkeypatch, clock):
+    b = at("10.21.2.33")
+    data = b"\xff\x00\x00\xff\x7e\xaa\x99\x7e" + bytes(4088)
+    sha = "ab" * 32
+    calls = {}
+    answer = {"id": "tt05_x", "bin_bytes": 4096, "bin_sha256": sha, "evicted": [], "hides_upload": False}
+
+    def fake_post(url, data=None, headers=None, files=None, timeout=None):
+        calls.update(url=url, data=data, files=files, timeout=timeout)
+        return FakeResp(201, answer)
+
+    monkeypatch.setattr(daemon.requests, "post", fake_post)
+    assert daemon.library_push(b, "tt05_x", data, sha, deadline=clock() + 100) == (201, answer)
+    assert calls["url"] == "http://10.21.2.33:8765/library/tt05_x" and calls["data"] is None
+    assert calls["timeout"] == (3.05, 45.0)
+    assert set(calls["files"]) == {"meta", "file"}
+    meta = calls["files"]["meta"]
+    assert json.loads(meta[1]) == {"id": "tt05_x", "bin_sha256": sha, "bin_bytes": 4096}
+    assert meta[2] == "application/json"
+    assert calls["files"]["file"][1] == data and calls["files"]["file"][2] == "application/octet-stream"
+    # on the wire: two form-data parts named meta and file
+    wire = requests.Request("POST", calls["url"], files=calls["files"]).prepare().body
+    assert b'name="meta"' in wire and b'name="file"' in wire and data in wire
+
+
+def test_daemon_calls_cap_read_timeout_at_deadline(monkeypatch, clock):
+    b = at("10.21.2.33")
+    seen = []
+
+    def fake(url, data=None, headers=None, files=None, timeout=None):
+        seen.append(timeout)
+        return FakeResp(200, {"entries": []})
+
+    monkeypatch.setattr(daemon.requests, "get", fake)
+    monkeypatch.setattr(daemon.requests, "post", fake)
+    daemon.library_state(b, deadline=clock() + 12)
+    daemon.library_push(b, "tt05_x", b"x", "ab" * 32, deadline=clock() + 12)
+    daemon.enable(b, "tt05_x", b"{}", deadline=clock() + 12)
+    daemon.enable(b, "tt05_x", b"{}", deadline=clock() + 100)
+    daemon.enable(b, "tt05_x", b"{}")
+    assert seen == [(3.05, 12), (3.05, 12), (3.05, 12), (3.05, 30.0), (3.05, 30.0)]
+
+    # at or past the deadline nothing is sent
+    seen.clear()
+    for status, body in [
+        daemon.library_state(b, deadline=clock()),
+        daemon.library_push(b, "tt05_x", b"x", "ab" * 32, deadline=clock() - 1),
+        daemon.enable(b, "tt05_x", b"{}", deadline=clock()),
+    ]:
+        assert status == 504 and body["error"] == "the load ran out of time; try again"
+    assert seen == []
