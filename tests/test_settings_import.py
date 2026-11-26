@@ -300,7 +300,8 @@ def test_settings_library_base_and_ttsite_cache():
     """Read from the module itself: the conftest swaps the live CACHES to locmem."""
     import pib.settings as raw
 
-    assert raw.TTSITE_LIBRARY_BASE_URL == "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
+    # Ruling BB: off until the infra play sets it, so installing main's tip never turns the library on by itself
+    assert raw.TTSITE_LIBRARY_BASE_URL == ""
     alias = raw.CACHES["ttsite"]
     assert alias["BACKEND"] == "django.core.cache.backends.redis.RedisCache"
     assert alias["LOCATION"] == "redis://127.0.0.1:6379/2" and alias["KEY_PREFIX"] == "ttsite"

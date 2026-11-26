@@ -312,7 +312,7 @@ def test_api_enable_invalidates_designs_cache(c, boards, monkeypatch):
     monkeypatch.setattr(daemon, "designs", fake_designs)
     monkeypatch.setattr(daemon, "enable", lambda b, name, body: (200, {"ok": True}))
     c.get("/api/board/fpga-1/designs")
-    c.post("/api/board/fpga-1/designs/tt_um_a/enable")
+    assert c.post("/api/board/fpga-1/designs/tt_um_a/enable", data="{}", content_type="application/json").status_code == 200
     c.get("/api/board/fpga-1/designs")
     assert len(calls) == 2
 
@@ -388,3 +388,51 @@ def test_api_bitstream_forwards_upload_and_rejects_oversize(c, boards, monkeypat
     assert r.status_code == 400 and "large" in r.json()["error"]
     r = c.post("/api/board/fpga-1/bitstream", {"name": "nofile"})
     assert r.status_code == 400
+
+
+# --- api_enable forwards only clock_hz: ui_in and ui_in_mask come only from a VGA library load (review I1)
+
+
+@pytest.fixture
+def forwarded(monkeypatch):
+    seen = []
+
+    def fake_enable(b, name, body, **kw):
+        seen.append(body)
+        return 200, {"enabled": name}
+
+    monkeypatch.setattr(daemon, "enable", fake_enable)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "sent,expected",
+    [
+        (b"", b"{}"),
+        (b"{}", b"{}"),
+        (b'{"clock_hz": 25175000}', b'{"clock_hz": 25175000}'),
+        (b'{"clock_hz": null}', b'{"clock_hz": null}'),
+        (b'{"clock_hz": 5, "other": 1}', b'{"clock_hz": 5}'),  # nothing else is passed on
+    ],
+)
+def test_api_enable_forwards_only_clock_hz(c, boards, forwarded, sent, expected):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 200 and forwarded == [expected]
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [b'{"ui_in": 1}', b'{"ui_in_mask": 0}', b'{"clock_hz": 5, "ui_in": null, "ui_in_mask": 255}', b'{"ui_in": 1, "ui_in_mask": 1}'],
+)
+def test_api_enable_refuses_ui_in(c, boards, forwarded, sent):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 400
+    assert r.json() == {"error": "ui_in and ui_in_mask are set only by a VGA library load", "detail": ""}
+    assert forwarded == []
+
+
+@pytest.mark.parametrize("sent", [b"not json", b"[1]", b'"x"', b"\xff", b"NaN"])
+def test_api_enable_refuses_a_body_that_is_not_a_json_object(c, boards, forwarded, sent):
+    r = c.post("/api/board/fpga-1/designs/tt_um_a/enable", data=sent, content_type="application/json")
+    assert r.status_code == 400 and r.json() == {"error": "body must be a JSON object", "detail": ""}
+    assert forwarded == []
