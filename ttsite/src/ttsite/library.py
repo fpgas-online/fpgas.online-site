@@ -77,12 +77,14 @@ def _shut(sock) -> None:
 class _Watchdog:
     """Shuts down every socket handed to it once `seconds` have passed.
 
-    It keeps a duplicate descriptor of each socket, not the connection or the socket object:
+    It keeps a plain socket on a duplicate descriptor of each socket (`socket.fromfd`), not the connection or the
+    socket object:
     - http.client drops `conn.sock` when a response will close the connection (no Content-Length), and the response
       goes on reading from that socket;
     - wrapping a socket for TLS detaches the raw socket object, which then names no descriptor;
     - a descriptor of its own can never have been closed and reused by something else when the timer fires.
-    `close()` closes the duplicates; after it the watchdog shuts nothing."""
+    `socket.socket.dup` is not used: on an SSLSocket it dups the descriptor, then fails to build the object
+    (TypeError) and leaks the new descriptor. `close()` closes the duplicates; after it the watchdog shuts nothing."""
 
     def __init__(self, seconds: float):
         self.fired = False
@@ -107,9 +109,9 @@ class _Watchdog:
         if sock is None:
             return  # not connected yet: _new_conn attaches it
         try:
-            dup = socket.socket.dup(sock)  # the plain socket's dup, also for an SSLSocket (which refuses its own)
+            dup = socket.fromfd(sock.fileno(), sock.family, sock.type)  # a plain socket, also for an SSLSocket
         except OSError:
-            return  # already closed: nothing left to wake
+            return  # already closed (fileno() is -1): nothing left to wake
         with self._lock:
             if self._closed:
                 dup.close()
@@ -568,14 +570,6 @@ def ids(deadline: float) -> set[str]:
     """The ids in the index. Raises as `index` does; a worker with no copy fetches one."""
     body, site_etag, _age = index(deadline)
     return set(_designs(body, site_etag))
-
-
-def cached_ids() -> set[str] | None:
-    """The ids in this worker's copy of the index, without asking the archive; None when there is no usable copy."""
-    copy = cache.get(INDEX_KEY)
-    if not copy or now() - copy[3] >= STALE_SECONDS:
-        return None
-    return set(_designs(copy[1], copy[2]))
 
 
 # --- the bins

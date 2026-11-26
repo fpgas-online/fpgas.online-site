@@ -27,12 +27,18 @@ DESIGNS_CACHE_SECONDS = 5
 # the VGA library routes (spec section 3, Routes)
 now = time.monotonic  # the clock the load deadline is read against; tests replace it
 LOAD_DEADLINE_SECONDS = 50  # under nginx's 60 s proxy_read_timeout for /api/
-LOCK_SECONDS = 70  # above the deadline, so a lock left by a dead worker expires after its load could have ended
+# The lock's TTL is above the deadline, so a lock left by a dead worker expires after its load could have ended.
+# The lock is freed with a plain delete, with no owner token: that is safe because every step of a load (the index
+# read, the state, the fetch, the push, each enable) is bounded by the one deadline D = start + 50 s, so the load has
+# ended, and its delete has run, before its key could expire at 70 s and be taken by another load.
+LOCK_SECONDS = 70
 ENABLE_MIN_SECONDS = 27  # the daemon's 25 s load deadline plus a margin
 RETRY_MIN_SECONDS = 32  # enough for a second push and the enable
 INDEX_DEADLINE_SECONDS = 20  # the index route's own fetch of fpga-library.json
 UPLOAD_CHECK_SECONDS = 5  # the upload-name check's fetch of a cold index
-BOARD_CHECK_SECONDS = 60  # the index route's board check is cached per slug
+BOARD_CHECK_SECONDS = 60  # the index route's board check is cached per slug (an answer or a 404)
+BOARD_NOT_READY_SECONDS = STATUS_CACHE_SECONDS  # but a 503 "board not ready" only as long as the status (Ruling AW)
+MISSING_BIN_RETRY_AFTER = "30"  # the onward rsync is still copying the bins
 INDEX_CACHE_CONTROL = "private, max-age=60"
 STALE_HEADER = "X-TTSite-Library-Stale"
 
@@ -187,6 +193,9 @@ def _library_ids():
         return library.ids(now() + UPLOAD_CHECK_SECONDS)
     except library.LibraryDisabled:
         return set()
+    except library.NotPublished:
+        log.debug("VGA library: upload-name check: the library is not published")
+        return set()
     except library.ArchiveError as exc:
         log.warning("VGA library: upload-name check without an index (%s)", exc.message)
         return set()
@@ -239,7 +248,8 @@ def _library_board_or_error(slug):
     if cached is None:
         _b, err = _fpga_board_or_error(slug)
         cached = (True, None) if err is None else (False, (err.status_code, json.loads(err.content)))
-        cache.set(key, cached, BOARD_CHECK_SECONDS)
+        ttl = BOARD_NOT_READY_SECONDS if err is not None and err.status_code == 503 else BOARD_CHECK_SECONDS
+        cache.set(key, cached, ttl)
     ok, refusal = cached
     return ok, (None if ok else JsonResponse(refusal[1], status=refusal[0]))
 
@@ -287,10 +297,6 @@ def api_library(request, slug):
     return response
 
 
-def _out_of_time():
-    return JsonResponse(daemon._out_of_time()[1], status=504)
-
-
 @require_POST
 def api_library_load(request, slug, name):
     """Load one VGA library design: push its bytes to the Pi when it lacks them, then enable it (spec section 3,
@@ -329,7 +335,10 @@ def api_library_load(request, slug, name):
             locks.delete(key)
         except (redis.exceptions.RedisError, OSError) as exc:  # the TTL frees it
             log.warning("VGA library: the load lock for %s could not be freed: %s", slug, exc)
-    return JsonResponse(body, status=status)
+    response = JsonResponse(body, status=status)
+    if status == 503 and body.get("error") == library.MSG_BIN_MISSING:
+        response["Retry-After"] = MISSING_BIN_RETRY_AFTER
+    return response
 
 
 def _push(b, name, entry, deadline):

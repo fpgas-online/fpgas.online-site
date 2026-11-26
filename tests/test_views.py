@@ -587,6 +587,34 @@ def test_library_index_board_check_is_cached_per_slug(c, boards, lib_index, monk
     assert calls == ["fpga-1", "tt06"]
 
 
+def test_library_index_board_not_ready_is_cached_5s(c, boards, lib_index, monkeypatch):
+    """Ruling AW: an answer or a 404 is kept for 60 s, a 503 "board not ready" only for STATUS_CACHE_SECONDS."""
+    from django.http import JsonResponse
+
+    ttls = {}
+    real_set, real_check = cache.set, views._fpga_board_or_error
+
+    def recording_set(key, value, timeout=None):
+        if key.startswith("ttsite:library:board:"):
+            ttls[key] = timeout
+        return real_set(key, value, timeout)
+
+    def not_ready(slug):
+        return None, JsonResponse({"error": "board not ready", "detail": "x"}, status=503)
+
+    monkeypatch.setattr(cache, "set", recording_set)
+    monkeypatch.setattr(views, "_fpga_board_or_error", not_ready)
+    r = c.get("/api/board/fpga-1/library")
+    assert r.status_code == 503 and r.json() == {"error": "board not ready", "detail": "x"}
+    assert ttls == {"ttsite:library:board:fpga-1": 5}
+    monkeypatch.setattr(views, "_fpga_board_or_error", real_check)
+    cache.delete("ttsite:library:board:fpga-1")
+    assert c.get("/api/board/fpga-1/library").status_code == 200
+    assert c.get("/api/board/tt06/library").status_code == 404
+    assert ttls == {"ttsite:library:board:fpga-1": 60, "ttsite:library:board:tt06": 60}
+    assert views.BOARD_NOT_READY_SECONDS == views.STATUS_CACHE_SECONDS == 5
+
+
 def test_library_index_rejects_post(c, boards, lib_index):
     assert c.post("/api/board/fpga-1/library").status_code == 405
 
@@ -769,7 +797,7 @@ def test_load_bin_404_says_still_syncing(c, boards, lib_index, lib_daemon, lib_b
     lib_bins["error"] = library.ArchiveError(library.MSG_BIN_MISSING)
     fake = lib_daemon()
     r = post_load(c, ROW0["id"])
-    assert r.status_code == 503
+    assert r.status_code == 503 and r["Retry-After"] == "30"
     assert r.json() == {
         "error": "archive file missing: the archive is still syncing; try again in a few minutes", "detail": ""}
     assert fake.kinds() == ["state"]
