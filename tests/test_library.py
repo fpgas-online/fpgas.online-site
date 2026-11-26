@@ -553,3 +553,93 @@ def test_real_trickling_archive_stops_at_deadline(trickler, head, tail):
     assert exc.value.message == "archive unreachable"
     assert 0.9 <= took < 1.5, f"the load took {took:.2f} s for a 1 s deadline"
     thread.join(2)
+
+
+# --- hardening from the Task 6 re-review (N1-N3)
+
+
+@pytest.fixture
+def recorder(monkeypatch):
+    """A local HTTP server that answers one request with the fixture index and keeps the request's bytes."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr(library, "base_url", lambda: f"http://127.0.0.1:{srv.getsockname()[1]}/")
+    seen = []
+
+    def serve():
+        conn, _ = srv.accept()
+        try:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(65536)
+            seen.append(request)
+            body = body_of(FIXTURE)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
+        finally:
+            conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield seen
+    thread.join(2)
+    srv.close()
+
+
+def test_archive_requests_send_connection_close(recorder):
+    """N1: no archive connection goes back to the pool, so a late watchdog never shuts a pooled socket."""
+    library.index(time.monotonic() + 5)
+    head = recorder[0].decode("latin-1").lower().split("\r\n")
+    assert "connection: close" in head
+
+
+def test_archive_session_mounts_the_watched_https_pool():
+    """N2: the watchdog's hook relies on urllib3 2.x pool internals."""
+    pool = library.SESSION.get_adapter(BASE).poolmanager.connection_from_url(BASE)
+    assert type(pool) is library._HTTPSPool
+    assert pool.ConnectionCls is library._HTTPSConnection
+
+
+def test_urllib3_is_pinned_to_major_2():
+    import tomllib
+
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert "urllib3>=2,<3" in pyproject["project"]["dependencies"]
+
+
+@pytest.fixture
+def stalled_tls(monkeypatch):
+    """A local server that accepts the TCP connection and never answers the TLS ClientHello."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr(library, "base_url", lambda: f"https://127.0.0.1:{srv.getsockname()[1]}/")
+    stop = threading.Event()
+    held = []
+
+    def serve():
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        held.append(conn)
+        stop.wait(5)
+        conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield
+    stop.set()
+    thread.join(2)
+    srv.close()
+
+
+def test_real_stalled_tls_handshake_stops_at_deadline(stalled_tls):
+    """N3: the raw socket is handed to the watchdog right after the TCP connect, so the handshake is covered (it
+    runs under the 3.05 s connect timeout, not the deadline)."""
+    start = time.monotonic()
+    with pytest.raises(library.ArchiveError) as exc:
+        library.index(start + 1.0)
+    took = time.monotonic() - start
+    assert exc.value.message == "archive unreachable"
+    assert 0.9 <= took < 1.5, f"the handshake took {took:.2f} s for a 1 s deadline"

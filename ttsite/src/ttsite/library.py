@@ -55,30 +55,39 @@ MSG_BIN_MISMATCH = "archive file does not match the index"
 # --- the deadline watchdog
 #
 # A blocking read cannot see the clock: iter_content(65536) waits for the whole chunk, and each socket read may take
-# up to the read timeout. So every request in `_get` arms a timer at the deadline, before SESSION.get. The session's
-# connection pools hand each connection they give out to the request's watchdog; when the timer fires it shuts the
-# connection's socket down, which wakes the blocked read. A connection still connecting is shut as soon as its
-# connect returns (the connect itself is bounded by its 3.05 s timeout).
+# up to the read timeout. So every request in `_get` arms a timer at the deadline, before SESSION.get. Each new
+# connection hands its raw socket to the request's watchdog right after the TCP connect, before any TLS handshake
+# (which runs under the 3.05 s connect timeout, not the deadline); the pools also hand over each connection they give
+# out. When the timer fires it shuts the socket down, which wakes the blocked read or handshake. A connection still in
+# its TCP connect is shut as soon as the connect returns (the connect itself is bounded by its 3.05 s timeout).
+#
+# Every archive request sends `Connection: close`, so no connection goes back to the pool: a timer that fires late,
+# after its request has ended, can only shut a socket that nothing will use again.
 
 _current = threading.local()  # .watchdog: the _Watchdog of the request running on this thread
 
 
 def _shut(sock) -> None:
     try:
-        socket.socket.shutdown(sock, socket.SHUT_RDWR)  # the plain socket's, also under TLS: wakes the reader
+        sock.shutdown(socket.SHUT_RDWR)  # acts on the connection, whichever descriptor names it: wakes the reader
     except OSError:
-        pass  # already closed
+        pass  # already shut
 
 
 class _Watchdog:
     """Shuts down every socket handed to it once `seconds` have passed.
 
-    It keeps the sockets, not only the connections: http.client drops `conn.sock` when a response will close the
-    connection (no Content-Length), and the response goes on reading from that socket."""
+    It keeps a duplicate descriptor of each socket, not the connection or the socket object:
+    - http.client drops `conn.sock` when a response will close the connection (no Content-Length), and the response
+      goes on reading from that socket;
+    - wrapping a socket for TLS detaches the raw socket object, which then names no descriptor;
+    - a descriptor of its own can never have been closed and reused by something else when the timer fires.
+    `close()` closes the duplicates; after it the watchdog shuts nothing."""
 
     def __init__(self, seconds: float):
         self.fired = False
-        self._socks: list = []
+        self._closed = False
+        self._dups: list[socket.socket] = []
         self._lock = threading.Lock()
         self._timer = threading.Timer(seconds, self._fire)
         self._timer.daemon = True
@@ -86,43 +95,56 @@ class _Watchdog:
     def start(self) -> None:
         self._timer.start()
 
-    def cancel(self) -> None:
+    def close(self) -> None:
         self._timer.cancel()
-
-    def attach(self, conn) -> None:
-        sock = getattr(conn, "sock", None)
-        if sock is None:
-            return  # not connected yet: connect() attaches it again
         with self._lock:
-            self._socks.append(sock)
-            fired = self.fired
-        if fired:
-            _shut(sock)
+            self._closed = True
+            dups, self._dups = self._dups, []
+        for dup in dups:
+            dup.close()
+
+    def attach(self, sock) -> None:
+        if sock is None:
+            return  # not connected yet: _new_conn attaches it
+        try:
+            dup = socket.socket.dup(sock)  # the plain socket's dup, also for an SSLSocket (which refuses its own)
+        except OSError:
+            return  # already closed: nothing left to wake
+        with self._lock:
+            if self._closed:
+                dup.close()
+                return
+            self._dups.append(dup)
+            if self.fired:
+                _shut(dup)
 
     def _fire(self) -> None:
         with self._lock:
+            if self._closed:
+                return
             self.fired = True
-            socks = list(self._socks)
-        for sock in socks:
-            _shut(sock)
+            for dup in self._dups:
+                _shut(dup)
 
 
-def _attach(conn) -> None:
+def _attach(sock) -> None:
     watchdog = getattr(_current, "watchdog", None)
     if watchdog is not None:
-        watchdog.attach(conn)
+        watchdog.attach(sock)
 
 
 class _HTTPConnection(urllib3.connection.HTTPConnection):
-    def connect(self):
-        super().connect()
-        _attach(self)  # shut at once if the deadline passed while connecting
+    def _new_conn(self):
+        sock = super()._new_conn()
+        _attach(sock)  # right after the TCP connect; shut at once if the deadline passed while connecting
+        return sock
 
 
 class _HTTPSConnection(urllib3.connection.HTTPSConnection):
-    def connect(self):
-        super().connect()
-        _attach(self)
+    def _new_conn(self):
+        sock = super()._new_conn()
+        _attach(sock)  # before the TLS handshake, so a stalled handshake runs into the deadline too
+        return sock
 
 
 class _HTTPPool(urllib3.HTTPConnectionPool):
@@ -130,7 +152,7 @@ class _HTTPPool(urllib3.HTTPConnectionPool):
 
     def _get_conn(self, timeout=None):
         conn = super()._get_conn(timeout)
-        _attach(conn)
+        _attach(getattr(conn, "sock", None))
         return conn
 
 
@@ -139,7 +161,7 @@ class _HTTPSPool(urllib3.HTTPSConnectionPool):
 
     def _get_conn(self, timeout=None):
         conn = super()._get_conn(timeout)
-        _attach(conn)
+        _attach(getattr(conn, "sock", None))
         return conn
 
 
@@ -439,8 +461,8 @@ def _get(url: str, deadline: float, max_bytes: int, headers: dict | None = None)
     _current.watchdog = watchdog
     watchdog.start()  # before SESSION.get: it covers the connect and the headers too
     try:
-        resp = SESSION.get(url, headers=headers or {}, stream=True, allow_redirects=False,
-                           timeout=(CONNECT_TIMEOUT, max(MIN_READ_TIMEOUT, left)))  # fmt: skip
+        resp = SESSION.get(url, headers={**(headers or {}), "Connection": "close"}, stream=True,
+                           allow_redirects=False, timeout=(CONNECT_TIMEOUT, max(MIN_READ_TIMEOUT, left)))  # fmt: skip
         if watchdog.fired:
             raise ArchiveError(MSG_UNREACHABLE)
         if 300 <= resp.status_code < 400 and resp.status_code != 304:
@@ -467,7 +489,7 @@ def _get(url: str, deadline: float, max_bytes: int, headers: dict | None = None)
     except (requests.RequestException, urllib3.exceptions.HTTPError, OSError):
         raise ArchiveError(MSG_UNREACHABLE) from None
     finally:
-        watchdog.cancel()
+        watchdog.close()
         _current.watchdog = None
         if resp is not None:
             resp.close()

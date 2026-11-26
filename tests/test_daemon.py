@@ -270,3 +270,35 @@ def test_out_of_time_body_is_fresh_each_call(clock):
     first["pushed"] = True
     _, second = daemon.library_state(b, deadline=clock())
     assert second == {"error": "the load ran out of time; try again", "detail": ""}
+
+
+def test_daemon_calls_send_connection_close(monkeypatch):
+    """N4: no daemon connection is kept for reuse."""
+    import socket
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr(daemon, "DAEMON_PORT", srv.getsockname()[1])
+    seen = []
+
+    def serve():
+        conn, _ = srv.accept()
+        try:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(65536)
+            seen.append(request)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}")
+        finally:
+            conn.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        assert daemon.designs(at("127.0.0.1")) == (200, {})
+    finally:
+        thread.join(2)
+        srv.close()
+    assert "connection: close" in seen[0].decode("latin-1").lower().split("\r\n")

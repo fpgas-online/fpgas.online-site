@@ -15,6 +15,9 @@ dependencies = [
     "paho-mqtt>=2",
     "paramiko",
     "requests>=2.31",
+    # ttsite/library.py's deadline watchdog hooks urllib3 2.x pool internals (pool_classes_by_scheme, _get_conn,
+    # ConnectionCls, _new_conn); tests/test_library.py checks the hook is in place
+    "urllib3>=2,<3",
     "PyYAML>=6",
     # the "poe" cache in pib/settings.py (the PoE power-cycle rate limit)
     "redis>=4.6",
