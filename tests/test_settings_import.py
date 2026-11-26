@@ -294,3 +294,24 @@ def test_channel_layer_socket_timeout_outlives_blocking_receive():
 
     for socket_timeout in asyncio.run(socket_timeouts()):
         assert socket_timeout is None or socket_timeout > layer.brpop_timeout, socket_timeout
+
+
+def test_settings_library_base_and_ttsite_cache():
+    """Read from the module itself: the conftest swaps the live CACHES to locmem."""
+    import pib.settings as raw
+
+    assert raw.TTSITE_LIBRARY_BASE_URL == "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
+    alias = raw.CACHES["ttsite"]
+    assert alias["BACKEND"] == "django.core.cache.backends.redis.RedisCache"
+    assert alias["LOCATION"] == "redis://127.0.0.1:6379/2" and alias["KEY_PREFIX"] == "ttsite"
+    # each redis alias has its own database: clear() is a FLUSHDB (db 0 is the channel layer's)
+    locations = [c["LOCATION"] for c in raw.CACHES.values() if c["BACKEND"].endswith("RedisCache")]
+    assert sorted(locations) == ["redis://127.0.0.1:6379/1", "redis://127.0.0.1:6379/2"]
+
+
+def test_conftest_swaps_ttsite_to_locmem():
+    from django.core.cache import caches
+    from django.core.cache.backends.locmem import LocMemCache
+
+    assert isinstance(caches["ttsite"], LocMemCache)
+    assert isinstance(caches["poe"], LocMemCache)
