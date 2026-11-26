@@ -564,6 +564,12 @@ def entry(id: str, deadline: float) -> dict | None:
     return _designs(body, site_etag).get(id)
 
 
+def ids(deadline: float) -> set[str]:
+    """The ids in the index. Raises as `index` does; a worker with no copy fetches one."""
+    body, site_etag, _age = index(deadline)
+    return set(_designs(body, site_etag))
+
+
 def cached_ids() -> set[str] | None:
     """The ids in this worker's copy of the index, without asking the archive; None when there is no usable copy."""
     copy = cache.get(INDEX_KEY)
