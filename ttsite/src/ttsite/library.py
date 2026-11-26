@@ -218,8 +218,11 @@ NAME_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 ENTRY_KEYS = (
     "id", "shuttle", "macro", "title", "author", "description", "docs_url", "repo_url", "commit",
     "clock_hz", "pinout", "ui_in_mask", "ui_in", "bin", "bin_bytes", "bin_sha256", "build_status",
-    "fmax_hz", "validation", "verdict", "qspi", "poster", "preview_gif", "video_10s_webm",
+    "fmax_hz", "validation", "verdict", "qspi", "pdk_latches", "poster", "preview_gif", "video_10s_webm",
 )  # fmt: skip
+# Keys an entry may leave out for now, with the value a missing one stands for (Ruling BJ: a missing pdk_latches is
+# false). Making a key required is removing it from here.
+OPTIONAL_FOR_NOW = {"pdk_latches": False}
 MEDIA_KEYS = ("poster", "preview_gif", "video_10s_webm")
 
 
@@ -304,6 +307,7 @@ SIMPLE_RULES = {
     "validation": lambda v: _choice(v, "none", "mcu", "full-speed"),
     "verdict": lambda v: _matches(v, VERDICT_RE),
     "qspi": lambda v: _choice(v, "none", "emulated"),
+    "pdk_latches": lambda v: None if isinstance(v, bool) else "must be a bool",
 }
 
 
@@ -376,6 +380,8 @@ def normalise(doc: object, base_url: str) -> tuple[dict, list[str]]:
     seen_shuttles: set[str] = set()
     previous: object = None
     for i, e in enumerate(doc["designs"]):
+        if isinstance(e, dict):
+            e = {**OPTIONAL_FOR_NOW, **e}
         bad = _entry_violation(e)
         shuttle = e.get("shuttle") if isinstance(e, dict) else None
         if bad is None and shuttle != previous and shuttle in seen_shuttles:
