@@ -177,7 +177,8 @@ def test_events_keeps_the_newest_n():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("query", ["?events=x", "?events=-1", "?console=1.5"])
+@pytest.mark.parametrize("query", ["?events=x", "?events=-1", "?console=1.5", "?events=²", "?events=٣",
+                                   "?console=²", "?events=+1", "?events= 1"])
 def test_a_limit_that_is_not_a_count_is_a_400(query):
     m = pi("pi-sw2-p33")
     assert "error" in get(m.serial, query, status=400)
@@ -467,3 +468,12 @@ def test_a_tests_key_is_the_pages_column_and_its_reported_name_is_as_sent():
     assert all(t["reported_name"] is None for name, t in tests.items() if name not in ("wiring", "ddr"))
     history = data["boot_checks"][0]["boards"][0]["tests"]
     assert history["wiring"]["reported_name"] == "pin-id" and history["ddr"]["reported_name"] == "ddr"
+
+
+@pytest.mark.django_db
+def test_an_empty_limit_is_no_limit():
+    m = pi("pi-sw2-p33")
+    start = timezone.now()
+    for n in range(3):
+        BootEvent.objects.create(machine=m, boot_id="b1", stage=f"stage-{n}", ts=start + datetime.timedelta(seconds=n))
+    assert len(get(m.serial, "?events=&console=")["events"]) == 3

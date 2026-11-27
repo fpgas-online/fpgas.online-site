@@ -507,11 +507,12 @@ def _test(board, name, mark):
 
 
 def _limit(request, name):
-    """The count a query parameter asks for, None for all; ValueError for one that is not a whole number."""
+    """The count a query parameter asks for, None for all (as for an empty one); ValueError for one that is not a
+    whole number in ASCII digits (str.isdigit takes "²" and "٣", which int() then refuses or reads)."""
     value = request.GET.get(name)
-    if value is None:
+    if not value:
         return None
-    if not value.isdigit():
+    if not re.fullmatch(r"[0-9]+", value):
         raise ValueError(f"{name} must be a whole number of 0 or more, not {value[:20]!r}")
     return min(int(value), MAX_LIMIT)  # a database counts no further than 2**63 - 1: past this is all
 
