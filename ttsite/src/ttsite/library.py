@@ -45,8 +45,9 @@ CHUNK = 65536
 INDEX_NAME = "fpga-library.json"
 # The cache holds the normalised body, and a 304 reuses it without normalising again. So the key names the
 # normaliser's version: bump it whenever normalise() changes what it keeps, and a copy made by older code is a miss,
-# fetched in full without If-None-Match. 2: pdk_latches is kept (Ruling BJ).
-NORMALISE_VERSION = 2
+# fetched in full without If-None-Match. 2: pdk_latches is kept, false when missing; 3: pdk_latches is required, so
+# no copy carries that default (Ruling BJ).
+NORMALISE_VERSION = 3
 INDEX_KEY = f"ttsite:library:index:v{NORMALISE_VERSION}"  # (archive_etag, body_bytes, site_etag, fetched_at)
 NOT_PUBLISHED_KEY = "ttsite:library:not-published"  # the now() of the archive's 404
 
@@ -224,9 +225,6 @@ ENTRY_KEYS = (
     "clock_hz", "pinout", "ui_in_mask", "ui_in", "bin", "bin_bytes", "bin_sha256", "build_status",
     "fmax_hz", "validation", "verdict", "qspi", "pdk_latches", "poster", "preview_gif", "video_10s_webm",
 )  # fmt: skip
-# Keys an entry may leave out for now, with the value a missing one stands for (Ruling BJ: a missing pdk_latches is
-# false). Making a key required is removing it from here.
-OPTIONAL_FOR_NOW = {"pdk_latches": False}
 MEDIA_KEYS = ("poster", "preview_gif", "video_10s_webm")
 
 
@@ -384,8 +382,6 @@ def normalise(doc: object, base_url: str) -> tuple[dict, list[str]]:
     seen_shuttles: set[str] = set()
     previous: object = None
     for i, e in enumerate(doc["designs"]):
-        if isinstance(e, dict):
-            e = {**OPTIONAL_FOR_NOW, **e}
         bad = _entry_violation(e)
         shuttle = e.get("shuttle") if isinstance(e, dict) else None
         if bad is None and shuttle != previous and shuttle in seen_shuttles:
