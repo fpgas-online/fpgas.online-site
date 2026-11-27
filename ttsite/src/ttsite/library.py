@@ -43,7 +43,11 @@ MIN_READ_TIMEOUT = 0.5
 CHUNK = 65536
 
 INDEX_NAME = "fpga-library.json"
-INDEX_KEY = "ttsite:library:index"  # (archive_etag, body_bytes, site_etag, fetched_at)
+# The cache holds the normalised body, and a 304 reuses it without normalising again. So the key names the
+# normaliser's version: bump it whenever normalise() changes what it keeps, and a copy made by older code is a miss,
+# fetched in full without If-None-Match. 2: pdk_latches is kept (Ruling BJ).
+NORMALISE_VERSION = 2
+INDEX_KEY = f"ttsite:library:index:v{NORMALISE_VERSION}"  # (archive_etag, body_bytes, site_etag, fetched_at)
 NOT_PUBLISHED_KEY = "ttsite:library:not-published"  # the now() of the archive's 404
 
 MSG_UNREACHABLE = "archive unreachable"
