@@ -209,19 +209,34 @@ class Event:
     sent: object = None  # the event's detail as sent
     result_word: str | None = None  # the result `result` marks, as sent
     reason: str | None = None  # its reason, as sent
+    test_name: str | None = None  # the test it is about, whole (`test` is cut for its cell)
+    id: int = 0  # its BootEvent's: the order of events of one time
 
 
-def _event(event):
+def _event(event, render=True):
+    """An Events row; `render` False leaves its detail unlaid-out (machine.json sends it as it came)."""
     detail = event.detail if isinstance(event.detail, dict) else {}
-    test = _t(detail.get("test", ""))[:40]
+    test = _t(detail.get("test", ""))
     result = _t(detail.get("result", ""))
     reason = _t(detail.get("reason", ""))
     marked = bool(result) and event.stage in ("fpga-test-finished", "fpga-verified")
     mark = _result_mark(result, reason) if marked else None
     sent = event.detail if event.detail not in (None, {}) else None
-    return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test, mark,
-                 jsonview.render(event.detail) if sent is not None else "", sent,
-                 result if marked else None, reason if marked and reason else None)
+    return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test[:40], mark,
+                 jsonview.render(event.detail) if render and sent is not None else "", sent,
+                 result if marked else None, reason if marked and reason else None, test or None, event.id)
+
+
+def _events(entry, limit=None):
+    """This boot's events, oldest first; a host that has said no boot id yet: its newest EVENTS, of any boot, newest
+    first. `limit`: the newest `limit` of those (machine.json's events=), cut in the query. Events of one time are
+    in the order they arrived."""
+    if entry.last_boot_id:
+        events = entry.events.filter(boot_id=entry.last_boot_id)
+        if limit is None:
+            return list(events.order_by("ts", "id"))
+        return list(events.order_by("-ts", "-id")[:limit])[::-1]
+    return list(entry.events.order_by("-ts", "-id")[:EVENTS if limit is None else min(limit, EVENTS)])
 
 
 RUNNING = Mark("⟳", "mgmt-test-running", "running")
@@ -367,7 +382,9 @@ class Facts:
     switch_port: dict  # switches.port_of()
 
 
-def _facts(request, entry):
+def _facts(request, entry, events_limit=None, page=True):
+    """The Facts of one host. `page` False (machine.json): nothing laid out as the page's HTML; `events_limit` cuts
+    the events in their query."""
     now = timezone.now()
     host = next((h for h in fpga.hosts(now) if h.machine.pk == entry.pk), None)
     built = hwid.build(entry)
@@ -382,15 +399,12 @@ def _facts(request, entry):
     port, port_title, _, port_note = _port(host, observed)
     groups, boards = _boards(host)
     history_groups, history = _history(entry)
-    # this boot's events; a host that has said no boot id yet: its newest events, of any boot
-    events = (entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id
-              else entry.events.order_by("-ts")[:EVENTS])
     net, net_error = _network(entry)
     console, console_error, console_not_set_up = _console(entry)
     return Facts(entry, now, host, built.notes, missing, _label_images(made, png, pdf), refused, offered, why,
                  visitor_page, fpga.pi_fields(entry), fpga.registered_model(entry), observed, port, port_title,
                  port_note, groups, boards, history_groups, history, list(entry.snapshots.order_by("-first_seen")),
-                 [_event(event) for event in events], net, net_error, console, console_error, console_not_set_up,
+                 [_event(event, page) for event in _events(entry, events_limit)], net, net_error, console, console_error, console_not_set_up,
                  switches.port_of(request, entry.serial))
 
 
@@ -524,13 +538,9 @@ def _console_document(console, limit):
             "partial": bool(console.partial), "lines": [{"at": network.utc(at), "text": text} for at, text in lines]}
 
 
-def _document(request, facts, events_limit=None, console_limit=None):
+def _document(request, facts, console_limit=None):
     """machine.json's document of Facts (the contract: machine_json)."""
     entry, host, fields = facts.entry, facts.host, facts.fields
-    events = facts.events
-    if events_limit is not None:
-        keep = {id(e) for e in sorted(events, key=lambda e: e.ts, reverse=True)[:events_limit]}
-        events = [e for e in events if id(e) in keep]
     history_columns = [name for _, members in facts.history_groups for name in members]
     port_row = facts.switch_port.get("row")
     return {
@@ -583,8 +593,8 @@ def _document(request, facts, events_limit=None, console_limit=None):
         "registrations": [{"fingerprint": snap.fingerprint, "current": snap.pk == entry.latest_snapshot_id,
                            "first_seen": network.utc(snap.first_seen), "last_confirmed": network.utc(snap.last_confirmed),
                            "document": snap.document} for snap in facts.snapshots],
-        "events": [{"ts": network.utc(e.ts), "kind": e.kind, "stage": e.stage, "test": _null(e.test),
-                    "result": e.result_word, "reason": e.reason, "detail": e.sent} for e in events],
+        "events": [{"ts": network.utc(e.ts), "kind": e.kind, "stage": e.stage, "test": e.test_name,
+                    "result": e.result_word, "reason": e.reason, "detail": e.sent} for e in facts.events],
         "console": _console_document(facts.console, console_limit),
         "console_error": _null(facts.console_error),
         "console_not_set_up": _null(facts.console_not_set_up),
@@ -648,8 +658,9 @@ def machine_json(request, serial):
     if entry is None:
         return JsonResponse({"error": UNKNOWN}, status=404)
     try:
-        limits = [_limit(request, name) for name in LIMITS]
+        events_limit, console_limit = (_limit(request, name) for name in LIMITS)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     with timezone.override(localtime.zone()):
-        return JsonResponse(_document(request, _facts(request, entry), *limits), json_dumps_params={"ensure_ascii": False})
+        facts = _facts(request, entry, events_limit, page=False)
+        return JsonResponse(_document(request, facts, console_limit), json_dumps_params={"ensure_ascii": False})

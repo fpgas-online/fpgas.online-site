@@ -3,6 +3,7 @@ The page is for people and may change its layout; this is the contract (docs/sup
 2026-11-27-machine-json-design.md). One function builds what both show, so they cannot drift."""
 
 import datetime
+import html as htmllib
 import re
 
 import pytest
@@ -322,4 +323,96 @@ def test_a_running_check_is_running_in_the_json():
     assert data["machine"]["condition"] == "checking"
     check = data["boot_checks"][0]
     assert check["running"] is True and check["result"] == "verifying" and check["boards"] == []
+
+
+# --- the review's rulings (2026-11-27) ------------------------------------------------------------------------------
+
+
+def _cls(word):
+    return {"pass": "mgmt-test-pass", "not_run": "mgmt-test-notrun", "not_applicable": "mgmt-test-none"}.get(
+        word, "mgmt-test-fail")
+
+
+@pytest.mark.django_db
+def test_each_boards_cells_on_the_page_are_its_tests_in_the_json_in_order():
+    detail = {"result": "fail", "board0": "acorn - fail", "board0_identity_dna": "0x00200c8664b04854",
+              "board0_tests": "pin-id=pass ddr=fail sdk=pass", "board0_reason": "ddr fail: no DRAM answers",
+              "board1": "fomu evt pass", "board1_tests": "uart=pass"}
+    m = pi("pi-sw1-p17", detail, serial="00000000cc479fd1")
+    data = get(m.serial)
+    boards = page(m.serial).split('<h3 id="boards">Boards</h3>', 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r"<tr>\s*<td class=\"mgmt-c-board\".*?</tr>", boards, re.S)
+    assert len(rows) == len(data["boards"]) == 2
+    for row, board in zip(rows, data["boards"]):
+        cells = re.findall(r'<td class="mgmt-mark" data-label="([^"]+)" data-sort="\d" title="([^"]*)">'
+                           r'<span class="([^"]+)">', row)
+        assert cells[0][0] == "Result"  # the board's result, then a cell a check column
+        assert [(name, htmllib.unescape(title), cls) for name, title, cls in cells[1:]] == [
+            (name, t["reason"], _cls(t["result"])) for name, t in board["tests"].items()]
+
+
+@pytest.mark.django_db
+def test_each_boot_checks_cells_on_the_page_are_its_boards_tests_in_the_json():
+    m = full_pi()
+    data = get(m.serial)
+    history = page(m.serial).split('<h3 id="boot-checks">Boot checks</h3>', 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r"<tr>\s*<td class=\"mgmt-mono\".*?</tr>", history, re.S)
+    assert len(rows) == len(data["boot_checks"]) == 2
+    for row, check in zip(rows, data["boot_checks"]):
+        cells = re.findall(r'<td class="mgmt-mark" data-label="([^"]+)" data-sort="\d" title="([^"]*)">', row)
+        assert cells and check["boards"]
+        names = list(check["boards"][0]["tests"])
+        assert [name for name, _ in cells] == names
+        for name, title in cells:
+            assert htmllib.unescape(title) == "; ".join(b["tests"][name]["reason"] for b in check["boards"])
+
+
+@pytest.mark.django_db
+def test_the_boot_on_the_setup_port_is_failed_for_the_setup_port(settings):
+    settings.SETUP_PORT = 1
+    m = pi("pi-sw2-p1", REAL["pi-sw2-p46"], serial="1000000000000001")
+    data = get(m.serial)
+    check = data["boot_checks"][0]
+    assert check["this_boot"] and check["result"] == "fail" and check["reason"] == "setup port"
+    assert data["machine"]["setup_port"] is True and data["machine"]["offered"] is False
+
+
+@pytest.mark.django_db
+def test_an_events_test_is_its_whole_name_and_the_page_keeps_its_cut():
+    m = pi("pi-sw2-p33")
+    name = "t" * 60
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="fpga-test-finished", ts=timezone.now(),
+                             detail={"test": name, "result": "pass"})
+    assert get(m.serial)["events"][0]["test"] == name
+    assert f"<td>{'t' * 40}</td>" in page(m.serial)
+
+
+@pytest.mark.django_db
+def test_events_of_one_time_are_kept_by_arrival():
+    m = pi("pi-sw2-p33")
+    same = timezone.now()
+    for n in range(4):
+        BootEvent.objects.create(machine=m, boot_id="b1", stage=f"stage-{n}", ts=same)
+    assert [e["stage"] for e in get(m.serial)["events"]] == [f"stage-{n}" for n in range(4)]
+    assert [e["stage"] for e in get(m.serial, "?events=2")["events"]] == ["stage-2", "stage-3"]
+
+
+@pytest.mark.django_db
+def test_events_with_no_boot_id_are_the_newest_n_newest_first_as_the_page():
+    m = pi("pi-sw2-p33")
+    m.last_boot_id = ""
+    m.save()
+    start = timezone.now()
+    for n in range(4):
+        BootEvent.objects.create(machine=m, boot_id="x", stage=f"stage-{n}", ts=start + datetime.timedelta(seconds=n))
+    assert [e["stage"] for e in get(m.serial, "?events=2")["events"]] == ["stage-3", "stage-2"]
+
+
+@pytest.mark.django_db
+def test_the_json_does_not_lay_out_the_pages_html(monkeypatch):
+    from fleet import jsonview
+
+    m = full_pi()
+    monkeypatch.setattr(jsonview, "render", lambda value: pytest.fail("machine.json laid out HTML"))
+    get(m.serial)
 
