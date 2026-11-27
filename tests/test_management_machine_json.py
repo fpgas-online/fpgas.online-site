@@ -505,3 +505,38 @@ def test_it_is_never_cached():
     response = Client(HTTP_HOST=WELLAND).get(f"/fleet/{m.serial}/machine.json")
     assert "no-cache" in response["Cache-Control"] and "max-age=0" in response["Cache-Control"]
     assert Client(HTTP_HOST=WELLAND).head(f"/fleet/{m.serial}/machine.json").status_code == 200
+
+
+@pytest.mark.django_db
+def test_the_page_and_the_json_agree_on_addresses_labels_offered_and_console(receiver, network_now):  # noqa: F811
+    m = console_pi(uptime_s=600)
+    net_tests.net_event(m, net_tests.doc())
+    booted = m.booted_at
+    write(receiver, "10.21.1.2", [(booted + datetime.timedelta(seconds=n), f"kernel line {n}") for n in range(1, 4)])
+    data = get(m.serial)
+    html = page(m.serial)
+    addresses = html.split("<h3>Addresses</h3>", 1)[1].split("</table>", 1)[0]
+    assert re.findall(r"<td><code>([^<]+)</code></td>", addresses) == [
+        f"{a['address']}/{a['prefixlen']}" for a in data["network"]["addresses"]]
+    labels = html.split('<h2 id="labels">Labels</h2>', 1)[1].split("</table>", 1)[0]
+    assert data["labels"]["missing"] and re.findall(r"<td>([a-z-]+)</td><td><code>([^<]+)</code></td>", labels) == [
+        (row["label"], row["field"]) for row in data["labels"]["missing"]]
+    assert all(htmllib.escape(note, quote=True) in labels for note in data["labels"]["notes"])
+    machine = data["machine"]
+    offered = "offered" if machine["offered"] else f"not offered: {machine['offered_reason']}"
+    assert f'<td title="{htmllib.escape(offered)}">' in html
+    console = html.split('<h2 id="kernel-console">', 1)[1]
+    assert re.findall(r'<td class="mgmt-mono mgmt-console-text">([^<]*)</td>', console) == [
+        line["text"] for line in data["console"]["lines"]]
+
+
+@pytest.mark.django_db
+def test_events_n_is_cut_in_the_query():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    m = pi("pi-sw2-p33")
+    with CaptureQueriesContext(connection) as queries:
+        get(m.serial, "?events=2")
+    assert [q["sql"] for q in queries.captured_queries
+            if 'FROM "fleet_bootevent"' in q["sql"] and "ORDER BY" in q["sql"] and q["sql"].endswith("LIMIT 2")]

@@ -87,3 +87,9 @@ only keys the page shows that the sketch left out, and changes none:
 - Second review (2026-11-27): `events` is always oldest first (newest last), by (ts, id): this boot's events, all
   of them, or for a host that has said no boot id its newest 50 (EVENTS) of any boot, which the page lists newest
   first. `events=<n>` keeps the newest n of those, still oldest first.
+  Each test carries `reported_name`, the name the check sent ("pin-id"), null for a check it did not report: the
+  keys are the page's column names (check_groups' current names). `network.lease.acked_at` / `expires` are ISO
+  8601 UTC like every other time (a value that does not parse is left as sent). `changed` is the record's
+  BootEvent ts, the Pi's own stamp. `console.lines` holds at most netconsole.LIMIT (300) lines; `count` is how
+  many lines of this boot were read. A limit is ASCII digits only; an empty one is no limit. A method but
+  GET/HEAD is a JSON 405; the answer is never cached.
