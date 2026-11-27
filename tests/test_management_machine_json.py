@@ -477,3 +477,14 @@ def test_an_empty_limit_is_no_limit():
     for n in range(3):
         BootEvent.objects.create(machine=m, boot_id="b1", stage=f"stage-{n}", ts=start + datetime.timedelta(seconds=n))
     assert len(get(m.serial, "?events=&console=")["events"]) == 3
+
+
+@pytest.mark.django_db
+def test_the_lease_times_are_utc_as_every_other_time(network_now):  # noqa: F811
+    m = net_tests.pi("pi-sw2-p43", REAL["pi-sw2-p46"], serial="285df3f84af242d0")
+    lease = {"address": "10.21.2.43", "server": "10.21.0.1", "lifetime_s": 7200,
+             "acked_at": "2026-11-27T10:30:00+10:30", "expires": "2026-11-27T12:30:00+10:30"}
+    net_tests.net_event(m, net_tests.doc(lease=lease))
+    got = get(m.serial)["network"]["lease"]
+    assert got["acked_at"] == "2026-11-27T00:00:00+00:00" and got["expires"] == "2026-11-27T02:00:00+00:00"
+    assert got["address"] == "10.21.2.43" and got["lifetime_s"] == 7200

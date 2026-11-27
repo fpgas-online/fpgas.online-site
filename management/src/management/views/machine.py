@@ -517,6 +517,17 @@ def _limit(request, name):
     return min(int(value), MAX_LIMIT)  # a database counts no further than 2**63 - 1: past this is all
 
 
+def _lease(lease):
+    """The record's lease, its times (acked_at, expires) as ISO 8601 UTC like every other time (management.network
+    has read both as times with their offset, or the record would be network_error); one that does not parse is
+    left as sent, null stays null."""
+    def utc(value):
+        moment = parse_datetime(value) if isinstance(value, str) else None
+        return network.utc(moment) if moment is not None and moment.tzinfo is not None else value
+
+    return {**lease, **{k: utc(lease.get(k)) for k in ("acked_at", "expires")}}
+
+
 def _network_document(net):
     if net is None:
         return None
@@ -531,7 +542,7 @@ def _network_document(net):
         "boot_id": _null(event.boot_id) if event else None, "current_boot": net.current_boot,
         "addresses": [{k: a[k] for k in network.ADDRESS_KEYS} for a in net.addresses],
         "default_routes": [dict(r) for r in net.default_routes],
-        "lease": dict(net.lease) if event else None,
+        "lease": _lease(net.lease) if event else None,
     }
 
 
@@ -669,8 +680,14 @@ def machine_json(request, serial):
 
     "network" is null when the host has sent no network-state record and the gateway has acknowledged it no lease; a
     host known only from the gateway's ack has the record's fields null, "addresses" and "default_routes" empty,
-    "lease" null, and "last_ack" the gateway's. "changed" is when the record arrived (as registry.json's), "recorded"
-    the record's own time ("at"). Times the host stamped (events, checks) are the Pi's clock."""
+    "lease" null, and "last_ack" the gateway's. "changed" is the record's BootEvent ts, the Pi's own stamp of the
+    event (registry.json's "changed" is the same); "recorded" is the time inside the record's document ("at"). The
+    lease's "acked_at" and "expires" are the record's, as UTC. Times the host stamped (events, checks, "changed") are
+    the Pi's clock.
+
+    "console" holds at most the newest netconsole.LIMIT (300) lines of this boot that the gateway's receiver files
+    hold: console=<n> keeps the newest n of those, never more. Its "count" is how many lines of this boot were read
+    (more than "lines" holds when there were over 300); "partial" says older lines of this boot were not read."""
     entry = _entry(serial)
     if entry is None:
         return JsonResponse({"error": UNKNOWN}, status=404)
