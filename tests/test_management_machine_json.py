@@ -102,7 +102,8 @@ def test_every_key_of_the_contract_is_there_with_its_type():
     assert machine["uptime_s"] == 600 and machine["boot_id"] == "b1" and machine["cameras"] == [{"name": "cam0"}]
     board = data["boards"][0]
     assert set(board) >= {"type", "variant", "id", "label", "result", "reason", "tests", "docs"}
-    assert all(set(t) == {"result", "reason"} and isinstance(t["result"], str) for t in board["tests"].values())
+    assert all(set(t) == {"result", "reason", "reported_name"} and isinstance(t["result"], str)
+               for t in board["tests"].values())
     checks = {c["boot_id"]: c for c in data["boot_checks"]}  # newest by arrival, as the page: b0 arrived last
     check = checks["b1"]
     assert set(check) >= {"boot_id", "this_boot", "at", "running", "result", "reason", "boards"}
@@ -453,3 +454,16 @@ def test_a_limit_past_what_the_database_counts_is_all(receiver):  # noqa: F811
     assert [e["stage"] for e in get(m.serial, f"?events={huge}")["events"]] == [f"stage-{n}" for n in range(3)]
     assert [line["text"] for line in get(m.serial, f"?console={huge}")["console"]["lines"]] == [
         f"line {n}" for n in range(1, 4)]
+
+
+@pytest.mark.django_db
+def test_a_tests_key_is_the_pages_column_and_its_reported_name_is_as_sent():
+    detail = {"result": "pass", "board0": "acorn - pass", "board0_identity_dna": "0x00200c8664b04854",
+              "board0_tests": "pin-id=pass ddr=pass"}
+    m = pi("pi-sw1-p17", detail, serial="00000000cc479fd1")
+    data = get(m.serial)
+    tests = data["boards"][0]["tests"]
+    assert tests["wiring"]["reported_name"] == "pin-id" and tests["ddr"]["reported_name"] == "ddr"
+    assert all(t["reported_name"] is None for name, t in tests.items() if name not in ("wiring", "ddr"))
+    history = data["boot_checks"][0]["boards"][0]["tests"]
+    assert history["wiring"]["reported_name"] == "pin-id" and history["ddr"]["reported_name"] == "ddr"

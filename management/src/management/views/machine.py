@@ -496,10 +496,14 @@ def _absolute(url):
 
 
 def _test(board, name, mark):
-    """{"result", "reason"} of one check cell: the result the board's check reported for it as sent ("pass",
-    "fail", ...), else "not_run" or "not_applicable"; the reason the cell's title gives, in words."""
+    """{"result", "reason", "reported_name"} of one check cell (`name`: the page's column, check_groups' current
+    name): the result the board's check reported for it as sent ("pass", "fail", ...), else "not_run" or
+    "not_applicable"; the reason the cell's title gives, in words; the name the check reported it under, as sent
+    (an old name: "pin-id" for "wiring"), null for a test it did not report."""
     reported = dict(board["tests"]).get(name)
-    return {"result": reported if reported is not None else CELL_WORDS[mark.cls], "reason": mark.title}
+    sent = next((raw for (new, _), (raw, _) in zip(board["tests"], board["reported_tests"]) if new == name), None)
+    return {"result": reported if reported is not None else CELL_WORDS[mark.cls], "reason": mark.title,
+            "reported_name": sent}
 
 
 def _limit(request, name):
@@ -630,10 +634,10 @@ def machine_json(request, serial):
                  "uptime_s" | null (null once it stops checking in), "boot_id" | null, "setup_port": bool,
                  "cameras": [as the registration lists them] | null},
      "boards": [{"type", "variant" | null, "id" | null, "label" | null, "result" | null, "reason" | null,
-                 "tests": {check: {"result", "reason"}}, "docs" | null}],         this boot's boards
+                 "tests": {check: {"result", "reason", "reported_name"}}, "docs" | null}],         this boot's boards
      "boot_checks": [{"boot_id", "this_boot": bool, "at", "running": bool, "result" | null, "reason" | null,
                       "boards": [{"type", "result" | null, "reason" | null,
-                                  "tests": {check: {"result", "reason"}}}]}],
+                                  "tests": {check: {"result", "reason", "reported_name"}}}]}],
                                                                                  newest first, at most HISTORY
      "labels": {"missing": [{"label", "field", "sent_by" | null, "sent_by_title"}], "notes": [text],
                 "refusals": [{"kind", "text"}], "images": [{"title", "png", "pdf"}], "label_input"},
@@ -653,8 +657,11 @@ def machine_json(request, serial):
                         "partial": bool, "lines": [{"at", "text"}]},
      "console_error": null | text, "console_not_set_up": null | text}
 
-    A test's "result" is what the board's check reported for it, as sent ("pass", "fail", ...), else "not_run" (a
-    check its type gets that did not run) or "not_applicable"; its "reason" is the page's words for the cell. A boot
+    A board's "tests" are keyed by the page's column names: a check's current name (management.check_groups), where
+    registry.json keys a board's tests by the names as sent. A test's "reported_name" is the name the board's check
+    sent it under ("pin-id" for "wiring"), null for a check it did not report. A test's "result" is what the board's
+    check reported for it, as sent ("pass", "fail", ...), else "not_run" (a check its type gets that did not run) or
+    "not_applicable"; its "reason" is the page's words for the cell. A boot
     check's "result" is its report's ("verifying" while it runs; "fail" with reason "setup port" for the boot it is
     running on the setup port, as the page says); null for a report with no result. An event's "result" and "reason"
     are those of a test or check result (fpga-test-finished, fpga-verified), null for other stages.
