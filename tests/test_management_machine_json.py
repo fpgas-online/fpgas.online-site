@@ -433,3 +433,16 @@ def test_a_network_record_sent_with_no_boot_id_has_a_null_boot_id(network_now): 
     m = net_tests.pi("pi-sw2-p43", REAL["pi-sw2-p46"], serial="285df3f84af242d0")
     net_tests.net_event(m, net_tests.doc(), boot_id="")
     assert get(m.serial)["network"]["boot_id"] is None
+
+
+@pytest.mark.django_db
+def test_a_limit_past_what_the_database_counts_is_all(receiver):  # noqa: F811
+    m = console_pi(uptime_s=600)
+    booted = m.booted_at
+    write(receiver, "10.21.1.2", [(booted + datetime.timedelta(seconds=n), f"line {n}") for n in range(1, 4)])
+    for n in range(3):
+        BootEvent.objects.create(machine=m, boot_id="b1", stage=f"stage-{n}", ts=booted + datetime.timedelta(seconds=n))
+    huge = "99999999999999999999"
+    assert [e["stage"] for e in get(m.serial, f"?events={huge}")["events"]] == [f"stage-{n}" for n in range(3)]
+    assert [line["text"] for line in get(m.serial, f"?console={huge}")["console"]["lines"]] == [
+        f"line {n}" for n in range(1, 4)]

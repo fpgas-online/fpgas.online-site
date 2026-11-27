@@ -480,6 +480,7 @@ def _page(request, facts):
 # A check cell's result as a word where the board reported no result for the check (its mark's class says which)
 CELL_WORDS = {NOT_RUN[1]: "not_run", NOT_APPLICABLE[1]: "not_applicable"}
 LIMITS = ("events", "console")
+MAX_LIMIT = 10 ** 6  # events= and console= above this are this
 
 
 def _null(value):
@@ -508,7 +509,7 @@ def _limit(request, name):
         return None
     if not value.isdigit():
         raise ValueError(f"{name} must be a whole number of 0 or more, not {value[:20]!r}")
-    return int(value)
+    return min(int(value), MAX_LIMIT)  # a database counts no further than 2**63 - 1: past this is all
 
 
 def _network_document(net):
