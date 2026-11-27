@@ -86,7 +86,9 @@ def test_every_key_of_the_contract_is_there_with_its_type():
     data = get(m.serial)
     assert tuple(data) == TOP
     assert data["site"] == "welland" and data["serial"] == m.serial and ISO.match(data["generated_at"])
-    assert data["page"] == f"http://{WELLAND}/fleet/{m.serial}/"
+    # behind nginx the request is http: the addresses are the site's own, https (as the /fpgas/ links are)
+    assert data["page"] == f"https://{WELLAND}/fleet/{m.serial}/"
+    assert data["machine"]["board_page"] == f"https://{WELLAND}/fpgas/pi-sw2-p46.html"
     machine = data["machine"]
     assert set(MACHINE) <= set(machine)
     assert machine["hostname"] == "pi-sw2-p46" and machine["label"] == "Pi 5 4 GB 285df3f84af242d0"
@@ -108,7 +110,7 @@ def test_every_key_of_the_contract_is_there_with_its_type():
     assert set(check["boards"][0]) >= {"type", "result", "reason", "tests"}
     labels = data["labels"]
     assert set(labels) >= {"missing", "notes", "refusals", "images", "label_input"}
-    assert labels["label_input"] == f"http://{WELLAND}/fleet/{m.serial}/rpi-hwid.json"
+    assert labels["label_input"] == f"https://{WELLAND}/fleet/{m.serial}/rpi-hwid.json"
     assert all(set(row) >= {"label", "field", "sent_by", "sent_by_title"} for row in labels["missing"])
     registration = data["registrations"][0]
     assert registration["fingerprint"] == "f" * 64 and registration["current"] is True
@@ -191,6 +193,12 @@ def test_console_keeps_the_newest_n_lines(receiver):  # noqa: F811
     assert all(ISO.match(line["at"]) for line in console["lines"]) and ISO.match(console["since"])
     assert console["receiver_late"] is False
     assert [line["text"] for line in get(m.serial, "?console=2")["console"]["lines"]] == ["line 4", "line 5"]
+    every = [f"line {n}" for n in range(1, 6)]
+    assert [line["text"] for line in get(m.serial, "?console=5")["console"]["lines"]] == every
+    assert [line["text"] for line in get(m.serial, "?console=100")["console"]["lines"]] == every
+    # more than there are, but less than twice as many: a negative start would cut the oldest off
+    assert [line["text"] for line in get(m.serial, "?console=8")["console"]["lines"]] == every
+    assert get(m.serial, "?console=0")["console"]["lines"] == []
 
 
 @pytest.mark.django_db
@@ -314,3 +322,4 @@ def test_a_running_check_is_running_in_the_json():
     assert data["machine"]["condition"] == "checking"
     check = data["boot_checks"][0]
     assert check["running"] is True and check["result"] == "verifying" and check["boards"] == []
+

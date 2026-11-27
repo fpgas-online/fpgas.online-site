@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404, JsonResponse
 from django.shortcuts import render
@@ -471,8 +472,12 @@ def _null(value):
     return value if value not in ("", None) else None
 
 
-def _absolute(request, url):
-    return request.build_absolute_uri(url) if url else None
+def _absolute(url):
+    """A page's address as the site's own, https (DOMAIN_NAME, as views.fpgas._visitor_pages builds the /fpgas/
+    links): behind nginx the request says http. An address that is already absolute is kept."""
+    if not url:
+        return None
+    return url if url.startswith(("https://", "http://")) else f"https://{settings.DOMAIN_NAME}{url}"
 
 
 def _test(board, name, mark):
@@ -513,7 +518,7 @@ def _network_document(net):
 def _console_document(console, limit):
     if console is None:
         return None
-    lines = console.lines if limit is None else console.lines[len(console.lines) - limit:] if limit else []
+    lines = console.lines if limit is None else console.lines[max(0, len(console.lines) - limit):] if limit else []
     return {"since": network.utc(console.since), "receiving_since": network.utc(console.receiving_since),
             "receiver_late": bool(console.receiver_late), "address": console.address, "count": console.count,
             "partial": bool(console.partial), "lines": [{"at": network.utc(at), "text": text} for at, text in lines]}
@@ -530,7 +535,7 @@ def _document(request, facts, events_limit=None, console_limit=None):
     port_row = facts.switch_port.get("row")
     return {
         "site": e2e.site_name(), "generated_at": network.utc(facts.now), "serial": entry.serial,
-        "page": _absolute(request, _url(request, "fleet-detail", entry.serial)),
+        "page": _absolute(_url(request, "fleet-detail", entry.serial)),
         "machine": {
             "hostname": _null(entry.hostname), "label": fpga.pi_label(entry), "model": _null(fields.short),
             "model_full": _null(fields.model), "registered_model": _null(facts.registered),
@@ -540,7 +545,7 @@ def _document(request, facts, events_limit=None, console_limit=None):
             "condition": CONDITION_KEYS[host.condition], "condition_reason": _null(host.why),
             "check": host.state or None,
             "offered": facts.offered, "offered_reason": None if facts.offered else facts.why,
-            "board_page": _absolute(request, facts.visitor_page),
+            "board_page": _absolute(facts.visitor_page),
             "online": bool(entry.online),
             "first_seen": network.utc(entry.first_seen), "last_seen": network.utc(entry.last_seen),
             "checked": network.utc(host.checked),
@@ -566,9 +571,9 @@ def _document(request, facts, events_limit=None, console_limit=None):
                         for owner, title in [_owner(label, field)]],
             "notes": list(facts.notes),
             "refusals": [{"kind": kind, "text": text} for kind, text in _refusals(facts)],
-            "images": [{"title": title, "png": _absolute(request, png), "pdf": _absolute(request, pdf)}
+            "images": [{"title": title, "png": _absolute(png), "pdf": _absolute(pdf)}
                        for title, png, pdf in facts.label_images],
-            "label_input": _absolute(request, _url(request, "fleet-label-input", entry.serial)),
+            "label_input": _absolute(_url(request, "fleet-label-input", entry.serial)),
         },
         "network": _network_document(facts.net),
         "network_error": _null(facts.net_error),
