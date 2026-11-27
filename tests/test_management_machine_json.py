@@ -488,3 +488,20 @@ def test_the_lease_times_are_utc_as_every_other_time(network_now):  # noqa: F811
     got = get(m.serial)["network"]["lease"]
     assert got["acked_at"] == "2026-11-27T00:00:00+00:00" and got["expires"] == "2026-11-27T02:00:00+00:00"
     assert got["address"] == "10.21.2.43" and got["lifetime_s"] == 7200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["post", "put", "delete"])
+def test_only_get_is_answered_and_in_json(method):
+    m = pi("pi-sw2-p33")
+    response = getattr(Client(HTTP_HOST=WELLAND, enforce_csrf_checks=True), method)(f"/fleet/{m.serial}/machine.json")
+    assert response.status_code == 405 and response["Content-Type"] == "application/json"
+    assert response.json() == {"error": "machine.json answers GET only"} and response["Allow"] == "GET, HEAD"
+
+
+@pytest.mark.django_db
+def test_it_is_never_cached():
+    m = pi("pi-sw2-p33")
+    response = Client(HTTP_HOST=WELLAND).get(f"/fleet/{m.serial}/machine.json")
+    assert "no-cache" in response["Cache-Control"] and "max-age=0" in response["Cache-Control"]
+    assert Client(HTTP_HOST=WELLAND).head(f"/fleet/{m.serial}/machine.json").status_code == 200

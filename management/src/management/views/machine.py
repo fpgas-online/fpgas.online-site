@@ -15,6 +15,8 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
 from fleet.models import BootEvent, Machine
 from fleet.services import FPGA_STAGES, SETUP_PORT_REASON, SETUP_PORT_STATE, on_setup_port
 from fleet.timeago import ago_time, exact
@@ -620,13 +622,18 @@ def _document(request, facts, console_limit=None):
     }
 
 
+# never stored by a cache, as switches.json; csrf_exempt so a POST is told, in JSON, that only GET is answered, not
+# refused by the CSRF check's HTML page first (it changes nothing whatever it is sent)
+@never_cache
+@csrf_exempt
 def machine_json(request, serial):
     """/fleet/<serial>/machine.json: everything the host's own page (/fleet/<serial>/) shows, for programs (the
     fpgas.online MCP). The page is for people and may change its layout; this is the contract, as /fleet/registry.json
     is for the list. It comes from the page's own Facts (_facts), so the two cannot drift. Times are ISO 8601 with
     their offset (UTC). A field the site does not know is null, never guessed. Keys are stable words, not the page's
     titles; marks (✓ ✗ ⟳) never appear, only result words. An unknown serial is 404
-    {"error": "no host with this serial has registered"}; a limit that is not a whole number is 400 {"error"}.
+    {"error": "no host with this serial has registered"}; a limit that is not a whole number is 400 {"error"}; a
+    method but GET or HEAD is 405 {"error"}. Never cached.
 
     Query parameters (optional, for size): events=<n> keeps the newest n of the events below, console=<n> the newest
     n of the console lines below (default: all of them, as the page). Unknown parameters are ignored.
@@ -688,6 +695,10 @@ def machine_json(request, serial):
     "console" holds at most the newest netconsole.LIMIT (300) lines of this boot that the gateway's receiver files
     hold: console=<n> keeps the newest n of those, never more. Its "count" is how many lines of this boot were read
     (more than "lines" holds when there were over 300); "partial" says older lines of this boot were not read."""
+    if request.method not in ("GET", "HEAD"):
+        response = JsonResponse({"error": "machine.json answers GET only"}, status=405)
+        response["Allow"] = "GET, HEAD"
+        return response
     entry = _entry(serial)
     if entry is None:
         return JsonResponse({"error": UNKNOWN}, status=404)
