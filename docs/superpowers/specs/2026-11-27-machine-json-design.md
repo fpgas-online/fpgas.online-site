@@ -79,3 +79,8 @@ only keys the page shows that the sketch left out, and changes none:
   words for the cell. `switch_port` is the switches.json row verbatim, so it carries that row's own display
   fields (its `net` and `link` marks among them): it is the switch dashboard's contract, not this one's.
 - `events=` / `console=` that are not whole numbers are a 400 `{"error"}`.
+- After review (2026-11-27): addresses (`page`, `board_page`, label images, `label_input`) are
+  `https://<DOMAIN_NAME>/...`, never the request's scheme (http behind nginx). A board's or boot check board's
+  `reason` and `label`, and `network.boot_id`, are null where there is none, never "". An event's `test` is the
+  whole name. `events=<n>` is cut in the query, newest n by (ts, id); events of one time keep arrival order.
+  machine.json lays out no page HTML (no `jsonview.render`).

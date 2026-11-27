@@ -522,7 +522,7 @@ def _network_document(net):
         "recorded": network.utc(parse_datetime(doc["at"])) if doc.get("at") else None,
         "last_ack": network.utc(net.last_ack), "last_ack_source": net.last_ack_source,
         "expires": network.utc(net.expires),
-        "boot_id": event.boot_id if event else None, "current_boot": net.current_boot,
+        "boot_id": _null(event.boot_id) if event else None, "current_boot": net.current_boot,
         "addresses": [{k: a[k] for k in network.ADDRESS_KEYS} for a in net.addresses],
         "default_routes": [dict(r) for r in net.default_routes],
         "lease": dict(net.lease) if event else None,
@@ -563,15 +563,15 @@ def _document(request, facts, console_limit=None):
             "boot_id": _null(entry.last_boot_id), "setup_port": host.setup_port, "cameras": _cameras(entry),
         },
         "boards": [{
-            "type": b.type, "variant": _null(b.report["variant"]), "id": _null(b.report["id"]), "label": b.label,
-            "result": _null(b.report["result"]), "reason": b.report["reason"],
+            "type": b.type, "variant": _null(b.report["variant"]), "id": _null(b.report["id"]), "label": _null(b.label),
+            "result": _null(b.report["result"]), "reason": _null(b.report["reason"]),
             "tests": {name: _test(b.report, name, mark) for name, mark, _, _ in b.cells},
             "docs": _null(b.page),
         } for b in facts.boards],
         "boot_checks": [{
             "boot_id": c.boot, "this_boot": c.this_boot, "at": network.utc(c.at), "running": c.running,
             "result": c.result, "reason": c.reason,
-            "boards": [{"type": b["title"], "result": _null(b["result"]), "reason": b["reason"],
+            "boards": [{"type": b["title"], "result": _null(b["result"]), "reason": _null(b["reason"]),
                         "tests": {name: _test(b, name, _mark(b, name)[0]) for name in history_columns}}
                        for b in c.reports],
         } for c in facts.history],
@@ -622,10 +622,11 @@ def machine_json(request, serial):
                  visitor page, "online": bool (its last status), "first_seen", "last_seen" | null, "checked" | null,
                  "uptime_s" | null (null once it stops checking in), "boot_id" | null, "setup_port": bool,
                  "cameras": [as the registration lists them] | null},
-     "boards": [{"type", "variant" | null, "id" | null, "label", "result" | null, "reason",
+     "boards": [{"type", "variant" | null, "id" | null, "label" | null, "result" | null, "reason" | null,
                  "tests": {check: {"result", "reason"}}, "docs" | null}],         this boot's boards
      "boot_checks": [{"boot_id", "this_boot": bool, "at", "running": bool, "result" | null, "reason" | null,
-                      "boards": [{"type", "result" | null, "reason", "tests": {check: {"result", "reason"}}}]}],
+                      "boards": [{"type", "result" | null, "reason" | null,
+                                  "tests": {check: {"result", "reason"}}}]}],
                                                                                  newest first, at most HISTORY
      "labels": {"missing": [{"label", "field", "sent_by" | null, "sent_by_title"}], "notes": [text],
                 "refusals": [{"kind", "text"}], "images": [{"title", "png", "pdf"}], "label_input"},

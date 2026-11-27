@@ -416,3 +416,20 @@ def test_the_json_does_not_lay_out_the_pages_html(monkeypatch):
     monkeypatch.setattr(jsonview, "render", lambda value: pytest.fail("machine.json laid out HTML"))
     get(m.serial)
 
+
+@pytest.mark.django_db
+def test_a_reason_there_is_none_of_is_null():
+    m = full_pi()
+    data = get(m.serial)
+    assert data["boards"][0]["reason"] is None
+    assert all(b["reason"] is None for c in data["boot_checks"] for b in c["boards"])
+    for path, text in strings(data):
+        if not (path.startswith("$.registrations") or ".detail" in path or path.startswith("$.switch_port")):
+            assert text != "", path
+
+
+@pytest.mark.django_db
+def test_a_network_record_sent_with_no_boot_id_has_a_null_boot_id(network_now):  # noqa: F811
+    m = net_tests.pi("pi-sw2-p43", REAL["pi-sw2-p46"], serial="285df3f84af242d0")
+    net_tests.net_event(m, net_tests.doc(), boot_id="")
+    assert get(m.serial)["network"]["boot_id"] is None
