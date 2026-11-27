@@ -17,7 +17,7 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
 from management.views.fpgas import pis, registry_json
-from management.views.machine import machine
+from management.views.machine import machine, machine_json
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -32,6 +32,8 @@ urlpatterns = [
     path('fleet/registry.json', registry_json, name='fleet-registry-json'),
     # each host's own page (#93), management's as the dashboard is; the fleet app keeps the label input download
     path('fleet/<str:serial>/', machine, name='fleet-detail'),
+    # the same host for programs (the fpgas.online MCP); the page above may change its layout, this is the contract
+    path('fleet/<str:serial>/machine.json', machine_json, name='fleet-machine-json'),
     path('fleet/', include('fleet.urls')),
     path('management/', include('management.urls')),
 ]
