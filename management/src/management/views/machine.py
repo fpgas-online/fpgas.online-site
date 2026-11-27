@@ -8,25 +8,31 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
 from fleet.models import BootEvent, Machine
 from fleet.services import FPGA_STAGES, SETUP_PORT_REASON, SETUP_PORT_STATE, on_setup_port
 from fleet.timeago import ago_time, exact
 
 from fleet import hwid, jsonview, labelart
 
-from .. import check_docs, check_groups, fpga, localtime, netconsole, network, states
+from .. import check_docs, check_groups, e2e, fpga, localtime, netconsole, network, states
 from . import switches
 from .fpgas import (
     CHECK_WORDS,
     CONDITION_KEYS,
     HEAD_TITLES,
     NOT_APPLICABLE,
+    NOT_RUN,
     Mark,
+    _cameras,
     _mark,
     _offer,
     _port,
@@ -118,8 +124,9 @@ class Board:
     label: str
     result: Mark  # its result in the boot check of this boot
     result_sort: int
-    cells: list  # [(Mark, its sort, docs url or "")] a cell per check column
+    cells: list  # [(name, Mark, its sort, docs url or "")] a cell per check column
     page: str  # its docs page, or ""
+    report: dict = None  # the board as fpga.report_boards() gives it: machine.json's values
 
 
 # the mark of a board's result in its Boards row and in the history: one character, its words on hover
@@ -149,7 +156,7 @@ def _boards(host):
             cells.append((name, mark, sort, check_docs.url(name)))  # the check's own section (#140)
         result = _result_mark(b["result"], b["reason"])
         boards.append(Board(b["title"], b["type"], b["label_id"], b["label"], result, 2 if b["result"] == "pass" else 0,
-                            cells, page))
+                            cells, page, b))
     return groups, boards
 
 
@@ -166,6 +173,9 @@ class Check:
     reports: list  # fpga.report_boards() of its report: what each test of that boot gave
     running: bool
     cells: list = None  # [(name, [Mark], sort)] a cell per check column, a mark per board: set by _history
+    at: object = None  # when its event arrived (the Pi's stamp)
+    result: str | None = None  # its result as a word ("pass", "fail", "verifying"), None for a report with none
+    reason: str | None = None  # why the result is what it is, where the page says more than the word
 
 
 # Each event stage's kind, coloured on the page, the kind named in its own column (Tim, 16 Oct 2026: "Use color coding
@@ -198,16 +208,37 @@ class Event:
     test: str
     result: Mark | None
     detail: str
+    sent: object = None  # the event's detail as sent
+    result_word: str | None = None  # the result `result` marks, as sent
+    reason: str | None = None  # its reason, as sent
+    test_name: str | None = None  # the test it is about, whole (`test` is cut for its cell)
+    id: int = 0  # its BootEvent's: the order of events of one time
 
 
-def _event(event):
+def _event(event, render=True):
+    """An Events row; `render` False leaves its detail unlaid-out (machine.json sends it as it came)."""
     detail = event.detail if isinstance(event.detail, dict) else {}
-    test = _t(detail.get("test", ""))[:40]
+    test = _t(detail.get("test", ""))
     result = _t(detail.get("result", ""))
-    mark = _result_mark(result, _t(detail.get("reason", ""))) if result and event.stage in (
-        "fpga-test-finished", "fpga-verified") else None
-    return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test, mark,
-                 jsonview.render(event.detail) if event.detail not in (None, {}) else "")
+    reason = _t(detail.get("reason", ""))
+    marked = bool(result) and event.stage in ("fpga-test-finished", "fpga-verified")
+    mark = _result_mark(result, reason) if marked else None
+    sent = event.detail if event.detail not in (None, {}) else None
+    return Event(event.ts, EVENT_KINDS.get(event.stage, "other"), event.stage, test[:40], mark,
+                 jsonview.render(event.detail) if render and sent is not None else "", sent,
+                 result if marked else None, reason if marked and reason else None, test or None, event.id)
+
+
+def _events(entry, limit=None):
+    """This boot's events, oldest first; a host that has said no boot id yet: its newest EVENTS, of any boot, newest
+    first. `limit`: the newest `limit` of those (machine.json's events=), cut in the query. Events of one time are
+    in the order they arrived."""
+    if entry.last_boot_id:
+        events = entry.events.filter(boot_id=entry.last_boot_id)
+        if limit is None:
+            return list(events.order_by("ts", "id"))
+        return list(events.order_by("-ts", "-id")[:limit])[::-1]
+    return list(entry.events.order_by("-ts", "-id")[:EVENTS if limit is None else min(limit, EVENTS)])
 
 
 RUNNING = Mark("⟳", "mgmt-test-running", "running")
@@ -225,17 +256,21 @@ def _history(machine):
             continue
         detail = event.detail if isinstance(event.detail, dict) else {}
         reports = fpga.report_boards(detail) if event.stage != "fpga-verifying" else []
+        reason = None
         if event.stage == "fpga-verifying":
-            mark, boards = RUNNING, []
+            mark, boards, result = RUNNING, [], "verifying"
         else:
-            mark = _result_mark(str(detail.get("result", "")))
+            result = str(detail.get("result", "")) or None
+            mark = _result_mark(result or "")
             boards = [(b["title"], _result_mark(b["result"], b["reason"])) for b in reports]
         # the boot it is running, on the setup / config port: failed, as the page's head says (fleet.services
         # setup_port_state); its name says where it is now, so an earlier boot elsewhere keeps its own result
         if event.boot_id == machine.last_boot_id and on_setup_port(machine.hostname):
             mark = _result_mark(SETUP_PORT_STATE, SETUP_PORT_REASON)
+            result, reason = SETUP_PORT_STATE, SETUP_PORT_REASON
         rows[event.boot_id] = Check(event.boot_id, event.boot_id == machine.last_boot_id, _when(event.ts), event.id,
-                                    mark, boards, reports, event.stage == "fpga-verifying")
+                                    mark, boards, reports, event.stage == "fpga-verifying", at=event.ts,
+                                    result=result, reason=reason)
     checks = list(rows.values())[:HISTORY]
     groups = check_groups.grouped(list(dict.fromkeys(
         name for c in checks for b in c.reports for name in [*plan(b)[0], *(n for n, _ in b["tests"]), *b["not_run"]])))
@@ -300,15 +335,58 @@ def _exact(moment):
     return "–" if moment is None else format_html('<time datetime="{}">{}</time>', moment.isoformat(), exact(moment))
 
 
+def _entry(serial):
+    return Machine.objects.select_related("latest_snapshot").filter(serial=serial).first()
+
+
 def machine(request, serial):
-    entry = Machine.objects.select_related("latest_snapshot").filter(serial=serial).first()
+    entry = _entry(serial)
     if entry is None:
-        raise Http404("no host with this serial has registered")
+        raise Http404(UNKNOWN)
     with timezone.override(localtime.zone()):
-        return _page(request, entry)
+        return _page(request, _facts(request, entry))
 
 
-def _page(request, entry):
+UNKNOWN = "no host with this serial has registered"
+
+
+@dataclass
+class Facts:
+    """Everything the device page shows of one host, built once by _facts: the page draws it (_page) and
+    machine.json returns it (_document), so the two cannot drift."""
+    entry: Machine
+    now: object
+    host: fpga.Host
+    notes: list  # fleet.hwid's notes of the label input
+    missing: list  # [(label, [field])] rpi-hwid still needs
+    label_images: list  # [(title, image url, PDF url)]
+    refused: list  # [(kind, exception)]
+    offered: bool
+    why: str  # why it is not offered, "" when it is
+    visitor_page: str  # its visitor page, when offered
+    fields: fpga.PiFields
+    registered: str  # the model its registration sent, ""
+    observed: object  # fpga.seen_ports()'s observation of it, None for none
+    port: str
+    port_title: str
+    port_note: str
+    groups: list
+    boards: list  # [Board]
+    history_groups: list
+    history: list  # [Check], newest first
+    snapshots: list  # [HardwareSnapshot], newest first
+    events: list  # [Event], in the page's order: oldest first for this boot, newest first with no boot id
+    net: object  # network.Network | None
+    net_error: str
+    console: object  # netconsole.Console | None
+    console_error: str
+    console_not_set_up: str
+    switch_port: dict  # switches.port_of()
+
+
+def _facts(request, entry, events_limit=None, page=True):
+    """The Facts of one host. `page` False (machine.json): nothing laid out as the page's HTML; `events_limit` cuts
+    the events in their query."""
     now = timezone.now()
     host = next((h for h in fpga.hosts(now) if h.machine.pk == entry.pk), None)
     built = hwid.build(entry)
@@ -318,26 +396,37 @@ def _page(request, entry):
     except hwid.label_input.InputError as exc:  # build() makes documents rpi-hwid takes; the last guard (§35)
         missing, made, refused = [("document", exc.problems)], [], []
     png, pdf = _url(request, "fleet-label-png", entry.serial), _url(request, "fleet-label-pdf", entry.serial)
-    offered, why, page = _offer(host, now, _visitor_pages(request))
-    fields = fpga.pi_fields(entry)
-    port, port_title, _, port_note = _port(host, fpga.seen_ports().get(entry.pk))
-    boot = boot_mark(host, timezone.localtime(host.checked).strftime("%-d %b %H:%M") if host.checked else "")[0]
+    offered, why, visitor_page = _offer(host, now, _visitor_pages(request))
+    observed = fpga.seen_ports().get(entry.pk)
+    port, port_title, _, port_note = _port(host, observed)
     groups, boards = _boards(host)
     history_groups, history = _history(entry)
-    registered = fpga.registered_model(entry)
-    snapshots = list(entry.snapshots.order_by("-first_seen"))
-    # this boot's events; a host that has said no boot id yet: its newest events, of any boot
-    events = (entry.events.filter(boot_id=entry.last_boot_id).order_by("ts") if entry.last_boot_id
-              else entry.events.order_by("-ts")[:EVENTS])
     net, net_error = _network(entry)
     console, console_error, console_not_set_up = _console(entry)
+    return Facts(entry, now, host, built.notes, missing, _label_images(made, png, pdf), refused, offered, why,
+                 visitor_page, fpga.pi_fields(entry), fpga.registered_model(entry), observed, port, port_title,
+                 port_note, groups, boards, history_groups, history, list(entry.snapshots.order_by("-first_seen")),
+                 [_event(event, page) for event in _events(entry, events_limit)], net, net_error, console, console_error, console_not_set_up,
+                 switches.port_of(request, entry.serial))
+
+
+def _refusals(facts):
+    """A refusal other than a missing field (the fields are the Labels rows): rpi-hwid's own words."""
+    return [(kind, str(exc)) for kind, exc in facts.refused if not isinstance(exc, labelart.labels.MissingFieldsError)]
+
+
+def _page(request, facts):
+    entry, host, fields, net, console, groups = (facts.entry, facts.host, facts.fields, facts.net, facts.console,
+                                                 facts.groups)
+    history_groups = facts.history_groups
+    boot = boot_mark(host, timezone.localtime(host.checked).strftime("%-d %b %H:%M") if host.checked else "")[0]
     return render(request, "management/machine.html", {
         # its switch port's row, as the switch port dashboard draws it, with the PoE and link buttons (round 6 item 6)
-        "switch_port": switches.port_of(request, entry.serial), "switch_head_titles": switches.head_titles(),
+        "switch_port": facts.switch_port, "switch_head_titles": switches.head_titles(),
         "refresh_seconds": switches.REFRESH_SECONDS, "power_url": switches.POWER_URL, "link_url": switches.LINK_URL,
         "switches_json_url": _url(request, "management-switches-json"),
         "switches_url": _url(request, "management-switches"),
-        "machine": entry, "host": host, "net": net, "net_error": net_error,
+        "machine": entry, "host": host, "net": net, "net_error": facts.net_error,
         "net_changed": _when(net.event.ts) if net and net.event else "",
         "net_addresses": [(a, _lifetime(a.get("valid_lifetime_s")), _lifetime(a.get("preferred_lifetime_s")))
                           for a in net.addresses] if net else [],
@@ -345,45 +434,278 @@ def _page(request, entry):
         "state_mark": states.MARKS[host.condition],
         "label": fpga.pi_label(entry), "model": fields.short, "model_title": "; ".join(
             t for t in (fields.model if fields.model != fields.short else "",
-                        f"registered as {registered}" if registered else "") if t),
+                        f"registered as {facts.registered}" if facts.registered else "") if t),
         "memory": fields.memory,
         # the port the gateway saw it on, with the time, as on /fleet/ (the review of 15 Oct: the page said "the port
         # its host name says", a remembered name under the same word)
-        "port": port, "port_title": port_title, "port_note": port_note,
+        "port": facts.port, "port_title": facts.port_title, "port_note": facts.port_note,
         "condition": CONDITION_KEYS[host.condition], "boot": boot,
-        "offered": offered, "offered_title": "offered" if offered else f"not offered: {why}",
-        "page": page,
+        "offered": facts.offered, "offered_title": "offered" if facts.offered else f"not offered: {facts.why}",
+        "page": facts.visitor_page,
         "seen": _when(entry.last_seen), "first_seen": _when(entry.first_seen), "checked": _when(host.checked),
-        "groups": [(group, len(members)) for group, members in groups], "boards": boards,
+        "groups": [(group, len(members)) for group, members in groups], "boards": facts.boards,
         "columns": [name for _, members in groups for name in members],
-        "head_titles": HEAD_TITLES, "history": history, "boot_check_docs": check_docs.BOOT_CHECK,
+        "head_titles": HEAD_TITLES, "history": facts.history, "boot_check_docs": check_docs.BOOT_CHECK,
         "check_ran_docs": check_docs.CHECK_RAN,
         "column_docs": {name: check_docs.url(name) for name in
                         [n for _, members in groups for n in members] + [n for _, m in history_groups for n in m]},
         "history_groups": [(group, len(members)) for group, members in history_groups],
         "history_columns": [name for _, members in history_groups for name in members],
         # one row per field, the label repeated, so the table sorts (rule 22)
-        "labels": [(label, field, *_owner(label, field)) for label, fields in missing for field in fields],
-        "notes": [(_note_cell(note), note) for note in built.notes],
+        "labels": [(label, field, *_owner(label, field)) for label, fields in facts.missing for field in fields],
+        "notes": [(_note_cell(note), note) for note in facts.notes],
         "label_input": _url(request, "fleet-label-input", entry.serial),
         # the labels rpi-hwid makes from what the Pi sent, as images linking the PDF it prints (#141)
-        "label_images": _label_images(made, png, pdf),
-        # a refusal other than a missing field (the fields are the rows above): rpi-hwid's own words
-        "label_refusals": [(kind, str(exc)) for kind, exc in refused
-                           if not isinstance(exc, labelart.labels.MissingFieldsError)],
+        "label_images": facts.label_images,
+        "label_refusals": _refusals(facts),
         "registrations": [(snap.fingerprint, snap.pk == entry.latest_snapshot_id, _when(snap.first_seen),
                            int(snap.first_seen.timestamp()),
                            _when(snap.last_confirmed), int(snap.last_confirmed.timestamp()),
-                           jsonview.render(snap.document)) for snap in snapshots],
+                           jsonview.render(snap.document)) for snap in facts.snapshots],
         "registration_title": REGISTRATION_TITLE, "boot_title": BOOT_TITLE,
-        "events": [_event(event) for event in events], "event_kind_titles": EVENT_KIND_TITLES,
+        "events": facts.events, "event_kind_titles": EVENT_KIND_TITLES,
         "zone": localtime.zone_name(),
         "fleet": _url(request, "fleet-list"),
         # the kernel's own log of this boot, from the gateway's netconsole receiver (round 6 item 5)
-        "console": console, "console_error": console_error, "console_not_set_up": console_not_set_up, "console_since": _when(console.since) if console and console.since else "",
+        "console": console, "console_error": facts.console_error, "console_not_set_up": facts.console_not_set_up,
+        "console_since": _when(console.since) if console and console.since else "",
         # the receiver's oldest stored line, said when it came after this boot began (round 7)
         "console_receiving_since": _exact(console.receiving_since) if console and console.receiving_since else "",
         "console_receiver_late": bool(console and console.receiver_late),
         "console_lines": [(timezone.localtime(at).strftime("%H:%M:%S.%f")[:-3], at.isoformat(), text)
                           for at, text in console.lines] if console else [],
     })
+
+
+# --- /fleet/<serial>/machine.json: the page as data -----------------------------------------------------------------
+
+# A check cell's result as a word where the board reported no result for the check (its mark's class says which)
+CELL_WORDS = {NOT_RUN[1]: "not_run", NOT_APPLICABLE[1]: "not_applicable"}
+LIMITS = ("events", "console")
+MAX_LIMIT = 10 ** 6  # events= and console= above this are this
+
+
+def _null(value):
+    return value if value not in ("", None) else None
+
+
+def _absolute(url):
+    """A page's address as the site's own, https (DOMAIN_NAME, as views.fpgas._visitor_pages builds the /fpgas/
+    links): behind nginx the request says http. An address that is already absolute is kept."""
+    if not url:
+        return None
+    return url if url.startswith(("https://", "http://")) else f"https://{settings.DOMAIN_NAME}{url}"
+
+
+def _test(board, name, mark):
+    """{"result", "reason", "reported_name"} of one check cell (`name`: the page's column, check_groups' current
+    name): the result the board's check reported for it as sent ("pass", "fail", ...), else "not_run" or
+    "not_applicable"; the reason the cell's title gives, in words; the name the check reported it under, as sent
+    (an old name: "pin-id" for "wiring"), null for a test it did not report."""
+    reported = dict(board["tests"]).get(name)
+    sent = next((raw for (new, _), (raw, _) in zip(board["tests"], board["reported_tests"]) if new == name), None)
+    return {"result": reported if reported is not None else CELL_WORDS[mark.cls], "reason": mark.title,
+            "reported_name": sent}
+
+
+def _limit(request, name):
+    """The count a query parameter asks for, None for all (as for an empty one); ValueError for one that is not a
+    whole number in ASCII digits (str.isdigit takes "²" and "٣", which int() then refuses or reads)."""
+    value = request.GET.get(name)
+    if not value:
+        return None
+    if not re.fullmatch(r"[0-9]+", value):
+        raise ValueError(f"{name} must be a whole number of 0 or more, not {value[:20]!r}")
+    return min(int(value), MAX_LIMIT)  # a database counts no further than 2**63 - 1: past this is all
+
+
+def _lease(lease):
+    """The record's lease, its times (acked_at, expires) as ISO 8601 UTC like every other time (management.network
+    has read both as times with their offset, or the record would be network_error); one that does not parse is
+    left as sent, null stays null."""
+    def utc(value):
+        moment = parse_datetime(value) if isinstance(value, str) else None
+        return network.utc(moment) if moment is not None and moment.tzinfo is not None else value
+
+    return {**lease, **{k: utc(lease.get(k)) for k in ("acked_at", "expires")}}
+
+
+def _network_document(net):
+    if net is None:
+        return None
+    event, doc = net.event, net.doc
+    return {
+        "state": net.operational_state, "administrative_state": net.administrative_state,
+        "interface": doc.get("interface"), "mac": doc.get("mac"),
+        "changed": network.utc(event.ts) if event else None,
+        "recorded": network.utc(parse_datetime(doc["at"])) if doc.get("at") else None,
+        "last_ack": network.utc(net.last_ack), "last_ack_source": net.last_ack_source,
+        "expires": network.utc(net.expires),
+        "boot_id": _null(event.boot_id) if event else None, "current_boot": net.current_boot,
+        "addresses": [{k: a[k] for k in network.ADDRESS_KEYS} for a in net.addresses],
+        "default_routes": [dict(r) for r in net.default_routes],
+        "lease": _lease(net.lease) if event else None,
+    }
+
+
+def _console_document(console, limit):
+    if console is None:
+        return None
+    lines = console.lines if limit is None else console.lines[max(0, len(console.lines) - limit):] if limit else []
+    return {"since": network.utc(console.since), "receiving_since": network.utc(console.receiving_since),
+            "receiver_late": bool(console.receiver_late), "address": console.address, "count": console.count,
+            "partial": bool(console.partial), "lines": [{"at": network.utc(at), "text": text} for at, text in lines]}
+
+
+def _document(request, facts, console_limit=None):
+    """machine.json's document of Facts (the contract: machine_json)."""
+    entry, host, fields = facts.entry, facts.host, facts.fields
+    history_columns = [name for _, members in facts.history_groups for name in members]
+    port_row = facts.switch_port.get("row")
+    return {
+        "site": e2e.site_name(), "generated_at": network.utc(facts.now), "serial": entry.serial,
+        "page": _absolute(_url(request, "fleet-detail", entry.serial)),
+        "machine": {
+            "hostname": _null(entry.hostname), "label": fpga.pi_label(entry), "model": _null(fields.short),
+            "model_full": _null(fields.model), "registered_model": _null(facts.registered),
+            "memory": _null(fields.memory),
+            "port": _null(facts.port), "port_seen_at": network.utc(facts.observed.at) if facts.observed else None,
+            "port_note": _null(facts.port_note),
+            "condition": CONDITION_KEYS[host.condition], "condition_reason": _null(host.why),
+            "check": host.state or None,
+            "offered": facts.offered, "offered_reason": None if facts.offered else facts.why,
+            "board_page": _absolute(facts.visitor_page),
+            "online": bool(entry.online),
+            "first_seen": network.utc(entry.first_seen), "last_seen": network.utc(entry.last_seen),
+            "checked": network.utc(host.checked),
+            "uptime_s": entry.last_uptime_s if host.uptime else None,
+            "boot_id": _null(entry.last_boot_id), "setup_port": host.setup_port, "cameras": _cameras(entry),
+        },
+        "boards": [{
+            "type": b.type, "variant": _null(b.report["variant"]), "id": _null(b.report["id"]), "label": _null(b.label),
+            "result": _null(b.report["result"]), "reason": _null(b.report["reason"]),
+            "tests": {name: _test(b.report, name, mark) for name, mark, _, _ in b.cells},
+            "docs": _null(b.page),
+        } for b in facts.boards],
+        "boot_checks": [{
+            "boot_id": c.boot, "this_boot": c.this_boot, "at": network.utc(c.at), "running": c.running,
+            "result": c.result, "reason": c.reason,
+            "boards": [{"type": b["title"], "result": _null(b["result"]), "reason": _null(b["reason"]),
+                        "tests": {name: _test(b, name, _mark(b, name)[0]) for name in history_columns}}
+                       for b in c.reports],
+        } for c in facts.history],
+        "labels": {
+            "missing": [{"label": label, "field": field, "sent_by": _null(owner), "sent_by_title": title}
+                        for label, fields_ in facts.missing for field in fields_
+                        for owner, title in [_owner(label, field)]],
+            "notes": list(facts.notes),
+            "refusals": [{"kind": kind, "text": text} for kind, text in _refusals(facts)],
+            "images": [{"title": title, "png": _absolute(png), "pdf": _absolute(pdf)}
+                       for title, png, pdf in facts.label_images],
+            "label_input": _absolute(_url(request, "fleet-label-input", entry.serial)),
+        },
+        "network": _network_document(facts.net),
+        "network_error": _null(facts.net_error),
+        # the port's row exactly as /management/switches.json has it
+        "switch_port": port_row,
+        "switch_port_error": None if port_row else _null(facts.switch_port.get("problem")),
+        "registrations": [{"fingerprint": snap.fingerprint, "current": snap.pk == entry.latest_snapshot_id,
+                           "first_seen": network.utc(snap.first_seen), "last_confirmed": network.utc(snap.last_confirmed),
+                           "document": snap.document} for snap in facts.snapshots],
+        "events": [{"ts": network.utc(e.ts), "kind": e.kind, "stage": e.stage, "test": e.test_name,
+                    "result": e.result_word, "reason": e.reason, "detail": e.sent}
+                   # oldest first, whichever order the page lists them in
+                   for e in sorted(facts.events, key=lambda e: (e.ts, e.id))],
+        "console": _console_document(facts.console, console_limit),
+        "console_error": _null(facts.console_error),
+        "console_not_set_up": _null(facts.console_not_set_up),
+    }
+
+
+# never stored by a cache, as switches.json; csrf_exempt so a POST is told, in JSON, that only GET is answered, not
+# refused by the CSRF check's HTML page first (it changes nothing whatever it is sent)
+@never_cache
+@csrf_exempt
+def machine_json(request, serial):
+    """/fleet/<serial>/machine.json: everything the host's own page (/fleet/<serial>/) shows, for programs (the
+    fpgas.online MCP). The page is for people and may change its layout; this is the contract, as /fleet/registry.json
+    is for the list. It comes from the page's own Facts (_facts), so the two cannot drift. Times are ISO 8601 with
+    their offset (UTC). A field the site does not know is null, never guessed. Keys are stable words, not the page's
+    titles; marks (✓ ✗ ⟳) never appear, only result words. An unknown serial is 404
+    {"error": "no host with this serial has registered"}; a limit that is not a whole number is 400 {"error"}; a
+    method but GET or HEAD is 405 {"error"}. Never cached.
+
+    Query parameters (optional, for size): events=<n> keeps the newest n of the events below, console=<n> the newest
+    n of the console lines below (default: all of them, as the page). Unknown parameters are ignored.
+
+    "events" are the events of the boot the host is running, all of them; a host that has said no boot id yet: its
+    newest EVENTS (50) of any boot. Either way they are oldest first (newest last), by (ts, id): the page lists the
+    second kind newest first, the JSON never does.
+
+    {"site", "generated_at", "serial", "page": the page's absolute address,
+     "machine": {"hostname" | null, "label", "model" | null (short: "Pi 3B+"), "model_full" | null (the label's:
+                 "Pi 3 Model B+"), "registered_model" | null (as its registration sent it), "memory" | null ("4 GB"),
+                 "port" | null ("sw2 p46": the port the gateway last leased it an address on), "port_seen_at" | null,
+                 "port_note" | null, "condition": "operational" | "attention" | "missing" | "checking",
+                 "condition_reason" | null, "check": the boot check of this boot ("pass" | "fail" | "verifying" | ...)
+                 | null (not started), "offered": bool, "offered_reason": null | why not, "board_page": null | its
+                 visitor page, "online": bool (its last status), "first_seen", "last_seen" | null, "checked" | null,
+                 "uptime_s" | null (null once it stops checking in), "boot_id" | null, "setup_port": bool,
+                 "cameras": [as the registration lists them] | null},
+     "boards": [{"type", "variant" | null, "id" | null, "label" | null, "result" | null, "reason" | null,
+                 "tests": {check: {"result", "reason", "reported_name"}}, "docs" | null}],         this boot's boards
+     "boot_checks": [{"boot_id", "this_boot": bool, "at", "running": bool, "result" | null, "reason" | null,
+                      "boards": [{"type", "result" | null, "reason" | null,
+                                  "tests": {check: {"result", "reason", "reported_name"}}}]}],
+                                                                                 newest first, at most HISTORY
+     "labels": {"missing": [{"label", "field", "sent_by" | null, "sent_by_title"}], "notes": [text],
+                "refusals": [{"kind", "text"}], "images": [{"title", "png", "pdf"}], "label_input"},
+     "network": null | {"state", "administrative_state", "interface", "mac", "changed", "recorded", "last_ack",
+                        "last_ack_source": "pi" | "gateway" | null, "expires", "boot_id", "current_boot",
+                        "addresses": [{"family", "address", "prefixlen", "scope", "valid_lifetime_s",
+                                       "preferred_lifetime_s"}],
+                        "default_routes": [{"family", "gateway", "metric", "protocol"}],
+                        "lease": null | {"address", "server", "lifetime_s", "acked_at", "expires"}},
+     "network_error": null | why the record cannot be shown,
+     "switch_port": null | the port's row exactly as /management/switches.json has it,
+     "switch_port_error": null | why there is no row (the switches cannot be read, or it is on no port they read),
+     "registrations": [{"fingerprint", "current": bool, "first_seen", "last_confirmed", "document": as sent}],
+     "events": [{"ts", "kind", "stage", "test" | null, "result" | null, "reason" | null, "detail": as sent | null}],
+                                                                                 oldest first
+     "console": null | {"since" | null, "receiving_since" | null, "receiver_late": bool, "address", "count",
+                        "partial": bool, "lines": [{"at", "text"}]},
+     "console_error": null | text, "console_not_set_up": null | text}
+
+    A board's "tests" are keyed by the page's column names: a check's current name (management.check_groups), where
+    registry.json keys a board's tests by the names as sent. A test's "reported_name" is the name the board's check
+    sent it under ("pin-id" for "wiring"), null for a check it did not report. A test's "result" is what the board's
+    check reported for it, as sent ("pass", "fail", ...), else "not_run" (a check its type gets that did not run) or
+    "not_applicable"; its "reason" is the page's words for the cell. A boot
+    check's "result" is its report's ("verifying" while it runs; "fail" with reason "setup port" for the boot it is
+    running on the setup port, as the page says); null for a report with no result. An event's "result" and "reason"
+    are those of a test or check result (fpga-test-finished, fpga-verified), null for other stages.
+
+    "network" is null when the host has sent no network-state record and the gateway has acknowledged it no lease; a
+    host known only from the gateway's ack has the record's fields null, "addresses" and "default_routes" empty,
+    "lease" null, and "last_ack" the gateway's. "changed" is the record's BootEvent ts, the Pi's own stamp of the
+    event (registry.json's "changed" is the same); "recorded" is the time inside the record's document ("at"). The
+    lease's "acked_at" and "expires" are the record's, as UTC. Times the host stamped (events, checks, "changed") are
+    the Pi's clock.
+
+    "console" holds at most the newest netconsole.LIMIT (300) lines of this boot that the gateway's receiver files
+    hold: console=<n> keeps the newest n of those, never more. Its "count" is how many lines of this boot were read
+    (more than "lines" holds when there were over 300); "partial" says older lines of this boot were not read."""
+    if request.method not in ("GET", "HEAD"):
+        response = JsonResponse({"error": "machine.json answers GET only"}, status=405)
+        response["Allow"] = "GET, HEAD"
+        return response
+    entry = _entry(serial)
+    if entry is None:
+        return JsonResponse({"error": UNKNOWN}, status=404)
+    try:
+        events_limit, console_limit = (_limit(request, name) for name in LIMITS)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+    with timezone.override(localtime.zone()):
+        facts = _facts(request, entry, events_limit, page=False)
+        return JsonResponse(_document(request, facts, console_limit), json_dumps_params={"ensure_ascii": False})
