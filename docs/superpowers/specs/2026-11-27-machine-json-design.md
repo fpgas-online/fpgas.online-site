@@ -84,3 +84,6 @@ only keys the page shows that the sketch left out, and changes none:
   `reason` and `label`, and `network.boot_id`, are null where there is none, never "". An event's `test` is the
   whole name. `events=<n>` is cut in the query, newest n by (ts, id); events of one time keep arrival order.
   machine.json lays out no page HTML (no `jsonview.render`).
+- Second review (2026-11-27): `events` is always oldest first (newest last), by (ts, id): this boot's events, all
+  of them, or for a host that has said no boot id its newest 50 (EVENTS) of any boot, which the page lists newest
+  first. `events=<n>` keeps the newest n of those, still oldest first.

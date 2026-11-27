@@ -595,7 +595,9 @@ def _document(request, facts, console_limit=None):
                            "first_seen": network.utc(snap.first_seen), "last_confirmed": network.utc(snap.last_confirmed),
                            "document": snap.document} for snap in facts.snapshots],
         "events": [{"ts": network.utc(e.ts), "kind": e.kind, "stage": e.stage, "test": e.test_name,
-                    "result": e.result_word, "reason": e.reason, "detail": e.sent} for e in facts.events],
+                    "result": e.result_word, "reason": e.reason, "detail": e.sent}
+                   # oldest first, whichever order the page lists them in
+                   for e in sorted(facts.events, key=lambda e: (e.ts, e.id))],
         "console": _console_document(facts.console, console_limit),
         "console_error": _null(facts.console_error),
         "console_not_set_up": _null(facts.console_not_set_up),
@@ -610,8 +612,12 @@ def machine_json(request, serial):
     titles; marks (✓ ✗ ⟳) never appear, only result words. An unknown serial is 404
     {"error": "no host with this serial has registered"}; a limit that is not a whole number is 400 {"error"}.
 
-    Query parameters (optional, for size): events=<n> keeps the newest n events, console=<n> the newest n console
-    lines (default: all, as the page). Unknown parameters are ignored.
+    Query parameters (optional, for size): events=<n> keeps the newest n of the events below, console=<n> the newest
+    n of the console lines below (default: all of them, as the page). Unknown parameters are ignored.
+
+    "events" are the events of the boot the host is running, all of them; a host that has said no boot id yet: its
+    newest EVENTS (50) of any boot. Either way they are oldest first (newest last), by (ts, id): the page lists the
+    second kind newest first, the JSON never does.
 
     {"site", "generated_at", "serial", "page": the page's absolute address,
      "machine": {"hostname" | null, "label", "model" | null (short: "Pi 3B+"), "model_full" | null (the label's:
@@ -642,6 +648,7 @@ def machine_json(request, serial):
      "switch_port_error": null | why there is no row (the switches cannot be read, or it is on no port they read),
      "registrations": [{"fingerprint", "current": bool, "first_seen", "last_confirmed", "document": as sent}],
      "events": [{"ts", "kind", "stage", "test" | null, "result" | null, "reason" | null, "detail": as sent | null}],
+                                                                                 oldest first
      "console": null | {"since" | null, "receiving_since" | null, "receiver_late": bool, "address", "count",
                         "partial": bool, "lines": [{"at", "text"}]},
      "console_error": null | text, "console_not_set_up": null | text}

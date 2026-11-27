@@ -398,14 +398,21 @@ def test_events_of_one_time_are_kept_by_arrival():
 
 
 @pytest.mark.django_db
-def test_events_with_no_boot_id_are_the_newest_n_newest_first_as_the_page():
+def test_events_with_no_boot_id_are_the_newest_oldest_first_though_the_page_lists_them_newest_first(monkeypatch):
+    from management.views import machine as view
+
+    monkeypatch.setattr(view, "EVENTS", 3)  # the newest EVENTS of any boot
     m = pi("pi-sw2-p33")
     m.last_boot_id = ""
     m.save()
     start = timezone.now()
     for n in range(4):
         BootEvent.objects.create(machine=m, boot_id="x", stage=f"stage-{n}", ts=start + datetime.timedelta(seconds=n))
-    assert [e["stage"] for e in get(m.serial, "?events=2")["events"]] == ["stage-3", "stage-2"]
+    assert [e["stage"] for e in get(m.serial)["events"]] == ["stage-1", "stage-2", "stage-3"]
+    assert [e["stage"] for e in get(m.serial, "?events=2")["events"]] == ["stage-2", "stage-3"]
+    assert [e["stage"] for e in get(m.serial, "?events=9")["events"]] == ["stage-1", "stage-2", "stage-3"]
+    events = page(m.serial).split('<h2 id="events">Events', 1)[1].split("</table>", 1)[0]
+    assert re.findall(r"<td>(stage-\d)</td>", events) == ["stage-3", "stage-2", "stage-1"]  # the page: unchanged
 
 
 @pytest.mark.django_db
