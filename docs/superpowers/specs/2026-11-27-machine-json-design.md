@@ -59,3 +59,23 @@ newest n console lines (default: all, as the page). Unknown parameters are ignor
 
 The page and the JSON must come from the same code path (one function builds the data, the page
 renders it, the JSON returns it), so they cannot drift.
+
+## As built (2026-11-27)
+
+The view's docstring (`management.views.machine.machine_json`) is the contract; it adds to the shape above
+only keys the page shows that the sketch left out, and changes none:
+
+- `machine`: `registered_model` (the model string the registration sent: the page's Model hover), `port_seen_at`
+  (when the gateway leased it an address on that port: the Port hover), `condition_reason` (the State hover),
+  `check` (this boot's check result word: the Boot check row), `online` (the Online badge). `model` is the short
+  form ("Pi 3B+"), `model_full` the label's ("Pi 3 Model B+").
+- `network.addresses[]`: `prefixlen` (the page shows address/prefixlen). `changed` is when the record arrived (as
+  registry.json's `changed`), `recorded` the record's own `at`. A host known only from the gateway's ack has the
+  record's fields null, empty lists and `lease` null.
+- `switch_port_error`: null, or why there is no switch row (the switches cannot be read, or the host is on no port
+  they read): the page says it, and `switch_port` alone would be a bare null.
+- `console`: `address`, `count`, `partial` (the page's sentence above the lines).
+- A test's `result` is the reported result as sent, else `not_run` or `not_applicable`; its `reason` the page's
+  words for the cell. `switch_port` is the switches.json row verbatim, so it carries that row's own display
+  fields (its `net` and `link` marks among them): it is the switch dashboard's contract, not this one's.
+- `events=` / `console=` that are not whole numbers are a 400 `{"error"}`.
