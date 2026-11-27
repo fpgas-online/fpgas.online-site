@@ -52,8 +52,8 @@
 
   /**
    * The badges of an entry: the spec's table (section 1, Warnings), with the same texts, order and classes as the
-   * Commander's libraryWarnings (tt-commander-app src/model/fpgaLibrary.ts). Only missed timing is a warning; no
-   * badge ever disables Load.
+   * Commander's libraryWarnings (tt-commander-app src/model/fpgaLibrary.ts). A warning is a doubt about how the
+   * design behaves on the FPGA: missed timing, or PDK latch cells (Ruling BJ). No badge ever disables Load.
    */
   function badges(e) {
     const out = [];
@@ -63,6 +63,8 @@
         // Ruling AN: the main clock passes; another clock or a cross-domain path fails
         : { text: 'timing not met on a secondary clock or path', cls: 'warn' });
     }
+    // Ruling BJ: the design uses PDK latch or clock-gate cells
+    if (e.pdk_latches === true) out.push({ text: 'PDK latch cells: may not behave as on silicon', cls: 'warn' });
     if (e.validation === 'none') {
       out.push({ text: 'not hardware-validated', cls: 'info' });
     } else if (e.validation === 'mcu') {

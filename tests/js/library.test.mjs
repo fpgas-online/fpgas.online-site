@@ -138,10 +138,39 @@ test("badges match the spec table", () => {
     ],
   );
   assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed" }), []);
-  // only timing is a warning
+  // only timing is a warning in the fixture, which has no latch designs
   for (const e of ROWS) {
     for (const b of L.badges(e)) assert.equal(b.cls === "warn", b.text.startsWith("timing"));
   }
+});
+
+// Ruling BJ: PDK latch or clock-gate cells are a warning, after the timing one
+const LATCH = { text: "PDK latch cells: may not behave as on silicon", cls: "warn" };
+
+test("badges warn about PDK latch cells", () => {
+  assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", pdk_latches: true }), [LATCH]);
+  assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", pdk_latches: false }), []);
+  assert.deepEqual(L.badges({ ...ROWS[4], pdk_latches: true }), [
+    { text: "timing: 17.08 MHz < 25.175 MHz", cls: "warn" },
+    LATCH,
+    { text: "not hardware-validated", cls: "info" },
+  ]);
+  // only a real true counts
+  assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", pdk_latches: "true" }), []);
+});
+
+test("renderPage: a latch design gets the warn badge and Load stays enabled", () => {
+  const doc = fakeDoc();
+  const box = doc.createElement("div");
+  let loaded = null;
+  const designs = ROWS.map((e) => (e.id === "ttihp25a_yuri_panchul_sea_battl_09a2562b" ? { ...e, pdk_latches: true } : e));
+  L.renderPage(box, ready({ designs, onLoad: (e) => { loaded = e.id; } }), doc);
+  const card = byClass(box, "tt-library-card").find((c) => c.textContent.includes("Sea Battle"));
+  assert.ok(byClass(card, "tt-badge--warn").map((b) => b.textContent).includes(LATCH.text));
+  const load = buttons(card, "Load")[0];
+  assert.equal(load.disabled, false);
+  load.onclick();
+  assert.equal(loaded, "ttihp25a_yuri_panchul_sea_battl_09a2562b");
 });
 
 test("assetUrl joins archive paths onto the base and refuses anything else", () => {

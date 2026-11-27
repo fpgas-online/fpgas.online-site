@@ -111,7 +111,18 @@ def test_normalise_fixture_keeps_all_in_order_and_adds_base_url():
     assert index["schema"] == 1 and index["generated"] == FIXTURE["generated"] and index["base_url"] == BASE
     assert set(index) == {"schema", "generated", "base_url", "designs"}
     assert [e["id"] for e in index["designs"]] == [e["id"] for e in FIXTURE["designs"]]
-    assert index["designs"][0] == FIXTURE["designs"][0]
+    # Ruling BJ: the fixture has no pdk_latches; a missing one is kept as false
+    assert index["designs"][0] == {**FIXTURE["designs"][0], "pdk_latches": False}
+    assert all(e["pdk_latches"] is False for e in index["designs"])
+
+
+def test_normalise_keeps_pdk_latches():
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["pdk_latches"] = True
+    doc["designs"][1]["pdk_latches"] = False
+    index, dropped = library.normalise(doc, BASE)
+    assert dropped == []
+    assert [e["pdk_latches"] for e in index["designs"]] == [True, False, False, False, False]
 
 
 def test_normalise_ignores_unknown_entry_keys():
@@ -138,6 +149,9 @@ def test_normalise_ignores_unknown_entry_keys():
         ("bin_bytes", 262145),
         ("pinout", {"ui_in": [""] * 7, "uo_out": [""] * 8, "uio": [""] * 8}),
         ("build_status", "maybe"),
+        ("pdk_latches", 1),
+        ("pdk_latches", "true"),
+        ("pdk_latches", None),
     ],
 )
 def test_normalise_drops_bad_entry_and_logs(key, value, caplog):
@@ -148,6 +162,8 @@ def test_normalise_drops_bad_entry_and_logs(key, value, caplog):
     assert [e["id"] for e in index["designs"]] == [e["id"] for e in FIXTURE["designs"][1:]]
     assert len(dropped) == 1 and dropped[0].startswith("designs[0]") and key in dropped[0]
     assert dropped[0] in caplog.text
+    if key == "pdk_latches":
+        assert dropped == ["designs[0] pdk_latches: must be a bool"]
 
 
 def test_normalise_drops_entry_missing_a_key():
@@ -253,6 +269,39 @@ def test_index_sends_if_none_match_and_keeps_copy_on_304(archive, clock):
     clock.t += library.FRESH_SECONDS - 1
     library.index(clock() + 50)
     assert len(a.calls) == 2
+
+
+def test_index_keeps_pdk_latches_end_to_end(archive, clock):
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["pdk_latches"] = True
+    archive(ok(doc))
+    body, _, _ = library.index(clock() + 50)
+    assert [e["pdk_latches"] for e in json.loads(body)["designs"]] == [True, False, False, False, False]
+
+
+def test_index_key_names_the_normaliser_version():
+    assert library.INDEX_KEY == f"ttsite:library:index:v{library.NORMALISE_VERSION}"
+    assert library.NORMALISE_VERSION >= 2  # 2 is the first version that keeps pdk_latches
+
+
+def test_index_copy_from_an_older_normaliser_is_fetched_in_full(archive, clock):
+    """A body cached by code that cut pdk_latches is never brought back by a 304 (Ruling BJ)."""
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["pdk_latches"] = True
+    old, _ = library.normalise(copy.deepcopy(FIXTURE), BASE)
+    for e in old["designs"]:
+        del e["pdk_latches"]
+    old_body = json.dumps(old).encode()
+    # what the old code kept: under the unversioned key, fetched long ago, with the archive's current ETag
+    cache.set("ttsite:library:index", ('"v1"', old_body, library._site_etag(old_body), clock() - 1000), timeout=None)
+    try:
+        a = archive(ok(doc, etag='"v1"'))
+        body, _, _ = library.index(clock() + 50)
+        assert "If-None-Match" not in (a.calls[0][1].get("headers") or {})
+        assert json.loads(body)["designs"][0]["pdk_latches"] is True
+        assert cache.get(library.INDEX_KEY)[1] == body
+    finally:
+        cache.delete("ttsite:library:index")
 
 
 def test_index_404_is_not_published_and_cached_60s(archive, clock):
