@@ -111,8 +111,8 @@ def test_normalise_fixture_keeps_all_in_order_and_adds_base_url():
     assert index["schema"] == 1 and index["generated"] == FIXTURE["generated"] and index["base_url"] == BASE
     assert set(index) == {"schema", "generated", "base_url", "designs"}
     assert [e["id"] for e in index["designs"]] == [e["id"] for e in FIXTURE["designs"]]
-    # Ruling BJ: the fixture has no pdk_latches; a missing one is kept as false
-    assert index["designs"][0] == {**FIXTURE["designs"][0], "pdk_latches": False}
+    assert index["designs"][0] == FIXTURE["designs"][0]
+    # Ruling BJ: every fixture entry carries pdk_latches, and it is kept
     assert all(e["pdk_latches"] is False for e in index["designs"])
 
 
@@ -171,6 +171,14 @@ def test_normalise_drops_entry_missing_a_key():
     del doc["designs"][2]["video_10s_webm"]
     index, dropped = library.normalise(doc, BASE)
     assert len(index["designs"]) == 4 and dropped == ["designs[2] video_10s_webm: missing"]
+
+
+def test_normalise_drops_entry_missing_pdk_latches():
+    """Ruling BJ, step c: the key is required, with no default."""
+    doc = copy.deepcopy(FIXTURE)
+    del doc["designs"][0]["pdk_latches"]
+    index, dropped = library.normalise(doc, BASE)
+    assert len(index["designs"]) == 4 and dropped == ["designs[0] pdk_latches: missing"]
 
 
 def test_normalise_drops_both_duplicates():
@@ -281,19 +289,21 @@ def test_index_keeps_pdk_latches_end_to_end(archive, clock):
 
 def test_index_key_names_the_normaliser_version():
     assert library.INDEX_KEY == f"ttsite:library:index:v{library.NORMALISE_VERSION}"
-    assert library.NORMALISE_VERSION >= 2  # 2 is the first version that keeps pdk_latches
+    # 2 kept pdk_latches with a default of false; 3 requires it, so no copy carries that default
+    assert library.NORMALISE_VERSION == 3
 
 
-def test_index_copy_from_an_older_normaliser_is_fetched_in_full(archive, clock):
-    """A body cached by code that cut pdk_latches is never brought back by a 304 (Ruling BJ)."""
+@pytest.mark.parametrize("old_key", ["ttsite:library:index", "ttsite:library:index:v2"])
+def test_index_copy_from_an_older_normaliser_is_fetched_in_full(archive, clock, old_key):
+    """A body cached by older code (pdk_latches cut, or defaulted) is never brought back by a 304 (Ruling BJ)."""
     doc = copy.deepcopy(FIXTURE)
     doc["designs"][0]["pdk_latches"] = True
     old, _ = library.normalise(copy.deepcopy(FIXTURE), BASE)
     for e in old["designs"]:
         del e["pdk_latches"]
     old_body = json.dumps(old).encode()
-    # what the old code kept: under the unversioned key, fetched long ago, with the archive's current ETag
-    cache.set("ttsite:library:index", ('"v1"', old_body, library._site_etag(old_body), clock() - 1000), timeout=None)
+    # what the old code kept: under its key, fetched long ago, with the archive's current ETag
+    cache.set(old_key, ('"v1"', old_body, library._site_etag(old_body), clock() - 1000), timeout=None)
     try:
         a = archive(ok(doc, etag='"v1"'))
         body, _, _ = library.index(clock() + 50)
@@ -301,7 +311,7 @@ def test_index_copy_from_an_older_normaliser_is_fetched_in_full(archive, clock):
         assert json.loads(body)["designs"][0]["pdk_latches"] is True
         assert cache.get(library.INDEX_KEY)[1] == body
     finally:
-        cache.delete("ttsite:library:index")
+        cache.delete(old_key)
 
 
 def test_index_404_is_not_published_and_cached_60s(archive, clock):

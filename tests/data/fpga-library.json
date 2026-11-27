@@ -1,5 +1,5 @@
 {
-  "_comment": "A copy of tinytapeout-vga-videos tests/fixtures/fpga-library/fpga-library.json at 8b01cb95585a8e1229b25db88b6a9c61ab9c0ef8. The bins are not copied; tests/test_library.py rebuilds them from the fixture rule (ff 00 00 ff 7e aa 99 7e, zeros, byte 8 = row).",
+  "_comment": "A copy of tinytapeout-vga-videos tests/fixtures/fpga-library/fpga-library.json at 311a7b9c2e81bb87686398aae84294cbf5247b2a. The bins are not copied; tests/test_library.py rebuilds them from the fixture rule (ff 00 00 ff 7e aa 99 7e, zeros, byte 8 = row).",
   "schema": 1,
   "generated": "2026-11-26T03:00:00Z",
   "tthfv_commit": "0123456789abcdef0123456789abcdef01234567",
@@ -58,6 +58,7 @@
       "validation": "none",
       "verdict": "barely-moving",
       "qspi": "none",
+      "pdk_latches": false,
       "poster": "ttsky25b/tt_um_lukasdragoste_vga_patterns/ttsky25b_tt_um_lukasdragoste_vga_patterns_poster.png",
       "preview_gif": "ttsky25b/tt_um_lukasdragoste_vga_patterns/ttsky25b_tt_um_lukasdragoste_vga_patterns_preview.gif",
       "video_10s_webm": "ttsky25b/tt_um_lukasdragoste_vga_patterns/ttsky25b_tt_um_lukasdragoste_vga_patterns_10s.webm"
@@ -115,6 +116,7 @@
       "validation": "none",
       "verdict": "ok",
       "qspi": "none",
+      "pdk_latches": false,
       "poster": "ttsky25a/tt_um_vga_example/ttsky25a_tt_um_vga_example_poster.png",
       "preview_gif": "ttsky25a/tt_um_vga_example/ttsky25a_tt_um_vga_example_preview.gif",
       "video_10s_webm": "ttsky25a/tt_um_vga_example/ttsky25a_tt_um_vga_example_10s.webm"
@@ -172,6 +174,7 @@
       "validation": "none",
       "verdict": "ok",
       "qspi": "none",
+      "pdk_latches": false,
       "poster": null,
       "preview_gif": null,
       "video_10s_webm": null
@@ -229,6 +232,7 @@
       "validation": "none",
       "verdict": "ok",
       "qspi": "none",
+      "pdk_latches": false,
       "poster": "ttihp25a/tt_um_yuri_panchul_sea_battle_vga_game/ttihp25a_tt_um_yuri_panchul_sea_battle_vga_game_poster.png",
       "preview_gif": "ttihp25a/tt_um_yuri_panchul_sea_battle_vga_game/ttihp25a_tt_um_yuri_panchul_sea_battle_vga_game_preview.gif",
       "video_10s_webm": "ttihp25a/tt_um_yuri_panchul_sea_battle_vga_game/ttihp25a_tt_um_yuri_panchul_sea_battle_vga_game_10s.webm"
@@ -286,6 +290,7 @@
       "validation": "none",
       "verdict": "ok",
       "qspi": "none",
+      "pdk_latches": false,
       "poster": "tt05/tt_um_flappy_vga_cutout1/tt05_tt_um_flappy_vga_cutout1_poster.png",
       "preview_gif": "tt05/tt_um_flappy_vga_cutout1/tt05_tt_um_flappy_vga_cutout1_preview.gif",
       "video_10s_webm": "tt05/tt_um_flappy_vga_cutout1/tt05_tt_um_flappy_vga_cutout1_10s.webm"
