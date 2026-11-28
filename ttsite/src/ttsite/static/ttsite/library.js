@@ -53,7 +53,8 @@
   /**
    * The badges of an entry: the spec's table (section 1, Warnings), with the same texts, order and classes as the
    * Commander's libraryWarnings (tt-commander-app src/model/fpgaLibrary.ts). A warning is a doubt about how the
-   * design behaves on the FPGA: missed timing, or PDK latch cells (Ruling BJ). No badge ever disables Load.
+   * design behaves on the FPGA: missed timing, PDK latch cells (Ruling BJ), or
+   * a board picture that may differ from the preview (Ruling CH). No badge ever disables Load.
    */
   function badges(e) {
     const out = [];
@@ -65,6 +66,9 @@
     }
     // Ruling BJ: the design uses PDK latch or clock-gate cells
     if (e.pdk_latches === true) out.push({ text: 'PDK latch cells: may not behave as on silicon', cls: 'warn' });
+    // Ruling CH: the board's capture matches the synthesised netlist, not the RTL the preview is rendered from.
+    // Nullable: only the JSON boolean true warns; false, null, absent and any other value show nothing.
+    if (e.synthesis_differs === true) out.push({ text: 'Board picture may differ from the preview', cls: 'warn' });
     if (e.validation === 'none') {
       out.push({ text: 'not hardware-validated', cls: 'info' });
     } else if (e.validation === 'mcu') {
