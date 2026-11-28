@@ -308,6 +308,14 @@ def test_index_keeps_pdk_latches_end_to_end(archive, clock):
     assert [e["pdk_latches"] for e in json.loads(body)["designs"]] == [True, False, False, False, False]
 
 
+def test_index_keeps_synthesis_differs_end_to_end(archive, clock):
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["synthesis_differs"] = True
+    archive(ok(doc))
+    body, _, _ = library.index(clock() + 50)
+    assert [e["synthesis_differs"] for e in json.loads(body)["designs"]] == [True, None, None, None, None]
+
+
 def test_index_key_names_the_normaliser_version():
     assert library.INDEX_KEY == f"ttsite:library:index:v{library.NORMALISE_VERSION}"
     # 2 kept pdk_latches with a default of false; 3 requires it, so no copy carries that default; 4 adds the

@@ -178,6 +178,20 @@ test("badges warn when the synthesised netlist differs from the preview (synthes
   ]);
 });
 
+test("renderPage: a synthesis_differs design gets the warn badge and Load stays enabled", () => {
+  const doc = fakeDoc();
+  const box = doc.createElement("div");
+  let loaded = null;
+  const designs = ROWS.map((e) => (e.id === "ttihp25a_yuri_panchul_sea_battl_09a2562b" ? { ...e, synthesis_differs: true } : e));
+  L.renderPage(box, ready({ designs, onLoad: (e) => { loaded = e.id; } }), doc);
+  const card = byClass(box, "tt-library-card").find((c) => c.textContent.includes("Sea Battle"));
+  assert.ok(byClass(card, "tt-badge--warn").map((b) => b.textContent).includes(SYNTH.text));
+  const load = buttons(card, "Load")[0];
+  assert.equal(load.disabled, false);
+  load.onclick();
+  assert.equal(loaded, "ttihp25a_yuri_panchul_sea_battl_09a2562b");
+});
+
 test("renderPage: a latch design gets the warn badge and Load stays enabled", () => {
   const doc = fakeDoc();
   const box = doc.createElement("div");
