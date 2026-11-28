@@ -159,6 +159,25 @@ test("badges warn about PDK latch cells", () => {
   assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", pdk_latches: "true" }), []);
 });
 
+// Ruling CH: a nullable bool; only a real true is a warning, after the PDK latch one and before the validation ones
+const SYNTH = { text: "Board picture may differ from the preview", cls: "warn" };
+
+test("badges warn when the synthesised netlist differs from the preview (synthesis_differs)", () => {
+  assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", synthesis_differs: true }), [SYNTH]);
+  for (const v of [false, null, "true", 1, "yes"]) {
+    assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed", synthesis_differs: v }), [], String(v));
+  }
+  // absent
+  assert.deepEqual(L.badges({ ...ROWS[1], validation: "full-speed" }), []);
+  // order: timing, pdk_latches, synthesis_differs, then validation
+  assert.deepEqual(L.badges({ ...ROWS[4], pdk_latches: true, synthesis_differs: true }), [
+    { text: "timing: 17.08 MHz < 25.175 MHz", cls: "warn" },
+    LATCH,
+    SYNTH,
+    { text: "not hardware-validated", cls: "info" },
+  ]);
+});
+
 test("renderPage: a latch design gets the warn badge and Load stays enabled", () => {
   const doc = fakeDoc();
   const box = doc.createElement("div");
