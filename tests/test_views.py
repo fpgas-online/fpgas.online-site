@@ -679,6 +679,23 @@ def test_library_serves_and_loads_a_pdk_latches_design(c, boards, lib_index, lib
     assert fake.kinds() == ["state", "push", "enable"]
 
 
+def test_library_serves_and_loads_a_synthesis_differs_design(c, boards, lib_index, lib_daemon, lib_bins):
+    """Ruling CH: true is served as true, a missing key as null; the design loads like any other."""
+    doc = json.loads(json.dumps(LIB_FIXTURE))
+    doc["designs"][1]["synthesis_differs"] = True
+    index, dropped = library.normalise(doc, LIB_BASE)
+    body = json.dumps(index, separators=(",", ":")).encode()
+    lib_index["answer"] = (body, library._site_etag(body), None)
+    assert dropped == []
+    r = c.get("/api/board/fpga-1/library")
+    assert r.status_code == 200
+    assert [e["synthesis_differs"] for e in r.json()["designs"]] == [None, True, None, None, None]
+    fake = lib_daemon(enables=[(200, {"enabled": ROW1["id"], "released": []}, 1)])
+    r = post_load(c, ROW1["id"])
+    assert r.status_code == 200 and r.json()["enabled"] == ROW1["id"]
+    assert fake.kinds() == ["state", "push", "enable"]
+
+
 def test_load_cached_entry_skips_fetch(c, boards, lib_index, lib_daemon, lib_bins):
     held = {"id": ROW0["id"], "bin_sha256": ROW0["bin_sha256"], "bin_bytes": 4096, "used_at": "x"}
     fake = lib_daemon(state=(200, {"max_bytes": 1, "used_bytes": 4096, "entries": [held]}))

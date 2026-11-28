@@ -111,7 +111,9 @@ def test_normalise_fixture_keeps_all_in_order_and_adds_base_url():
     assert index["schema"] == 1 and index["generated"] == FIXTURE["generated"] and index["base_url"] == BASE
     assert set(index) == {"schema", "generated", "base_url", "designs"}
     assert [e["id"] for e in index["designs"]] == [e["id"] for e in FIXTURE["designs"]]
-    assert index["designs"][0] == FIXTURE["designs"][0]
+    # Ruling CH: synthesis_differs is optional for now; a missing one stays null (false would mean "checked, exact")
+    assert index["designs"][0] == {**FIXTURE["designs"][0], "synthesis_differs": None}
+    assert all(e["synthesis_differs"] is None for e in index["designs"])
     # Ruling BJ: every fixture entry carries pdk_latches, and it is kept
     assert all(e["pdk_latches"] is False for e in index["designs"])
 
@@ -130,6 +132,25 @@ def test_normalise_ignores_unknown_entry_keys():
     doc["designs"][0]["extra"] = "x"
     index, dropped = library.normalise(doc, BASE)
     assert dropped == [] and "extra" not in index["designs"][0]
+
+
+def test_normalise_keeps_synthesis_differs():
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["synthesis_differs"] = True
+    doc["designs"][1]["synthesis_differs"] = False
+    doc["designs"][2]["synthesis_differs"] = None
+    index, dropped = library.normalise(doc, BASE)
+    assert dropped == []
+    assert [e["synthesis_differs"] for e in index["designs"]] == [True, False, None, None, None]
+
+
+@pytest.mark.parametrize("value", [1, 0, "true", "", [], {}])
+def test_normalise_drops_entry_with_non_bool_synthesis_differs(value):
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["synthesis_differs"] = value
+    index, dropped = library.normalise(doc, BASE)
+    assert len(index["designs"]) == 4
+    assert dropped == ["designs[0] synthesis_differs: must be true, false or null"]
 
 
 @pytest.mark.parametrize(
@@ -287,10 +308,19 @@ def test_index_keeps_pdk_latches_end_to_end(archive, clock):
     assert [e["pdk_latches"] for e in json.loads(body)["designs"]] == [True, False, False, False, False]
 
 
+def test_index_keeps_synthesis_differs_end_to_end(archive, clock):
+    doc = copy.deepcopy(FIXTURE)
+    doc["designs"][0]["synthesis_differs"] = True
+    archive(ok(doc))
+    body, _, _ = library.index(clock() + 50)
+    assert [e["synthesis_differs"] for e in json.loads(body)["designs"]] == [True, None, None, None, None]
+
+
 def test_index_key_names_the_normaliser_version():
     assert library.INDEX_KEY == f"ttsite:library:index:v{library.NORMALISE_VERSION}"
-    # 2 kept pdk_latches with a default of false; 3 requires it, so no copy carries that default
-    assert library.NORMALISE_VERSION == 3
+    # 2 kept pdk_latches with a default of false; 3 requires it, so no copy carries that default; 4 adds the
+    # nullable synthesis_differs (Ruling CH), so a copy without it is a miss
+    assert library.NORMALISE_VERSION == 4
 
 
 @pytest.mark.parametrize("old_key", ["ttsite:library:index", "ttsite:library:index:v2"])
